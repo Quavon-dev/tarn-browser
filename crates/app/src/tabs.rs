@@ -232,6 +232,11 @@ impl Browser {
                 continue;
             }
             let idle = now.duration_since(*seen);
+            if idle >= engine::lifecycle::HEAVY_IDLE
+                && let Some(view) = self.views.get(&key)
+            {
+                view.drop_back_forward_cache();
+            }
             background.push((key, engine::lifecycle::budget_idle(idle, pinned)));
             if !pinned && !self.typed_in.contains(&key) && max_idle.is_some_and(|max| idle >= max) {
                 self.sleep_unless_playing(key, cx);

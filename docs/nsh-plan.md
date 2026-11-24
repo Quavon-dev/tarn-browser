@@ -320,6 +320,9 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   and defaults from `browser_core::settings`; Never stops idle sleeping and the memory budget,
   short of memory too.
   Evidence: `linux/evidence/parity-sleeping-tabs.png`.
+- A background tab unused for a minute drops the processes WebKit keeps for its earlier pages on
+  macOS (`engine::WebView::drop_back_forward_cache`). Gap: WebKitGTK has no call to drop one view's
+  back/forward cache, so a Linux tab keeps them until it sleeps.
 - Picture in Picture (macOS command and `⌘⌃P`) has no Linux command. Gap: WebKitGTK has no
   Picture-in-Picture; WebKit's video presentation mode exists only on its Cocoa ports, and the
   pinned `webkit6` 0.6.1 has no API for it.

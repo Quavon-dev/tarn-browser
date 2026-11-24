@@ -627,6 +627,15 @@ impl WebView {
         (pid > 0).then_some(pid)
     }
 
+    /// Ends the processes WebKit keeps for this view's earlier pages; the shown page and its history
+    /// stay, and Back loads the page again. There is no public API for it.
+    pub fn drop_back_forward_cache(&self) {
+        if self.view.respondsToSelector(sel!(_clearBackForwardCache)) {
+            // SAFETY: the selector exists on this WKWebView (checked above), takes no argument and returns nothing.
+            let () = unsafe { msg_send![&*self.view, _clearBackForwardCache] };
+        }
+    }
+
     /// WebKit has no public way to mute a page. Its private `_setPageMuted:` is used where it
     /// exists; otherwise the page's media elements are muted from the client content world.
     pub fn set_muted(&self, muted: bool) {

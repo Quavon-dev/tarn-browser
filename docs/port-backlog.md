@@ -21,6 +21,16 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Drop a background tab's back/forward cache (2026-11-24)
+
+What it does: a background tab unused for a minute ends the web processes WebKit keeps for its
+earlier pages; the shown page and its history stay, and Back loads the page again.
+Shared API: `engine::WebView::drop_back_forward_cache`, called with `engine::lifecycle::HEAVY_IDLE`.
+Reference: `crates/engine/src/webview.rs`, `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
+
+- [ ] iOS — call WebKit's `_clearBackForwardCache` on background `WKWebView`s from a minute timer
+  in `mobile/app` (the shell has no idle tick yet).
+
 ### Insert an assistant answer into the page (2026-11-24)
 
 What it does: the chat's Insert into Page types the last answer into the page's focused field, as

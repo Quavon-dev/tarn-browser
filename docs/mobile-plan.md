@@ -523,6 +523,9 @@ them. The background tab memory budget is a gap: neither iOS nor
 Android lets an app read the memory of the web content or renderer process, and both reclaim it
 themselves under pressure. For the same reason a phone keeps six tabs live (`shell::LIVE_TABS`), not
 the desktop default of ten from `browser_core::settings`, to stay within a phone's memory.
+Dropping a background tab's back/forward cache (`engine::WebView::drop_back_forward_cache` on macOS)
+is a gap on Android, whose WebView has no call for it; iOS has the same WebKit call and is in
+`docs/port-backlog.md`.
 
 Device checks, evidence in `mobile/evidence/features/` (Android: `Pixel_9_Pro`, Android 16, the test pages
 of `serve.py` through the debug proxy so `zap.test` counts as public; iOS: iPhone 18 Pro simulator, iOS 27.0, the same pages on `localhost:8790`,

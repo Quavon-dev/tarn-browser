@@ -361,6 +361,10 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 
 ## 8. Open risks
 
+- **No back/forward cache drop:** macOS ends the processes WebKit keeps for a background tab's
+  earlier pages (`engine::WebView::drop_back_forward_cache`). CEF has no call to flush one
+  browser's back/forward cache; Chromium evicts it itself under memory pressure and after a timeout.
+
 - **Private profile on disk:** WebView2 InPrivate keeps temporary data in the user data folder
   during the session. The private profile's "never touches disk" rule cannot be met strictly; mitigation is a dedicated folder deleted on
   close and at next launch. Needs a maintainer decision to accept this deviation.

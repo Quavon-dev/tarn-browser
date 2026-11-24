@@ -111,6 +111,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Less memory with many tabs on macOS, without sleeping any sooner: a WebKit tab left in the
+  background for a minute ends the web processes WebKit keeps for its earlier pages. The page, its
+  form input and its history stay; Back loads the earlier page again instead of showing it instantly.
 - Less work while idle, for battery, on every client: the start page's fog and search bar effect
   hold their frame after a minute without input in the window, stop their timers, and move on from
   that frame at the next input; while Tarn is not the active app it no longer checks every two
