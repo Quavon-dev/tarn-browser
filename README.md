@@ -406,9 +406,11 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 | `mobile/` | same, plus `cargo clippy --target aarch64-apple-ios-sim --all-targets --locked -- -D warnings` |
 | `linux/` | same, plus `linux/scripts/display-tests.sh` |
 | Android build | `mobile/android/build.sh` |
+| Windows (Git Bash, MSVC) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"; cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked` |
 
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
-`crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
+`crates/engine` and `crates/platform`, plus one export in `crates/app-dll`; every other crate is
+`#![forbid(unsafe_code)]`.
 Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 and read [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
 [`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
