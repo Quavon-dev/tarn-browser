@@ -20,6 +20,7 @@ default: if you do it differently, say so in the pull request and a maintainer d
 
 Code is one way; these help as much and need less setup:
 
+- **Pick a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).**
 - **Port a feature.** Every entry in [`docs/port-backlog.md`](docs/port-backlog.md) names the
   shared API to call, the client that already has it and what each remaining client needs. The
   logic is in the shared crates, so a port is wiring.
@@ -56,7 +57,9 @@ cargo test --locked         # root workspace tests
 ```
 
 `linux/`, `mobile/` and `nsh-shared/` are separate Cargo workspaces; run their checks in their own
-directory.
+directory. The commands for every client, the test environment variables and the code conventions
+are in [`AGENTS.md`](AGENTS.md) ("Running Tarn", "Conventions"); where each crate fits is in
+"Where code lives".
 
 ## Checks
 

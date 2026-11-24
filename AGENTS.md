@@ -1,5 +1,17 @@
 # Agent guide
 
+Tarn is an open-source, keyboard-first browser with built-in tracker and ad blocking, written in
+Rust. What it does not give up:
+
+1. **Private by default.** No telemetry, accounts or crash upload. Every request the browser makes
+   on its own is listed in `PRIVACY.md`, and that list does not grow by accident.
+2. **The same protection everywhere.** Shield levels, page isolation and private-session cleanup
+   hold on all five clients, or the change is not done.
+3. **Five clients, one core.** State, decisions and policy are written once in the shared crates;
+   a shell renders and forwards input.
+4. **Keyboard first.** On desktop a new action gets a shortcut or a command palette entry.
+5. **Little code.** The smallest change that is correct on every client beats the clever one.
+
 Tarn ships on five clients. macOS is the lead client; a feature, UI change or UX change is meant
 to reach all of them, in the same change where that is possible.
 
@@ -22,9 +34,10 @@ it; **maintainers** are the people in `MAINTAINERS.md`; a **user** is someone br
 
 1. Find the code in "Where code lives" and read the doc for its area ("Read first, by area").
 2. Put the logic in a shared crate, then wire the clients you can build ("Workflow for a feature").
-3. Walk "Before you call it done".
-4. Run the checks of the workspaces you touched ("Checks"); CI runs the rest.
-5. Open the pull request as "Pull requests" describes.
+3. Follow "Conventions" and try the change in a running client ("Running Tarn").
+4. Walk "Before you call it done".
+5. Run the checks of the workspaces you touched ("Checks"); CI runs the rest.
+6. Open the pull request as "Pull requests" describes.
 
 Most of this file describes defaults: do it differently when the change needs it and say so in
 the pull request, where a maintainer decides. What nobody skips is short: the required checks, the
@@ -168,12 +181,57 @@ Run the checks of the workspaces you can build; you do not need every platform's
 covers the rest.
 
 While you iterate, run the narrowest check (`cargo test -p <crate> <test name>`,
-`cargo clippy -p <crate>`) and the full row once before the pull request. To try a change in the
-app, start it on throwaway data (hard rule 12):
+`cargo clippy -p <crate>`) and the full row once before the pull request.
 
-```sh
-TARN_DATA_DIR="$(mktemp -d)" cargo run -p app
-```
+CI skips the build jobs for a change that touches only Markdown, `docs/`, `evidence/`, the issue
+forms, the licence files, `CODEOWNERS` or `.editorconfig` (`scripts/ci-changes.sh`).
+`docs/themes.md` and `docs/vex.json` are not skipped: `browser-core`'s tests read the first, a
+check reads the second.
+
+## Running Tarn
+
+Always on throwaway data (hard rule 12); the person's profile is in use while you work.
+
+| Client | Command |
+|---|---|
+| macOS | `TARN_DATA_DIR="$(mktemp -d)" cargo run -p app` (add `-- <url>` to open a page) |
+| macOS with Chromium | the same with `--features chromium`, after `scripts/fetch-cef.sh` and `scripts/fetch-ninja.sh` |
+| Windows (Git Bash) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"`, then as macOS |
+| Linux | `docker build -t tarn-linux-fedora -f linux/docker/fedora.Dockerfile linux/docker`, then `linux/scripts/cargo.sh test --locked && linux/scripts/test-display.sh`; no Linux desktop needed (`linux/README.md`) |
+| iOS simulator | `cd mobile/app && nsh package --target ios-simulator` |
+| Android | `mobile/android/build.sh` for a debug APK (`mobile/android/README.md`) |
+
+A debug build reads `TARN_TEST_FILTER_KEY` and `TARN_TEST_CATALOG_KEY`, which replace the
+filter-list and extension-catalog signing keys so a test can install what it signed itself. A
+release build ignores both and must keep doing so (hard rule 7). `TARN_STARTUP_TRACE=1` and
+`TARN_FRAME_TRACE=1` print timings to stderr; compare them before and after a change to startup,
+rendering or tab switching (`README.md`, "Development").
+
+## Conventions
+
+- **Format.** `rustfmt.toml` sets a line width of 160; run `cargo fmt --all` in each workspace
+  you touched.
+- **Workspaces.** Root, `linux/`, `mobile/`, `nsh-shared/` and `fuzz/` are separate Cargo
+  workspaces, each with its own `Cargo.lock`, and `linux/` and `mobile/` build the shared crates.
+  A dependency change in a shared crate therefore changes several lockfiles: update each, then
+  run `scripts/third-party-licenses.sh` and `cargo deny check` (guideline 8).
+- **`unsafe`.** Only in `crates/engine` and `crates/platform`, plus the one export in
+  `crates/app-dll`; every other crate is `#![forbid(unsafe_code)]`. Each block carries a
+  `// SAFETY:` comment with its invariant; `undocumented_unsafe_blocks` is denied (hard rule 9).
+  The shell reaches the platform through `engine` and `platform`, never through its own FFI.
+- **Platform code.** `crates/app` compiles for macOS and Windows: a macOS-only item has a
+  `#[cfg(windows)]` counterpart of the same name and signature (rule 4).
+- **Tests.** Logic is tested where it lives, as unit tests in the shared crate. The protections
+  have integration tests in `crates/app/tests` (`blocking`, `egress`, `lockdown`, `redirects`,
+  `referrer`, `tls_policy`): a change near one keeps its test meaning what it meant (hard rule 2).
+  Linux has display tests under Xvfb (`linux/scripts/display-tests.sh`); parsers of untrusted
+  input (filter lists, bundles, themes, imported profiles, reader and page scripts) have fuzz
+  targets in `fuzz/fuzz_targets`.
+- **Comments.** A comment states what the code cannot: a constraint, the reason for a workaround,
+  an invariant. No narration, no commented-out code.
+- **Lints.** Fix the cause. `#[allow(...)]` and `#[expect(...)]` are not a fix (hard rule 2).
+- **Prose.** Docs use British spelling (licence, behaviour, colour) and say what is true now; a
+  plan doc marks what is not built yet as such (rule 7).
 
 ## Pull requests
 
@@ -186,7 +244,9 @@ TARN_DATA_DIR="$(mktemp -d)" cargo run -p app
   docs. Cleanup, refactors and a second fix go in their own.
 - Show that it works: how you checked and what you observed. "Tests pass" alone is not evidence.
   A UI change comes with before and after screenshots, motion or timing with a short recording,
-  attached to the pull request.
+  attached to the pull request. Screenshots that record a client's verified state go in its
+  `evidence/` directory (`linux/`, `mobile/`, `mobile/ios/`, `mobile/android/`), nowhere else in
+  the tree (hard rule 19).
 
 ## Documentation
 
@@ -315,33 +375,42 @@ Security and privacy
    that skips one, and do not otherwise make a mitigation in `docs/threat-model.md` weaker or
    remove a mitigation, a status or a rule from the docs. Validate untrusted input where it
    enters. A security fix or a change to a protection lands on every client ("Rules", rule 8).
-   Exception, decided by the maintainers: releases and nightly builds are signed in CI (Developer
-   ID, notarisation, the update key and the Android sideload APK key), in the `release-signing`
-   and `nightly-signing` environments as `docs/threat-model.md` S4 describes, in place of keeping
-   signing keys off CI. Pass the Android sideload key only to the dedicated signing job, which
-   runs no build code and verifies the APK against the pinned signing certificate
-   before uploading it. A release may also start on GitHub (`start-release.yml`): its `sign` job
-   creates the `v*` tag with the update app once a maintainer has approved its `release-signing`
-   deployment, in place of a maintainer's signed tag. Mobile store signing and uploads may run in
-   protected store-publishing environments, separately from builds, after release checksum and
-   provenance verification. Store credentials never reach build jobs, pull requests or nightly builds.
-   Exception for local agent control (threat model S22): desktop Tarn may expose one local-only
-   IPC listener per running data directory for agent control. It is off by default, opens only
-   after the user opts in, and accepts connections only from the same OS user account. Each
-   connection needs explicit approval in Tarn before receiving browser data or controlling a
-   tab. By default it uses a dedicated throwaway profile at Strict with per-site approval. Two
-   further modes are allowed, each off by default behind its own setting that only the user can
-   switch in Tarn: the agent opens its own tabs in a profile the user picks, with that profile's
-   cookies and logins, or it controls tabs the user already has open. In these modes each site
-   needs the user's approval in Tarn and the approved list starts empty for every session; the
-   profile's Shield level applies and is never lowered for the agent; private-space tabs stay
-   out of reach; every tab the agent controls shows a visible indicator with a one-click stop; a
-   form submission, a payment or a filled secret field needs the user's confirmation; and the
-   agent gets no access to saved passwords, passkeys or autofill. Turning the setting off closes
-   the listener and ends the session, including cleanup of the throwaway profile; in the other
-   modes it releases every tab and leaves the user's data as it was. This exception permits no
-   TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge or new outbound
-   request by the shell.
+
+   Exceptions, decided by the maintainers. Each permits exactly what it says:
+
+   - **Signing in CI.** Releases and nightly builds are signed in CI (Developer ID, notarisation,
+     the update key and the Android sideload APK key), in the `release-signing` and
+     `nightly-signing` environments as `docs/threat-model.md` S4 describes, in place of keeping
+     signing keys off CI. Pass the Android sideload key only to the dedicated signing job, which
+     runs no build code and verifies the APK against the pinned signing certificate before
+     uploading it.
+   - **A release started on GitHub** (`start-release.yml`). Its `sign` job creates the `v*` tag
+     with the update app once a maintainer has approved its `release-signing` deployment, in place
+     of a maintainer's signed tag.
+   - **Store publishing.** Mobile store signing and uploads may run in protected store-publishing
+     environments, separately from builds, after release checksum and provenance verification.
+     Store credentials never reach build jobs, pull requests or nightly builds.
+   - **Local agent control** (threat model S22). Desktop Tarn may expose one local-only IPC
+     listener per running data directory for agent control, under all of these conditions:
+     - It is off by default, opens only after the user opts in, and accepts connections only from
+       the same OS user account.
+     - Each connection needs explicit approval in Tarn before receiving browser data or
+       controlling a tab.
+     - By default it uses a dedicated throwaway profile at Strict with per-site approval.
+     - Two further modes are allowed, each off by default behind its own setting that only the
+       user can switch in Tarn: the agent opens its own tabs in a profile the user picks, with
+       that profile's cookies and logins, or it controls tabs the user already has open.
+     - In these two modes each site needs the user's approval in Tarn and the approved list starts
+       empty for every session; the profile's Shield level applies and is never lowered for the
+       agent; private-space tabs stay out of reach; every tab the agent controls shows a visible
+       indicator with a one-click stop; a form submission, a payment or a filled secret field
+       needs the user's confirmation; and the agent gets no access to saved passwords, passkeys or
+       autofill.
+     - Turning the setting off closes the listener and ends the session, including cleanup of the
+       throwaway profile; in the other modes it releases every tab and leaves the user's data as
+       it was.
+     - It permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge or
+       new outbound request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
@@ -362,15 +431,18 @@ The person's machine
 13. **No access to credentials or private data.** Never read, print, copy or send credentials,
     tokens, Keychain items, SSH or signing keys, `.env` files or browser profiles. Do not read
     other files outside the repository unless the task needs them.
-    Exception: when the person explicitly requests store-publishing setup, create and transfer
-    the required credentials directly to protected publishing environments without printing them,
-    committing them or retaining working copies. Do not inspect unrelated credentials.
-    When the person explicitly requests Android sideload signing setup, create a dedicated key,
-    transfer its credentials directly to `release-signing` and `nightly-signing`, and place a
-    recoverable, encrypted backup in offline storage designated by the person. Pass passwords
-    through standard input or the environment, never as command arguments. Do not print or commit
-    the credentials, retain temporary working copies or inspect unrelated credentials. The public
-    certificate fingerprint may be shared and pinned in the workflow and `SECURITY.md`.
+
+    Exceptions, only when the person explicitly requests the setup named:
+
+    - **Store-publishing setup.** Create and transfer the required credentials directly to
+      protected publishing environments without printing them, committing them or retaining
+      working copies. Do not inspect unrelated credentials.
+    - **Android sideload signing setup.** Create a dedicated key, transfer its credentials
+      directly to `release-signing` and `nightly-signing`, and place a recoverable, encrypted
+      backup in offline storage designated by the person. Pass passwords through standard input
+      or the environment, never as command arguments. Do not print or commit the credentials,
+      retain temporary working copies or inspect unrelated credentials. The public certificate
+      fingerprint may be shared and pinned in the workflow and `SECURITY.md`.
 14. **No release actions.** Do not run `scripts/notarize.sh`, `scripts/dmg.sh`,
     `scripts/appcast.sh`, `scripts/windows-feed.sh` or `scripts/publish-release.sh`, create or move
     tags, or start a release, nightly or signing workflow.
