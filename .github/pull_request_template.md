@@ -1,8 +1,17 @@
 Closes #
 
-## What changed
+## Problem
+
+<!-- One or two sentences: what is wrong or missing, and for whom. One problem per pull request. -->
+
+## Change
+
+<!-- How this solves it. If it spans crates or clients, why each part belongs to the same fix. -->
 
 ## How it was tested
+
+<!-- What you ran or did and what you observed; "tests pass" alone is not evidence.
+UI changes: before and after screenshots, a short recording for motion or timing. -->
 
 Checks run, and checks not run (and why):
 

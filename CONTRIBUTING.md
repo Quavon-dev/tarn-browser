@@ -16,6 +16,22 @@ default: if you do it differently, say so in the pull request and a maintainer d
   `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports").
 - You do not need every toolchain below: set up the clients you work on, CI runs the rest.
 
+## Ways to help
+
+Code is one way; these help as much and need less setup:
+
+- **Port a feature.** Every entry in [`docs/port-backlog.md`](docs/port-backlog.md) names the
+  shared API to call, the client that already has it and what each remaining client needs. The
+  logic is in the shared crates, so a port is wiring.
+- **Test an open pull request** on a client its author could not build, and comment with what you
+  saw.
+- **Confirm or narrow a bug.** Say which client and version you reproduced it on, or that it no
+  longer happens on the latest release.
+- **Point out duplicates** with a link to the original issue or pull request.
+
+Search the open issues and pull requests before you start. Testing or reviewing an existing pull
+request helps more than opening a second one for the same problem.
+
 ## Prerequisites
 
 - For macOS: macOS 14 or later with Xcode (or its command line tools).
@@ -161,6 +177,12 @@ Reactions do not trigger workflows, so votes are counted every five minutes and 
 issue. Run the **Issues** workflow by hand to count right away.
 
 ## Pull requests
+
+Solve one problem per pull request and include everything that fix needs across the shared crates,
+the clients, tests and docs; cleanup, refactors and a second fix go in their own. Say how you
+checked the change and what you observed: "tests pass" alone is not evidence. A UI change comes
+with before and after screenshots, motion or timing with a short recording, attached to the pull
+request.
 
 Every pull request to `main` needs every CI check green, every review conversation resolved
 (CodeRabbit's included) and the approval of a Code Owner who did not author it:

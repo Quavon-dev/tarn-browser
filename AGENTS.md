@@ -15,6 +15,64 @@ Shared by every client: `crates/browser-core`, `crates/engine` (platform-neutral
 `crates/shield`, `crates/store`, `crates/sync`, `nsh-shared`. Contract and rules:
 `docs/shared-core.md`.
 
+## Start here
+
+For people and agents alike. **You** make the change; **the person** is the human who answers for
+it; **maintainers** are the people in `MAINTAINERS.md`; a **user** is someone browsing with Tarn.
+
+1. Find the code in "Where code lives" and read the doc for its area ("Read first, by area").
+2. Put the logic in a shared crate, then wire the clients you can build ("Workflow for a feature").
+3. Walk "Before you call it done".
+4. Run the checks of the workspaces you touched ("Checks"); CI runs the rest.
+5. Open the pull request as "Pull requests" describes.
+
+Most of this file describes defaults: do it differently when the change needs it and say so in
+the pull request, where a maintainer decides. What nobody skips is short: the required checks, the
+sign-off, one maintainer's approval, the contribution terms in `CONTRIBUTING.md` and the hard
+rules under "Rules for AI agents".
+
+## Where code lives
+
+| Path | What it holds |
+|---|---|
+| `crates/browser-core` | Platform-neutral browser state, decisions and persistence; every client calls it |
+| `crates/engine` | The web view contract over WebKit and Chromium, and the platform-neutral page policies |
+| `crates/shield` | Content blocking, filter lists and protection levels |
+| `crates/store` | SQLite persistence for profiles, history, bookmarks and settings |
+| `crates/app`, `crates/ui` | The macOS and Windows shell on GPUI, with its theme, icons and controls |
+| `crates/platform` | macOS and Windows services: XPC, credentials, memory pressure, the updater |
+| `crates/import` | Reads cookies, history and bookmarks from other browsers |
+| `crates/devkit` | Developer tools: JSON viewer, responsive preview, localhost helpers |
+| `crates/ai`, `crates/cli-bridge` | AI providers and the sandboxed bridge to a local AI CLI |
+| `crates/sync` | Encrypted sync file format and merge core |
+| `crates/app-dll`, `crates/chromium-helper` | The Windows DLL and the macOS helper process that embedded Chromium (CEF) needs |
+| `crates/filter-bundle` | Build tool for the signed filter bundles Shield ships with |
+| `nsh-shared` | Theme, icons and controls shared by Linux and mobile |
+| `linux/` | The Linux shell; `linux/src/webview` binds WebKitGTK |
+| `mobile/app`, `mobile/ios`, `mobile/android` | The shared mobile shell and each platform's engine hooks |
+| `fuzz/` | Fuzz targets and their seeds |
+| `scripts/`, `packaging/`, `.github/workflows/` | CI, packaging and release automation; protected paths (guideline 7) |
+
+## Read first, by area
+
+Read the matching doc before you change code in that area; review holds the change to it.
+
+| Area | Read first |
+|---|---|
+| Shared logic, a web view operation or event | `docs/shared-core.md` |
+| Who and what acts on Tarn, its outside interfaces | `docs/architecture.md` |
+| Web content, imports, filter lists, AI, extensions, updates, sync | `docs/threat-model.md` |
+| A request the browser itself makes | `PRIVACY.md` |
+| Cryptography | `docs/cryptography.md` |
+| Filter lists and their signed bundle | `docs/filter-lists.md` |
+| Themes | `docs/themes.md` |
+| Windows | `docs/windows-plan.md` |
+| Linux and the Native Shell clients | `docs/nsh-plan.md` |
+| iOS and Android | `docs/mobile-plan.md` |
+| Release, signing, update feeds | `docs/release.md` |
+| A feature some clients still lack | `docs/port-backlog.md` |
+| A vulnerability | `SECURITY.md` |
+
 ## Rules
 
 1. **Every feature lands on every client.** A feature, UI change or UX change is done only when
@@ -54,6 +112,25 @@ Shared by every client: `crates/browser-core`, `crates/engine` (platform-neutral
 4. Run the checks below for every client you can build; all must pass in CI.
 5. One commit may cover all clients for one feature; keep unrelated changes out.
 
+## Before you call it done
+
+The most common defect is a change that works on the path you tried and is missing beside it.
+Walk this list and say in the pull request which entries applied:
+
+- **Clients.** All five have it, or the missing ones have a `docs/port-backlog.md` entry.
+- **Engines.** On macOS it works on WebKit and on Chromium; a web view operation or event reaches
+  every implementation (rule 6).
+- **Entry points.** Menu, command palette, shortcut and settings on desktop, the matching control
+  or gesture on touch. Fixing one is not fixing the feature.
+- **Modes.** Decide what it does in every profile, in a private space and at each Shield level,
+  Lockdown included.
+- **Way back.** Every state a user can enter has a visible way out (open and close, on and off).
+- **Core.** Logic a second client would write again sits in a shared crate (rule 2).
+- **Trust boundaries.** If it touches one, the threat-model row is named (guideline 6).
+- **Changelog.** What users see or what protects them has its entry (`CONTRIBUTING.md`,
+  "Changelog").
+- **Docs.** Existing text the change makes wrong is corrected ("Documentation").
+
 ## Partial ports
 
 A change may land on some clients only: when the person says so (for example macOS only, or macOS
@@ -89,6 +166,41 @@ CI (`.github/workflows/ci.yml`) runs these jobs; a feature is not done while any
 
 Run the checks of the workspaces you can build; you do not need every platform's toolchain, CI
 covers the rest.
+
+While you iterate, run the narrowest check (`cargo test -p <crate> <test name>`,
+`cargo clippy -p <crate>`) and the full row once before the pull request. To try a change in the
+app, start it on throwaway data (hard rule 12):
+
+```sh
+TARN_DATA_DIR="$(mktemp -d)" cargo run -p app
+```
+
+## Pull requests
+
+- An agent opens or updates one only when the person asks (hard rule 5).
+- The title is a Conventional Commit in plain language that says what changes for the user:
+  `fix(release): sign the Android sideload APK so it installs`.
+- The body states the problem in a sentence or two, then how the change solves it, in the
+  sections of `.github/pull_request_template.md`.
+- One problem per pull request, with everything that fix needs across core, clients, tests and
+  docs. Cleanup, refactors and a second fix go in their own.
+- Show that it works: how you checked and what you observed. "Tests pass" alone is not evidence.
+  A UI change comes with before and after screenshots, motion or timing with a short recording,
+  attached to the pull request.
+
+## Documentation
+
+Most code changes need no documentation change; code, types and tests already record how it works.
+
+- `docs/` holds what the code cannot show: contracts, trust boundaries and their mitigations, real
+  platform gaps, decisions with their reasons, and runbooks. Before adding a paragraph, ask what a
+  maintainer would get wrong without it.
+- Do not list fields, constants or files, narrate control flow or append a summary of your change:
+  what can drift will.
+- When a documented decision or constraint changes, rewrite the affected text in place. A
+  mitigation, a status or a rule stays unless the change is about exactly that (hard rule 7).
+- A reason that belongs to one place in the code is a short comment there, not a doc.
+- What users see goes into `CHANGELOG.md`, and into `README.md` where it lists the feature.
 
 ## Rules for AI agents
 
