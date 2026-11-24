@@ -453,7 +453,6 @@ pub(crate) enum WindowStart {
     Saved,
     Private,
     Burner,
-    /// An agent's window: a throwaway profile, or a temporary space of this profile of the user's.
     Agent(Option<Id>),
 }
 

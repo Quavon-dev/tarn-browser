@@ -59,8 +59,9 @@ impl Server {
     /// open keep running until their agent goes.
     pub fn stop(self) {
         self.stop.store(true, Ordering::SeqCst);
-        if connect(&self.data_dir).is_ok() {
+        if let Ok(wake) = connect(&self.data_dir) {
             let _ = self.thread.join();
+            drop(wake);
         }
     }
 }
@@ -80,7 +81,7 @@ fn fnv(bytes: &[u8]) -> u64 {
 /// and a response (no method), which the server never sends back.
 pub fn expects_reply(line: &str) -> bool {
     match serde_json::from_str::<serde_json::Value>(line) {
-        Ok(serde_json::Value::Object(msg)) => msg.contains_key("method") && msg.contains_key("id"),
+        Ok(serde_json::Value::Object(msg)) => msg.get("method").is_some_and(serde_json::Value::is_string) && msg.contains_key("id"),
         _ => true,
     }
 }
@@ -202,12 +203,12 @@ mod imp {
     fn bind_private(path: &Path) -> io::Result<(UnixListener, u64)> {
         use std::os::unix::fs::DirBuilderExt;
         let parent = path.parent().ok_or_else(|| io::Error::other("the agent socket has no folder"))?;
-        let staging = parent.join(format!(".t{}", std::process::id()));
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.subsec_nanos());
+        let staging = parent.join(format!(".t{}-{nanos:x}", std::process::id()));
         let staged = staging.join("s");
         if staged.as_os_str().len() >= 100 {
             return Err(io::Error::other("no path short enough for the agent socket"));
         }
-        let _ = fs::remove_dir_all(&staging);
         fs::DirBuilder::new().mode(0o700).create(&staging)?;
         let bound = UnixListener::bind(&staged).and_then(|listener| {
             fs::set_permissions(&staged, fs::Permissions::from_mode(0o600))?;
@@ -433,6 +434,7 @@ mod tests {
         assert!(expects_reply(r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#));
         assert!(!expects_reply(r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#));
         assert!(!expects_reply(r#"{"jsonrpc":"2.0","id":1,"result":{}}"#));
+        assert!(!expects_reply(r#"{"jsonrpc":"2.0","id":1,"method":42}"#), "Tarn answers no method that is not a string");
         assert!(expects_reply("not json"));
         assert!(expects_reply("[]"));
     }

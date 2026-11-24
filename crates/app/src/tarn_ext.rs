@@ -562,7 +562,6 @@ impl Browser {
     }
 
     /// Gives this window's view of `key` the gate and the profile's Tarn extensions.
-    /// Never in an agent's window (S22).
     pub(crate) fn attach_tarn(&self, key: TabKey) {
         let (Some(view), Some(profile)) = (self.views.get(&key).filter(|_| self.model.agent_profile.is_none()), self.profile_of(key)) else { return };
         let url = view.url().or_else(|| self.tab_url(key).and_then(|u| Url::parse(&u).ok()));

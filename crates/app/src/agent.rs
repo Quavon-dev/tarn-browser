@@ -25,6 +25,10 @@ use store::Id;
 
 const TICK: Duration = Duration::from_millis(250);
 
+/// Whether the agent may use the user's profile or tabs here: not on Windows, whose views cannot
+/// turn passkeys off yet (`docs/port-backlog.md`).
+pub(crate) const SIGNED_IN: bool = cfg!(target_os = "macos");
+
 type Reply = std_mpsc::Sender<Outcome>;
 
 enum Msg {
@@ -42,9 +46,7 @@ pub(crate) struct Agent {
     window: Option<WindowHandle<Browser>>,
     /// The sites the gate on the window's tabs lets through; `None` lets everything through.
     sites: Rc<RefCell<Option<HashSet<String>>>>,
-    /// The profile `Mode::Profile` would use, the front window's when the agent connected.
     offered: Option<Id>,
-    /// In `Mode::Tabs`: the gate, and the user's tabs the agent used, whose views hold it.
     gate: Option<engine::agent_scripts::Gate>,
     touched: HashSet<TabKey>,
 }
@@ -92,7 +94,6 @@ pub(crate) fn set_enabled(on: bool, cx: &mut App) {
     });
 }
 
-/// Settings › AI › Use your profile or Use your tabs changed: a session in a mode turned off ends.
 pub(crate) fn recheck(cx: &mut App) {
     cx.defer(|cx| {
         if cx.global::<Agent>().ctl.active() {
@@ -101,7 +102,6 @@ pub(crate) fn recheck(cx: &mut App) {
     });
 }
 
-/// Gives a new view of a user's tab the agent used in `Mode::Tabs` the gate again.
 pub(crate) fn gate_view(key: TabKey, view: &engine::WebView, cx: &App) {
     if let Some(agent) = cx.try_global::<Agent>()
         && agent.touched.contains(&key)
@@ -111,17 +111,14 @@ pub(crate) fn gate_view(key: TabKey, view: &engine::WebView, cx: &App) {
     }
 }
 
-/// The gate of a user's tab the agent used in `Mode::Tabs`, for the tabs and peeks it opens.
 pub(crate) fn gated(key: TabKey, cx: &App) -> Option<engine::agent_scripts::Gate> {
     cx.try_global::<Agent>().filter(|a| a.touched.contains(&key)).and_then(|a| a.gate.clone())
 }
 
-/// Whether a gated tab's page may open `url` in a new tab or pop-up: an allowed site, within the cap.
 pub(crate) fn may_open(gate: &engine::agent_scripts::Gate, url: &Url, cx: &App) -> bool {
     gate(url) && cx.global::<Agent>().ctl.room()
 }
 
-/// A tab opened from one the agent used, which keeps the gate too.
 pub(crate) fn touch(key: TabKey, cx: &mut App) {
     let agent = cx.global_mut::<Agent>();
     agent.touched.insert(key);
@@ -184,23 +181,19 @@ fn on_msg(msg: Msg, cx: &mut App) {
     }
 }
 
-/// A window of the user's own: not an agent's or a burner's.
 fn users(b: &Browser) -> bool {
     b.model.agent_profile.is_none() && !b.model.burner_shown()
 }
 
-/// Whether the window shows a space outside the private store, where the agent may open a tab.
 fn open_here(b: &Browser) -> bool {
     b.model.profile().is_some_and(|(private, _)| !private)
 }
 
-/// The user's windows, front first.
 fn user_windows(cx: &App) -> Vec<WindowHandle<Browser>> {
     let all = cx.window_stack().unwrap_or_else(|| cx.windows());
     all.into_iter().filter_map(|w| w.downcast::<Browser>()).filter(|h| h.read(cx).is_ok_and(users)).collect()
 }
 
-/// The profile of the user's front window and its name; none while it shows a private space.
 fn front_profile(cx: &App) -> Option<(Id, String)> {
     let front = user_windows(cx).into_iter().next()?;
     let b = front.read(cx).ok()?;
@@ -208,7 +201,6 @@ fn front_profile(cx: &App) -> Option<(Id, String)> {
     Some((id, b.core.store(false).profile(id).ok()?.name))
 }
 
-/// The tabs of the user's windows outside private spaces, which `Mode::Tabs` may use.
 fn user_tabs(cx: &App) -> Vec<Page<TabKey>> {
     let mut out = Vec::new();
     for h in user_windows(cx) {
@@ -223,7 +215,6 @@ fn user_tabs(cx: &App) -> Vec<Page<TabKey>> {
     out
 }
 
-/// The window that holds `key` now: the agent's, or in `Mode::Tabs` one of the user's.
 fn window_of(key: Option<TabKey>, cx: &App) -> Option<WindowHandle<Browser>> {
     let agent = cx.global::<Agent>();
     if agent.ctl.mode() != Some(Mode::Tabs) {
@@ -236,14 +227,12 @@ fn window_of(key: Option<TabKey>, cx: &App) -> Option<WindowHandle<Browser>> {
     }
 }
 
-/// Runs `f` with what the core needs to know now: the switches, the agent window's tabs and,
-/// while their settings are on, the profile and the user's tabs the agent may be given.
+/// Runs `f` with what the core needs to know now: the switches and the agent window's tabs.
 fn with_ctx(cx: &mut App, f: impl FnOnce(&mut Controller<TabKey, Reply>, &Ctx<TabKey>) -> Vec<Effect<TabKey, Reply>>) {
     let core = crate::shared::core(cx);
     let (enabled, localhost) = (core.pref(Pref::AgentControl), core.pref(Pref::LocalhostFromApps));
-    let (profile_on, tabs_on) = (core.pref(Pref::AgentProfile), core.pref(Pref::AgentTabs));
+    let (profile_on, tabs_on) = (SIGNED_IN && core.pref(Pref::AgentProfile), SIGNED_IN && core.pref(Pref::AgentTabs));
     let (active, mode) = (cx.global::<Agent>().ctl.active(), cx.global::<Agent>().ctl.mode());
-    // Read only when they can matter: the profile before the user answers, the tabs before and in `Mode::Tabs`.
     let profile = (profile_on && !active).then(|| front_profile(cx)).flatten();
     if !active {
         cx.global_mut::<Agent>().offered = profile.as_ref().map(|p| p.0);
@@ -283,7 +272,6 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>, cx: &mut App) {
                     (Mode::Tabs, _) => {
                         let gate = new_gate(cx);
                         cx.global_mut::<Agent>().gate = Some(gate);
-                        // The agent's window just closed: bring the user's forward so its bar shows.
                         if let Some(front) = user_windows(cx).into_iter().next() {
                             front.update(cx, |_, window, _| window.activate_window()).ok();
                         }
@@ -322,7 +310,6 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>, cx: &mut App) {
                 }
                 *agent.sites.borrow_mut() = sites.map(|s| s.into_iter().collect());
                 if ended {
-                    // The bar of `Mode::Tabs` goes from the user's windows, and their passkeys come back.
                     crate::shared::each(cx, |b, _, cx| {
                         b.apply_view_prefs(cx);
                         cx.notify();
@@ -337,14 +324,12 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>, cx: &mut App) {
     }
 }
 
-/// A gate that lets through no site until the session names some, then only those.
 fn new_gate(cx: &mut App) -> engine::agent_scripts::Gate {
     let sites: Rc<RefCell<Option<HashSet<String>>>> = Rc::new(RefCell::new(Some(HashSet::new())));
     cx.global_mut::<Agent>().sites = sites.clone();
     Rc::new(move |url: &Url| sites.borrow().as_ref().is_none_or(|allowed| agent::site_of(url).is_none_or(|site| allowed.contains(&site))))
 }
 
-/// Opens the agent's window: a throwaway profile, or a temporary space of the user's `profile`.
 fn open_window(profile: Option<Id>, cx: &mut App) {
     let Some(window) = crate::shared::open_new_window(WindowStart::Agent(profile), cx) else {
         let effects = cx.global_mut::<Agent>().ctl.stop("Tarn could not open a window for the agent.", false, false);
@@ -372,14 +357,7 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
     };
     let agent = cx.global::<Agent>();
     let tx = agent.tx.clone();
-    // In the user's tabs the gate holds only in the tabs the agent used, so the user's own
-    // browsing elsewhere is never held.
     let gate = agent.gate.clone();
-    if gate.is_some()
-        && let Some(key) = tab
-    {
-        cx.global_mut::<Agent>().touched.insert(key);
-    }
     let send = move |raw: Raw<TabKey>| drop(tx.unbounded_send(Msg::Raw(run, raw)));
     let localhost = crate::shared::core(cx).pref(Pref::LocalhostFromApps);
     let typed = |url: &Url| engine::nav_policy::app_link_typed(url, localhost);
@@ -396,21 +374,27 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
                 return Some(Raw::Opened(key));
             }
             let Some(key) = tab.filter(|k| b.model.tab(*k).is_some()) else { return Some(Raw::Unavailable) };
+            if gate.is_some() {
+                if chromium(b, key) {
+                    return Some(Raw::Unavailable);
+                }
+                cx.global_mut::<Agent>().touched.insert(key);
+            }
             if let Some(gate) = &gate {
                 b.views.get(&key).inspect(|v| {
                     v.set_agent_gate(Some(gate.clone()));
                     v.set_passkeys(false);
                 });
             }
-            if let Op::Load(url) = &op {
-                b.load_link_in(key, url, typed(url), window, cx);
+            if let Op::Load(url) | Op::Follow(url) = &op {
+                b.load_link_in(key, url, matches!(op, Op::Load(_)) && typed(url), window, cx);
                 return Some(Raw::Done);
             }
             if op == Op::Close {
                 b.close_tab(key, window, cx);
                 return Some(Raw::Done);
             }
-            let Some(view) = b.agent_view(key, window, cx) else { return Some(Raw::Unavailable) };
+            let Some(view) = b.agent_view(key, window, cx).filter(|v| gate.is_none() || !v.is_chromium()) else { return Some(Raw::Unavailable) };
             match op {
                 Op::Back | Op::Forward | Op::Reload => {
                     match op {
@@ -423,7 +407,7 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
                 Op::Script(source) => view.agent(&source, move |raw| send(Raw::Script(raw))),
                 Op::Text(page) => view.page_text(&page, MAX_TEXT_CHARS, move |_, text| send(Raw::Text(text))),
                 Op::Screenshot => view.snapshot_png(Some(agent::SCREENSHOT_WIDTH), move |png| send(Raw::Png(png.map(|p| engine::agent_scripts::base64(&p))))),
-                Op::Open(_) | Op::Load(_) | Op::Close => {}
+                Op::Open(_) | Op::Load(_) | Op::Follow(_) | Op::Close => {}
             }
             None
         })
@@ -437,6 +421,16 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
     if let Some(raw) = immediate {
         with_ctx(cx, |ctl, ctx| ctl.raw(run, raw, ctx));
     }
+}
+
+fn chromium(b: &mut Browser, key: TabKey) -> bool {
+    #[cfg(feature = "chromium")]
+    if let Some(url) = b.tab_url(key)
+        && b.web_engine_for(key, &url) == store::WebEngine::Chromium
+    {
+        return true;
+    }
+    b.views.get(&key).is_some_and(|v| v.is_chromium())
 }
 
 fn tick_while_active(cx: &mut App) {
@@ -475,7 +469,6 @@ fn tick(cx: &mut App) -> bool {
 }
 
 /// The agent bar at the top of the agent's window: its question, or who controls the window.
-/// In `Mode::Tabs` it shows in every window of the user's, with Stop.
 pub(crate) fn banner(b: &Browser, window: &Window, cx: &mut Context<Browser>, push: &mut impl FnMut(&'static str, String, Rgba, gpui::Div)) {
     let Some(agent) = cx.try_global::<Agent>() else { return };
     let here = agent.window.is_some_and(|w| w.window_id() == window.window_handle().window_id());

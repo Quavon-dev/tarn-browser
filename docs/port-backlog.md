@@ -28,11 +28,15 @@ own tabs in their front window's profile (Use My Logins) or to work in their ope
 private spaces (Use My Tabs); per-site approval, no extensions, passkeys or history in the agent's
 window, a bar with Stop in every window (threat model S22, S31).
 Shared API: `browser_core::agent::{Mode, SETTING_PROFILE, SETTING_TABS, DETAIL_PROFILE,
-DETAIL_TABS, web_site}`, `control::Ctx::{profile, yours}`, `control::Effect::Switch`,
+DETAIL_TABS, web_site}`, `control::Ctx::{profile_on, profile, tabs_on, yours}`, `control::Effect::Switch`,
 `control::Choice::{Profile, Tabs}`, `tabs::Model::open_agent_in`, `engine::Features`.
 Reference: `crates/app/src/agent.rs`, `crates/app/src/settings/ai.rs`.
 
-- [ ] Linux — the two switches in Settings › AI, `Ctx::{profile, yours}` from the front window's
+- [ ] Windows — `crates/app/src/agent.rs` `SIGNED_IN` keeps both modes off: a CEF view cannot
+  turn passkeys off (`engine::WebView::set_passkeys` does nothing there), so WebAuthn must be
+  refused per view before the modes can be offered. The same holds for Chromium tabs on macOS,
+  which Use My Tabs refuses and an agent's window never uses.
+- [ ] Linux — the two switches in Settings › AI, `Ctx::{profile_on, profile, tabs_on, yours}` from the front window's
   profile and the user's windows in `linux/src/ui/agent.rs`, `Effect::Switch` (today it ends the
   session), a per-tab gate and the bar in every window, no extensions or history in the agent's
   window.

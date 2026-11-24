@@ -33,24 +33,25 @@ pub enum Act<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum AgentScript<'a> {
-    /// With `signed_in` (S22), a field's value shows only once the agent typed or picked it, so
-    /// what an extension or the browser filled stays hidden.
-    Snapshot { signed_in: bool },
+    Snapshot {
+        signed_in: bool,
+    },
     /// `target` 0 is the focused element, or the page for `Scroll`.
     Act {
         target: u32,
         act: Act<'a>,
         confirmed: bool,
-        /// Ask before any form submission, Enter or click on a submit control, filled secret
-        /// or not: the agent is signed in as the user (S22).
         submits: bool,
     },
     /// Answers "1" once the document has loaded and, when given, shows `text`.
-    Wait { text: Option<&'a str> },
-    /// Answers "1:" while a password, payment or one-time-code field holds a value, or with
-    /// `signed_in` a field the agent did not fill holds one or a frame of another origin is on the
-    /// page, else "0:", followed by a token of the document, which a new document does not share.
-    Sensitive { signed_in: bool },
+    Wait {
+        text: Option<&'a str>,
+    },
+    /// Answers "1:" while a password, payment or one-time-code field holds a value, else "0:",
+    /// followed by a token of the document, which a new document does not share.
+    Sensitive {
+        signed_in: bool,
+    },
 }
 
 const COMMON: &str = r"const st = window.__tarnAgent || (window.__tarnAgent = { next: 1, map: new Map(), doc: Math.random().toString(36).slice(2) + Date.now().toString(36) });
@@ -69,10 +70,9 @@ const sensitive = el => {
     if (password) st.password.add(el);
     return hit;
 };
-// A field whose value is still what the agent put there; anything else filled it is hidden when signed in.
 const ours = el => st.filled.has(el) && st.filled.get(el) === el.value;
 const userField = el => /^(input|select|textarea)$/.test(el.localName) && !(el.localName === 'input' && /^(checkbox|radio|submit|button|reset|image|file|range|color|hidden)$/.test(el.type)) && !ours(el);
-const foreignFrame = () => [...document.querySelectorAll('iframe,frame')].some(f => { try { return !f.contentDocument; } catch (e) { return true; } });
+const foreignFrame = (root = document) => [...root.querySelectorAll('iframe,frame')].some(f => { let d = null; try { d = f.contentDocument; } catch (e) {} return !d || foreignFrame(d); });
 const filledSensitive = (also) => {
     let seen = false;
     const walk = root => {
@@ -95,7 +95,7 @@ const clean = (s, n) => (s || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u20
 const roles = { a: 'link', button: 'button', select: 'combobox', textarea: 'textbox', summary: 'button' };
 const inputRoles = { checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button', reset: 'button', image: 'button', range: 'slider', file: 'file' };
 const roleOf = el => el.getAttribute('role') || roles[el.localName] || (el.localName === 'input' ? (inputRoles[el.type] || 'textbox') : (el.isContentEditable ? 'textbox' : 'clickable'));
-const nameOf = el => clean(el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (el.localName === 'input' && /^(submit|button|reset)$/.test(el.type) ? el.value : '') || (signedIn && (el.isContentEditable || el.localName === 'textarea' || /^(textbox|searchbox|combobox)$/.test(el.getAttribute('role') || '')) ? '' : el.innerText || el.textContent), 120);
+const nameOf = el => clean(el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (el.localName === 'input' && /^(submit|button|reset)$/.test(el.type) && !sensitive(el) ? el.value : '') || (signedIn && (el.isContentEditable || el.localName === 'textarea' || /^(textbox|searchbox|combobox)$/.test(el.getAttribute('role') || '')) ? '' : el.innerText || el.textContent), 120);
 const lines = ['Address: ' + location.href, 'Title: ' + clean(document.title, 200), 'Scrolled: ' + Math.round(scrollY) + ' of ' + Math.max(0, document.documentElement.scrollHeight - innerHeight), 'Elements:'];
 let n = 0;
 for (const el of found) {
@@ -131,16 +131,19 @@ const ask = () => { st.typed = new WeakRef(el); return 'confirm'; };
 const flash = el => { if (!el.style) return; const before = el.style.outline; el.style.outline = '3px solid #ff9500'; setTimeout(() => { el.style.outline = before; }, 700); };
 const center = el => { const r = el.getBoundingClientRect(); return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; };
 const fire = (el, type, init) => el.dispatchEvent(new (type.startsWith('pointer') ? PointerEvent : type.startsWith('key') ? KeyboardEvent : MouseEvent)(type, Object.assign({ bubbles: true, cancelable: true, composed: true, view: window }, init)));
-const setValue = (el, value) => {
+const setValue = (el, value, ours) => {
     const proto = el.localName === 'textarea' ? HTMLTextAreaElement.prototype : el.localName === 'select' ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    const before = el.value;
     Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value);
+    const set = el.value;
+    if (ours) st.filled.set(el, set);
     el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
+    if (ours && el.value !== set && el.value !== before) st.filled.set(el, el.value);
 };
 const submit = el => { const form = el.form || el.closest('form'); if (!form) return false; if (form.requestSubmit) form.requestSubmit(); else form.submit(); return true; };
 const editable = el => el.isContentEditable || el.localName === 'textarea' || (el.localName === 'input' && !/^(checkbox|radio|submit|button|reset|image|file|range|color|hidden)$/.test(el.type));
 const focusables = () => [...document.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex=\x22-1\x22]),[contenteditable=true]')].filter(e => !e.disabled && e.getBoundingClientRect().width > 0);
-// A form the page submits from its own handlers is caught too, unless it calls form.submit().
 let caught = false;
 const catcher = e => { if (submits && !confirmed) { e.preventDefault(); e.stopImmediatePropagation(); caught = true; } };
 const run = () => { switch (act.kind) {
@@ -165,8 +168,7 @@ const run = () => { switch (act.kind) {
         flash(el);
         el.focus();
         if (el.isContentEditable) { document.execCommand('selectAll'); document.execCommand('insertText', false, act.text); }
-        else setValue(el, act.text);
-        st.filled.set(el, el.value);
+        else setValue(el, act.text, true);
         if (act.submit && !confirmed && (submits || filledSensitive())) { st.typed = new WeakRef(el); return 'confirm:typed'; }
         if (act.submit && !submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
@@ -185,8 +187,7 @@ const run = () => { switch (act.kind) {
         const option = [...el.options].find(o => o.value === act.value) || [...el.options].find(o => o.label.trim().toLowerCase() === want);
         if (!option) return 'error:no such option';
         flash(el);
-        setValue(el, option.value);
-        st.filled.set(el, el.value);
+        setValue(el, option.value, true);
         return 'ok';
     }
     case 'key': {
@@ -199,7 +200,7 @@ const run = () => { switch (act.kind) {
             if (key === 'Enter' && el.localName === 'input') submit(el);
             else if (key === 'Enter' && el.localName !== 'textarea' && !el.isContentEditable && el.click) el.click();
             else if (key === 'Tab') { const all = focusables(); const next = all[(all.indexOf(el) + 1) % Math.max(all.length, 1)]; if (next) next.focus(); }
-            else if (key === 'Backspace' && editable(el) && !el.isContentEditable) setValue(el, el.value.slice(0, -1));
+            else if (key === 'Backspace' && editable(el) && !el.isContentEditable) setValue(el, el.value.slice(0, -1), ours(el));
             else if (key === 'PageDown' || key === 'PageUp') scrollBy(0, (key === 'PageDown' ? 1 : -1) * innerHeight * 0.9);
         }
         fire(el, 'keyup', init);

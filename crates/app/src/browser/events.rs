@@ -215,7 +215,6 @@ impl Browser {
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
             Event::OpenTab { url, from, background, split } => {
                 let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown() && self.model.agent_profile.is_none()) else { return cx.notify() };
-                // A tab an agent used keeps its gate in the tabs it opens (S22).
                 let gate = crate::agent::gated(key, cx);
                 if gate.as_ref().is_some_and(|gate| !crate::agent::may_open(gate, &url, cx)) {
                     return cx.notify();
@@ -716,7 +715,6 @@ impl Browser {
         if self.model.tab(opener).is_none() || self.model.burner_shown() || self.model.agent_profile.is_some() {
             return;
         }
-        // A pop-up of a tab an agent used keeps its gate and its space (S22).
         let gate = crate::agent::gated(opener, cx);
         if let Some(gate) = &gate
             && !popup.url.as_ref().is_some_and(|url| crate::agent::may_open(gate, url, cx))

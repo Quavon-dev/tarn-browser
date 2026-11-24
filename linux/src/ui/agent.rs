@@ -273,6 +273,7 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
     let Some(ui) = with(|a| a.window) else { return };
     let localhost = with(|a| a.localhost);
     let typed = |url: &Url| engine::nav_policy::app_link_typed(url, localhost);
+    let follow = matches!(op, Op::Follow(_));
     let immediate = match (op, tab) {
         (Op::Open(url), _) => {
             let mut key = None;
@@ -280,9 +281,10 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
             Some(Raw::Opened(key))
         }
         (_, None) => Some(Raw::Unavailable),
-        (Op::Load(url), Some(key)) => {
+        (Op::Load(url) | Op::Follow(url), Some(key)) => {
+            let typed = !follow && typed(&url);
             let mut loaded = false;
-            act(ui, |b| loaded = b.load_link_in(key, url.as_str(), typed(&url)));
+            act(ui, |b| loaded = b.load_link_in(key, url.as_str(), typed));
             Some(if loaded { Raw::Done } else { Raw::Unavailable })
         }
         (Op::Close, Some(key)) => {
@@ -325,7 +327,7 @@ fn page_op(ui: Ui, run: u64, key: TabKey, op: Op) -> Option<Raw<TabKey>> {
                 b.outbox.push((key, "agent", json!({ "seq": run, "body": body })));
             }
             Op::Screenshot => b.outbox.push((key, "snapshot", json!({ "seq": run }))),
-            Op::Open(_) | Op::Load(_) | Op::Close => {}
+            Op::Open(_) | Op::Load(_) | Op::Follow(_) | Op::Close => {}
         }
     });
     if shown && REFS.with_borrow(|refs| refs.contains_key(&(ui.window, key))) {

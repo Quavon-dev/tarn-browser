@@ -17,9 +17,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   default. With Let agents use your profile on, you may approve an agent with Use My Logins: it
   opens its own tabs in your front window's profile, signed in, without extensions, passkeys or
   history. With Let agents use your tabs on, Use My Tabs lets it work in your open tabs outside
-  private spaces, with a bar and Stop in every window. Each site still needs your approval, and in
-  both modes Tarn asks before the agent submits a form and hides from it what it did not type
-  itself, such as a login a password manager filled. On macOS and Windows.
+  private spaces and in WebKit tabs, with a bar and Stop in every window. Each site still needs
+  your approval. In both modes Tarn asks before a form is submitted while the agent acts (a page
+  that sends with `form.submit()`, a script request or a delayed submit is asked only while a
+  password or payment field holds a value), and hides from the agent what it did not type itself,
+  such as a login a password manager filled. On macOS.
 - Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
   Settings › AI deletes them all. An answer can be copied and retried and its question edited;
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude

@@ -148,7 +148,7 @@ impl Browser {
     #[cfg(feature = "chromium")]
     pub(crate) fn web_engine_for(&mut self, key: TabKey, url: &str) -> WebEngine {
         let tab = self.model.tab(key).and_then(|t| t.web_engine);
-        let Some((private, profile_id)) = self.model.profile() else { return WebEngine::WebKit };
+        let Some((private, profile_id)) = self.model.profile().filter(|_| self.model.agent_profile.is_none()) else { return WebEngine::WebKit };
         self.runtime(private, profile_id);
         self.core.web_engine(private, profile_id, tab, Url::parse(url).ok().as_ref()).unwrap_or(WebEngine::WebKit)
     }

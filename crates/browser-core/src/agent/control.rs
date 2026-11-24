@@ -12,6 +12,7 @@ use super::{Entry, LOCKED, Mode, NO_ANSWER, PROMPT_TIMEOUT_MS, Scope, Session, T
 
 pub const ASK_USER_TIMEOUT_MS: i64 = 10 * 60 * 1000;
 pub const MAX_TEXT_CHARS: usize = 40_000;
+const TIMED_OUT: &str = "Still not there; the wait timed out.";
 const BUSY_ASKING: &str = "Tarn is already asking the user something; try again shortly.";
 
 /// A tab the agent may use, as the shell sees it now.
@@ -28,15 +29,10 @@ pub struct Ctx<'a, K> {
     /// Settings › Privacy › Open localhost links from other apps.
     pub localhost: bool,
     pub now: i64,
-    /// The tabs of the agent's own window.
     pub tabs: &'a [Page<K>],
-    /// Settings › AI › Let agents use your profile.
     pub profile_on: bool,
-    /// The name of the profile `Mode::Profile` would use, when there is one to offer.
     pub profile: Option<String>,
-    /// Settings › AI › Let agents use your tabs.
     pub tabs_on: bool,
-    /// The user's tabs outside private spaces, while `tabs_on`.
     pub yours: &'a [Page<K>],
 }
 
@@ -54,9 +50,7 @@ pub enum Ask {
 pub enum Choice {
     Look,
     Act,
-    /// Act in its own tabs of the user's profile (`Mode::Profile`).
     Profile,
-    /// Act in the user's tabs (`Mode::Tabs`).
     Tabs,
     Allow,
     Deny,
@@ -72,6 +66,7 @@ pub enum Op {
     Close,
     /// Load this address in the tab as a link.
     Load(Url),
+    Follow(Url),
     Back,
     Forward,
     Reload,
@@ -100,8 +95,6 @@ pub enum Raw<K> {
 pub enum Effect<K, C> {
     Reply(C, Outcome),
     OpenWindow,
-    /// The user approved the agent in `Mode::Profile` or `Mode::Tabs`: close the throwaway window
-    /// and open one in the profile, or use the user's windows. The session goes on.
     Switch(Mode),
     /// Close the agent's window, which wipes its profile.
     CloseWindow,
@@ -167,8 +160,6 @@ struct Running<K, C> {
 struct Active<K, C> {
     conn: u64,
     client: String,
-    /// What the connect question offers besides the throwaway window: the profile's name, and
-    /// the user's tabs.
     offers: (Option<String>, bool),
     session: Option<Session<K>>,
     held: Option<Held<K, C>>,
@@ -282,7 +273,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 let why = if theirs { super::DENIED.into() } else { format!("The user did not allow the agent on {site}.") };
                 out.extend(self.finish(call, None, Outcome::Error(why), ctx.now))
             }
-            (Ask::Site(_) | Ask::Held(_), Then::Load(key, url)) if allowed => out.push(Effect::Run { run: 0, tab: Some(key), op: Op::Load(url) }),
+            (Ask::Site(_) | Ask::Held(_), Then::Load(key, url)) if allowed => out.push(Effect::Run { run: 0, tab: Some(key), op: Op::Follow(url) }),
             (Ask::Sensitive(_), Then::Call(call)) if allowed => out.extend(self.run(call, held.page, false, ctx)),
             (Ask::Sensitive(_), Then::Call(call)) => out.extend(self.finish(call, None, Outcome::Error(super::DENIED.into()), ctx.now)),
             (Ask::User(_), Then::Call(call)) => {
@@ -333,9 +324,10 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                     active.running = Some(running);
                     return Vec::new();
                 }
-                Outcome::Text("Still not there; the wait timed out.".into())
+                Outcome::Text(TIMED_OUT.into())
             }
-            (Tool::WaitFor { .. }, Raw::Script(_)) => Outcome::Text("Ready.".into()),
+            (Tool::WaitFor { .. }, Raw::Script(_)) if ctx.now < running.deadline => Outcome::Text("Ready.".into()),
+            (Tool::WaitFor { .. }, Raw::Script(_)) => Outcome::Text(TIMED_OUT.into()),
             (Tool::Snapshot { .. }, Raw::Script(raw)) | (Tool::ReadText { .. }, Raw::Text(raw)) if raw.is_empty() => Outcome::Error(LOCKED.into()),
             (Tool::Snapshot { .. }, Raw::Script(raw)) | (Tool::ReadText { .. }, Raw::Text(raw)) => Outcome::Text(super::page_answer(&raw)),
             (Tool::Screenshot { .. }, Raw::Script(raw)) if raw.starts_with("0:") && running.png.is_some() => {
@@ -417,14 +409,19 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             return out;
         }
         if let Some(running) = active.running.as_ref() {
-            if t >= running.deadline + PROMPT_TIMEOUT_MS || (t >= running.deadline && !matches!(running.call.tool, Tool::WaitFor { .. })) {
+            if t >= running.deadline {
                 let running = active.running.take().expect("checked above");
-                return self.finish(running.call, None, Outcome::Error("The page did not answer in time.".into()), t);
+                let outcome = match running.call.tool {
+                    Tool::WaitFor { .. } => Outcome::Text(TIMED_OUT.into()),
+                    _ => Outcome::Error("The page did not answer in time.".into()),
+                };
+                return self.finish(running.call, None, outcome, t);
             }
+            let page = running.tab.and_then(|k| page_of(pages(active.session.as_ref(), ctx), k));
             if let Tool::WaitFor { text, .. } = &running.call.tool
-                && (text.is_none() || allowed_here(active.session.as_ref(), running.tab.and_then(|k| page_of(pages(active.session.as_ref(), ctx), k)).as_ref()))
+                && (text.is_none() || allowed_here(active.session.as_ref(), page.as_ref()))
             {
-                let op = Op::Script(bound(AgentScript::Wait { text: text.as_deref() }.source(), &running.origin));
+                let op = Op::Script(bound(AgentScript::Wait { text: text.as_deref() }.source(), &guard(page.as_ref())));
                 return vec![Effect::Run { run: running.run, tab: running.tab, op }];
             }
             return Vec::new();
@@ -516,24 +513,20 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         Some(Banner { text, buttons, asking, prompt })
     }
 
-    /// A tab a page opened from one the agent used, which counts against its cap.
     pub fn opened(&mut self, key: K) {
         if let Some(session) = self.active.as_mut().and_then(|a| a.session.as_mut()) {
             session.opened(key);
         }
     }
 
-    /// Whether a page of a tab the agent used may open another: its tabs count against `MAX_TABS`.
     pub fn room(&self) -> bool {
         self.active.as_ref().and_then(|a| a.session.as_ref()).is_none_or(Session::room)
     }
 
-    /// Where the approved agent works; `None` before the user approved it.
     pub fn mode(&self) -> Option<Mode> {
         self.active.as_ref().and_then(|a| a.session.as_ref()).map(|s| s.mode)
     }
 
-    /// Whether the setting the session's mode needs was turned off.
     fn mode_off(&self, ctx: &Ctx<K>) -> bool {
         match self.mode() {
             Some(Mode::Profile) => !ctx.profile_on,
@@ -681,7 +674,6 @@ fn bound(source: String, guard: &str) -> String {
     format!("if (!({guard})) return '';\n{source}")
 }
 
-/// The tabs the session works on: the agent's window, or in `Mode::Tabs` the user's.
 fn pages<'a, K>(session: Option<&Session<K>>, ctx: &Ctx<'a, K>) -> &'a [Page<K>] {
     match session.map(|s| s.mode) {
         Some(Mode::Tabs) => ctx.yours,
@@ -959,7 +951,7 @@ mod tests {
         assert_eq!(e, vec![Effect::Show(true)]);
         assert!(c.banner().unwrap().text.starts_with("A page the agent uses tried"), "never worded as the agent's own request");
         let e = ans(&mut c, Choice::Allow, &ctx(&[], 2100));
-        assert!(runs(&e).iter().any(|(_, tab, op)| *tab == Some(3) && matches!(op, Op::Load(u) if u.as_str() == "https://other.test/x")));
+        assert!(runs(&e).iter().any(|(_, tab, op)| *tab == Some(3) && matches!(op, Op::Follow(u) if u.as_str() == "https://other.test/x")));
     }
 
     #[test]
@@ -1013,6 +1005,15 @@ mod tests {
         assert_eq!(runs(&c.tick(&ctx(&tabs, 4200)))[0].0, run);
         let e = c.raw(run, Raw::Script(String::new()), &ctx(&tabs, 5001));
         assert!(matches!(&replies(&e)[0].1, Outcome::Text(t) if t.contains("timed out")));
+
+        let e = c.call(1, None, Tool::WaitFor { tab: 1, text: None, ms: 1000 }, "x", &ctx(&tabs, 6000));
+        let run = runs(&e)[0].0;
+        let e = c.raw(run, Raw::Script("1".into()), &ctx(&tabs, 7001));
+        assert_eq!(replies(&e)[0].1, Outcome::Text(TIMED_OUT.into()), "a reply after the deadline is late");
+
+        c.call(1, None, Tool::WaitFor { tab: 1, text: None, ms: 1000 }, "y", &ctx(&tabs, 8000));
+        let e = c.tick(&ctx(&tabs, 9000));
+        assert_eq!(replies(&e)[0], ("y", Outcome::Text(TIMED_OUT.into())), "the wait ends at its deadline");
     }
 
     #[test]

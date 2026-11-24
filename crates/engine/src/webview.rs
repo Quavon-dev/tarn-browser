@@ -178,6 +178,7 @@ struct Queued {
 }
 
 impl WebView {
+    /// `features.filtered` picks the profile's rule set with ad, tracker and cookie-banner blocking, off for paused sites.
     pub fn new(
         host: &Host,
         data: &DataStore,
