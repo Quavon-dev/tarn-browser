@@ -152,9 +152,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
-- The Android APK on GitHub installs: it is now signed (`Tarn-<tag>-android.apk`, fingerprint in
-  `SECURITY.md`) instead of shipped unsigned, which Android refused as "package appears to be
-  invalid" (#106).
+- The Android APK on GitHub is no longer shipped unsigned, which Android refused as "package appears
+  to be invalid" (#106): releases carry `Tarn-<tag>-android.apk`, signed with the sideload key
+  whose fingerprint `SECURITY.md` lists, once that key is set up.
 - A single word with non-ASCII letters, such as `übersetzer`, is searched for instead of opened as
   a site named `xn--bersetzer-p9a`.
 - Retry and Reload now work on a tab whose first page never loaded (for example a router's page

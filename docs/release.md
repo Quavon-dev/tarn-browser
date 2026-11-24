@@ -49,7 +49,7 @@ feeds ("Signing in CI") and publishes a GitHub release with:
 - `SHA256SUMS` for every file.
 
 Nothing is published until a maintainer approves the run's `release-signing` deployments (`sign`,
-and `sign-android` when the run built Android). Every build
+and `sign-android` when the run built Android with a pinned fingerprint). Every build
 job first runs `scripts/check-version.sh <tag>` (the macOS build skips it for engine updates, every
 job for nightly builds), so a release tag needs the same version in the root, `linux/` and `mobile/`
 manifests, `mobile/app/nsh.json`, the Android Gradle file, the RPM spec and the PKGBUILD. Engine
@@ -126,16 +126,19 @@ and:
    installer (`scripts/windows-feed.sh`);
 5. deletes the keychain and the key files.
 
-Android installs no unsigned APK. When the run built Android and `fuzz` and `deny` passed, the
-`sign-android` job, which runs no build code and checks out nothing, enters the same environment,
-aligns the `android` job's APK
-(`zipalign -P 16`) and signs it with `apksigner` from the pinned build-tools and the sideload key
-(`ANDROID_SIDELOAD_*`). It
-publishes `Tarn-<tag>-android.apk` only when the signature's single certificate matches
-`ANDROID_SIDELOAD_CERT_SHA256` in `release.yml`, the fingerprint `SECURITY.md` lists, and deletes
-the keystore when it ends. Nightly and release APKs share this key and the package name, so a
-nightly APK installs as an update over a sideloaded release. A release needs this job's
-`release-signing` deployment approved as well as `sign`'s.
+Android installs no unsigned APK. When the run built Android, `fuzz` and `deny` passed and
+`ANDROID_SIDELOAD_CERT_SHA256` in `release.yml` is set, the `sign-android` job, which runs no build
+code and checks out nothing, enters the same environment and signs the `android` job's APK with
+`apksigner` (build-tools 36.0.0 from the runner image, which also aligns native libraries to
+16 KiB pages) and the sideload key (`ANDROID_SIDELOAD_*`). `Tarn-<tag>-android.apk` is published
+only when the signature's single certificate matches that pin, and the keystore is deleted when
+the job ends. Pin the fingerprint in `release.yml` and `SECURITY.md` in the same commit, before
+the first release with an APK. While the pin is empty the job is skipped, the `android` job warns
+and the release carries no APK; a pin without the secrets, or a certificate that differs, fails
+the run. Like `sign`'s files, the signed APK is a run artifact before it is published, which
+anyone who can read the run may download. Nightly and release APKs share this key and the package
+name, so a nightly APK installs as an update over a sideloaded release. With a pin set, a release
+needs this job's `release-signing` deployment approved as well as `sign`'s.
 
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
 `publish` publishes the release, marks the highest published version as the latest release (an older
@@ -152,9 +155,9 @@ To release from GitHub, raise the version in every client in a pull request and 
 both; that section becomes the release notes), merge it, wait for its CI on `main`, then run Actions
 › Start release (tick "Security release" for a critical one). `start-release.yml` checks that CI
 passed on `main`'s latest commit, that every version file carries the same version and that
-`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's two
-`release-signing` deployments, `sign-android` and `sign`, once its builds have finished (decline
-neither: `assets` needs both): the `sign` job creates the tag
+`v<version>` does not exist, then calls `release.yml` for every client. Approve the run's
+`release-signing` deployments, `sign` and (once the Android fingerprint is pinned) `sign-android`,
+once its builds have finished (decline neither: `assets` needs both): the `sign` job creates the tag
 `v<version>` with the update app (the tag ruleset lets the app create `v*` tags, not GitHub
 Actions), signs, and the release is published a few minutes later. If a later job fails after the
 tag exists, re-run the failed jobs; to start over, a maintainer deletes the tag first.

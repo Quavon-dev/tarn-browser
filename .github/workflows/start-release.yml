@@ -50,7 +50,7 @@ jobs:
           [[ "$ci" == "completed success" ]] || { echo "::error::CI on $COMMIT is '${ci:-missing}'; wait for it to pass"; exit 1; }
           echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "Releasing $COMMIT as $tag. Approve the release-signing deployments of this run (sign and sign-android) once its builds finish." >> "$GITHUB_STEP_SUMMARY"
+          echo "Releasing $COMMIT as $tag. Approve the release-signing deployments of this run (sign, and sign-android once the Android key is pinned) when its builds finish." >> "$GITHUB_STEP_SUMMARY"
 
   release:
     needs: check
