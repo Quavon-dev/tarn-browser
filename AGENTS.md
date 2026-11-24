@@ -213,6 +213,14 @@ Security and privacy
    deployment, in place of a maintainer's signed tag. Mobile store signing and uploads may run in
    protected store-publishing environments, separately from builds, after release checksum and
    provenance verification. Store credentials never reach build jobs, pull requests or nightly builds.
+   Exception for local agent control (threat model S22): desktop Tarn may expose one local-only
+   IPC listener per running data directory for agent control. It is off by default, opens only
+   after the user opts in, and accepts connections only from the same OS user account. Each
+   connection needs explicit approval in Tarn before receiving browser data or controlling a
+   tab. It may use only a dedicated throwaway profile at Strict with per-site approval. Turning
+   the setting off closes the listener and ends the session, including profile cleanup. This
+   exception permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge
+   or new outbound request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
