@@ -631,6 +631,9 @@ mod tests {
         assert!(matches!(kind("hello"), Some(Input::Search(_))));
         assert!(matches!(kind("übersetzer"), Some(Input::Search(_))));
         assert!(matches!(kind("xn--bersetzer-p9a"), Some(Input::Search(_))));
+        for s in ["intranet:3000/x", "übersetzer:3000/x", "xn--bersetzer-p9a:3000/x"] {
+            assert!(matches!(kind(s), Some(Input::Search(_))), "{s}");
+        }
         assert!(matches!(kind("what is a.b"), Some(Input::Search(_))));
         assert!(matches!(kind("mailto:a@example.com"), Some(Input::External(_))));
         assert_eq!(kind("   "), None);
