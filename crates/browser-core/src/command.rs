@@ -208,10 +208,9 @@ fn host_like(input: &str) -> Option<Url> {
     if host == "localhost" || host.ends_with(".localhost") || bare.parse::<IpAddr>().is_ok() {
         return Some(local);
     }
-    let tld = host.rsplit('.').next()?;
-    let has_tld = host.contains('.') && tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic());
-    let punycode_tld = tld.starts_with("xn--");
-    (has_tld || punycode_tld).then(|| Url::parse(&format!("https://{input}")).ok())?
+    let (_, tld) = host.rsplit_once('.')?;
+    let has_tld = (tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())) || tld.starts_with("xn--");
+    has_tld.then(|| Url::parse(&format!("https://{input}")).ok())?
 }
 
 pub const GLYPHS: &[(&str, &str)] = &[
@@ -605,6 +604,7 @@ mod tests {
         assert_eq!(nav("app.localhost:5173"), "http://app.localhost:5173/");
         assert_eq!(nav("example.com:8443/x"), "https://example.com:8443/x");
         assert_eq!(nav("münchen.de"), "https://xn--mnchen-3ya.de/");
+        assert_eq!(nav("пример.рф"), "https://xn--e1afmkfd.xn--p1ai/");
         assert_eq!(nav("about:blank"), "about:blank");
     }
 
@@ -629,6 +629,11 @@ mod tests {
         assert!(matches!(kind("rust lifetimes"), Some(Input::Search(_))));
         assert!(matches!(kind("re:invent"), Some(Input::Search(_))));
         assert!(matches!(kind("hello"), Some(Input::Search(_))));
+        assert!(matches!(kind("übersetzer"), Some(Input::Search(_))));
+        assert!(matches!(kind("xn--bersetzer-p9a"), Some(Input::Search(_))));
+        for s in ["intranet:3000/x", "übersetzer:3000/x", "xn--bersetzer-p9a:3000/x"] {
+            assert!(matches!(kind(s), Some(Input::Search(_))), "{s}");
+        }
         assert!(matches!(kind("what is a.b"), Some(Input::Search(_))));
         assert!(matches!(kind("mailto:a@example.com"), Some(Input::External(_))));
         assert_eq!(kind("   "), None);

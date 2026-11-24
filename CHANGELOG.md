@@ -115,6 +115,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- A single word with non-ASCII letters, such as `übersetzer`, is searched for instead of opened as
+  a site named `xn--bersetzer-p9a`.
 - Retry and Reload now work on a tab whose first page never loaded (for example a router's page
   that fails under Strict's HTTPS-only rule); they did nothing and left a blank page, also after
   the site was set to Standard.
