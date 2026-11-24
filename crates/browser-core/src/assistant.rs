@@ -1517,6 +1517,10 @@ mod tests {
             saved(&mut f, store).unwrap()
         });
         assert_ne!(fresh, Some(chat), "a deleted chat's id is never given again");
+        answered(&mut s, "Stale?", "Late.", 9 * MIN_SEND_INTERVAL_MS);
+        assert_eq!(saved(&mut s, store), None, "a window still holding the deleted chat cannot save it");
+        let kept = store.chat(me.profile, fresh.unwrap()).unwrap().unwrap();
+        assert_eq!(kept.turns.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(), ["New?", "Yes."], "the new chat is untouched");
         let mut one = Session::new(me, true).unwrap();
         answered(&mut one, "Only?", "Yes.", 0);
         let only = saved(&mut one, store).unwrap();

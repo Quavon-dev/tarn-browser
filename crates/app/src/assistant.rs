@@ -1236,10 +1236,16 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                                 .child(div().font_weight(FontWeight::MEDIUM).one_line(format!("/{name}")))
                                 .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(template.clone())),
                         )
-                        .on_click(cx.listener(move |b, _, _, cx| {
-                            b.assistant.slash_ix = at;
-                            b.pick_command(false, cx);
-                        }))
+                        .on_click({
+                            let typed = format!("/{name} ");
+                            cx.listener(move |b, _, _, cx| {
+                                b.assistant.input.update(cx, |i, cx| {
+                                    i.set_text(typed.clone(), cx);
+                                    i.append_selected("", cx);
+                                });
+                                cx.notify();
+                            })
+                        })
                     }),
                 ),
             )
