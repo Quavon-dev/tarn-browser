@@ -122,6 +122,11 @@ fn an_agent_script_answers_and_its_gate_stops_a_page_started_navigation() {
     let web = open(&state);
     let answer = ask(&state, "agent", json!({ "seq": 3, "body": "return document.querySelector('h1').innerText;" }), "agentAnswer");
     assert_eq!(answer, json!({ "seq": 3, "url": "http://page.test/", "text": "Title" }));
+    let guarded = |origin: &str| format!("if (location.origin !== \"{origin}\") return '';\nreturn document.querySelector('h1').innerText;");
+    let here = ask(&state, "agent", json!({ "seq": 4, "body": guarded("http://page.test") }), "agentAnswer");
+    assert_eq!(here["text"], "Title", "a script bound to the page's origin runs");
+    let elsewhere = ask(&state, "agent", json!({ "seq": 5, "body": guarded("http://other.test") }), "agentAnswer");
+    assert_eq!(elsewhere["text"], "", "a script checked for another origin answers nothing once the tab shows this one");
     let site = browser_core::agent::site_of(&Url::parse("http://page.test/").unwrap()).unwrap();
     *state.agent_sites.borrow_mut() = Some(HashSet::from([site]));
     let click = |href: &str| format!("const a = document.createElement('a'); a.href = '{href}'; document.body.append(a); a.click(); 'ok'");
