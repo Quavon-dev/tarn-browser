@@ -310,6 +310,10 @@ impl<D: Platform> Shell<D> {
         if allow { vec![Effect::Command(ask.tab, "reload", Value::Null)] } else { Vec::new() }
     }
 
+    pub fn has_extensions(&self) -> bool {
+        self.ext.rt.has_installs()
+    }
+
     /// Stops idle background pages and renews the network rules when a Once answer ends.
     pub fn extensions_tick(&mut self, now: Instant) -> Vec<Effect> {
         let (outs, expired) = self.ext.rt.tick(now);

@@ -464,27 +464,40 @@ impl Store {
     /// Adds `n` to the counter's total, to today's bucket (local time) and, with `host`, to that
     /// site's total; every profile's buckets older than the last seven days are dropped.
     pub fn count(&self, profile_id: Id, counter: Counter, n: i64, host: Option<&str>) -> Result<()> {
+        self.count_many(profile_id, counter, &[(host, n)])
+    }
+
+    pub fn count_many(&self, profile_id: Id, counter: Counter, items: &[(Option<&str>, i64)]) -> Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
         let column = counter.column();
+        let total: i64 = items.iter().map(|(_, n)| n).sum();
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
             &format!(
                 "INSERT INTO shield_stats (profile_id, seed, {column}) SELECT id, random() & 0x7fffffffffff, ?2 FROM profiles WHERE id = ?1
                  ON CONFLICT(profile_id) DO UPDATE SET {column} = {column} + ?2"
             ),
-            params![profile_id, n],
+            params![profile_id, total],
         )?;
         tx.execute(
             "INSERT INTO shield_daily (profile_id, day, counter, n) SELECT id, date('now', 'localtime'), ?2, ?3 FROM profiles WHERE id = ?1
              ON CONFLICT DO UPDATE SET n = n + excluded.n",
-            params![profile_id, column, n],
+            params![profile_id, column, total],
         )?;
         tx.execute("DELETE FROM shield_daily WHERE day < date('now', 'localtime', '-6 days')", [])?;
-        if let Some(host) = host.filter(|h| !h.is_empty() && h.len() <= 253) {
+        let mut sites = false;
+        for (host, n) in items {
+            let Some(host) = host.filter(|h| !h.is_empty() && h.len() <= 253) else { continue };
             tx.execute(
                 "INSERT INTO shield_sites (profile_id, host, n) SELECT id, ?2, ?3 FROM profiles WHERE id = ?1
                  ON CONFLICT DO UPDATE SET n = n + excluded.n",
                 params![profile_id, host, n],
             )?;
+            sites = true;
+        }
+        if sites {
             // A page can choose the hosts it is upgraded to, so only the busiest sites are kept.
             tx.execute(
                 "DELETE FROM shield_sites WHERE profile_id = ?1 AND host NOT IN
@@ -2112,6 +2125,34 @@ mod tests {
         }
         conn.pragma_update(None, "user_version", at as i64).unwrap();
         Store { conn, settings_rev: Default::default() }
+    }
+
+    #[test]
+    fn count_many_matches_repeated_count() {
+        let dump = |s: &Store| -> Vec<String> {
+            let mut rows = Vec::new();
+            for q in [
+                "SELECT profile_id || ':' || https_upgrades FROM shield_stats",
+                "SELECT counter || ':' || n FROM shield_daily",
+                "SELECT host || ':' || n FROM shield_sites ORDER BY host",
+            ] {
+                let mut stmt = s.conn.prepare(q).unwrap();
+                rows.extend(stmt.query_map([], |r| r.get::<_, String>(0)).unwrap().map(|r| r.unwrap()));
+            }
+            rows
+        };
+        let items = [(Some("a.test"), 2), (Some("b.test"), 3), (Some("a.test"), 1), (None, 4), (Some(""), 1)];
+        let one = Store::open_in_memory().unwrap();
+        let many = Store::open_in_memory().unwrap();
+        for s in [&one, &many] {
+            s.create_profile("P", "u1", false).unwrap();
+        }
+        for (host, n) in items {
+            one.count(1, Counter::HttpsUpgrades, n, host).unwrap();
+        }
+        many.count_many(1, Counter::HttpsUpgrades, &items).unwrap();
+        assert_eq!(dump(&one), dump(&many));
+        assert!(dump(&many).contains(&"a.test:3".to_owned()));
     }
 
     #[test]

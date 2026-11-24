@@ -136,7 +136,11 @@ pub(super) fn start(ui: Ui) {
         }
         run
     }));
-    drop(set_interval(TICK, move || ui.act(|s| s.extensions_tick(Instant::now()))));
+    drop(set_interval(TICK, move || {
+        if ui.read(|s| s.has_extensions()) {
+            ui.act(|s| s.extensions_tick(Instant::now()));
+        }
+    }));
 }
 
 fn page_view(ui: Ui, page: PageView, hidden: bool) -> impl IntoElement {

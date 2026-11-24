@@ -123,6 +123,10 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
     sleep
 }
 
+pub fn release_memory(closed: bool, was_active: bool, active: bool) -> bool {
+    closed || (was_active && !active)
+}
+
 /// How long the shown page may leave a ping unanswered before the shell offers Wait or Reload.
 pub const HANG_AFTER: Duration = Duration::from_secs(8);
 /// How often the shell pings the shown page with `page_scripts::PING`, which the page's own busy
@@ -171,6 +175,10 @@ impl<T: Copy + Eq> Hang<T> {
         (now.saturating_duration_since(from) >= HANG_AFTER).then_some(self.tab).flatten()
     }
 
+    pub fn hung_on(&self, active: Option<T>, now: Instant) -> bool {
+        active.is_some() && self.hung(now) == active
+    }
+
     /// Wait: the card goes until the page has stayed silent for another `HANG_AFTER`.
     pub fn wait(&mut self, now: Instant) {
         self.waited = Some(now);
@@ -200,6 +208,7 @@ mod tests {
         hang.wait(at(HANG_AFTER));
         assert_eq!(hang.hung(at(HANG_AFTER * 2 - PING)), None, "Wait hides the card");
         assert_eq!(hang.hung(at(HANG_AFTER * 2)), Some(1), "and it comes back while the page stays silent");
+        assert!(hang.hung_on(Some(1), at(HANG_AFTER * 2)) && !hang.hung_on(Some(2), at(HANG_AFTER * 2)) && !hang.hung_on(None, at(HANG_AFTER * 2)));
         hang.answered(1);
         assert_eq!(hang.hung(at(HANG_AFTER * 3)), None);
         assert!(hang.ping(1, at(HANG_AFTER * 3)));
@@ -326,5 +335,13 @@ mod tests {
         lc.keep(1);
         assert_eq!(lc.live().collect::<Vec<_>>(), [3, 2, 1]);
         assert_eq!(lc.activate(2), [1]);
+    }
+
+    #[test]
+    fn memory_is_released_after_closing_tabs_and_once_on_leaving_the_front() {
+        assert!(super::release_memory(true, true, true));
+        assert!(super::release_memory(false, true, false));
+        assert!(!super::release_memory(false, false, false), "once per stay in the background");
+        assert!(!super::release_memory(false, true, true));
     }
 }

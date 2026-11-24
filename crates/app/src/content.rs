@@ -796,17 +796,112 @@ type FogLine = (SharedString, Vec<(std::ops::Range<usize>, HighlightStyle)>);
 /// Columns, rows, animation step and theme generation of a cached frame.
 type FogKey = (usize, usize, u32, u32);
 
+type Input = Rc<std::cell::Cell<Option<Instant>>>;
+
+#[derive(Default)]
+pub(crate) struct Watch {
+    input: Input,
+    pointer: Rc<std::cell::Cell<Option<gpui::Point<gpui::Pixels>>>>,
+    keys: Option<gpui::Subscription>,
+    start: bool,
+}
+
+impl Watch {
+    pub(crate) fn fog(&self) -> Fog {
+        Fog { reduce: false, left: 0., motion: Motion::new(self.input.clone()), frame: None }
+    }
+
+    pub(crate) fn search_fx(&self) -> SearchFx {
+        SearchFx { reduce: false, motion: Motion::new(self.input.clone()) }
+    }
+
+    pub(crate) fn element(&mut self, start: bool, views: [gpui::EntityId; 2], window: &Window, cx: &mut Context<Browser>) -> impl IntoElement + use<> {
+        fn on<E: gpui::MouseEvent>(window: &mut Window, input: &Input, views: [gpui::EntityId; 2], counts: impl Fn(&E) -> bool + 'static) {
+            let input = input.clone();
+            window.on_mouse_event(move |event: &E, phase, _, cx| {
+                if phase == gpui::DispatchPhase::Capture && counts(event) && input.replace(Some(Instant::now())).is_none() {
+                    views.into_iter().for_each(|id| cx.notify(id));
+                }
+            });
+        }
+        if std::mem::replace(&mut self.start, start) != start && start {
+            self.input.set(Some(Instant::now()));
+        }
+        if self.keys.is_none() {
+            let (input, handle) = (self.input.clone(), window.window_handle());
+            self.keys = Some(cx.observe_keystrokes(move |_, _, window, cx| {
+                if window.window_handle() == handle && input.replace(Some(Instant::now())).is_none() {
+                    views.into_iter().for_each(|id| gpui::App::notify(cx, id));
+                }
+            }));
+        }
+        let (input, pointer) = (self.input.clone(), self.pointer.clone());
+        canvas(
+            |_, _, _| {},
+            move |_, (), window, _| {
+                let pointer = pointer.clone();
+                on(window, &input, views, move |e: &gpui::MouseMoveEvent| {
+                    let moved =
+                        pointer.get().is_some_and(|p| browser_core::effects::moved((p.x.into(), p.y.into()), (e.position.x.into(), e.position.y.into())));
+                    if moved || pointer.get().is_none() {
+                        pointer.set(Some(e.position));
+                    }
+                    moved
+                });
+                on(window, &input, views, |_: &gpui::MouseDownEvent| true);
+                on(window, &input, views, |_: &gpui::ScrollWheelEvent| true);
+            },
+        )
+        .absolute()
+    }
+}
+
+struct Motion {
+    input: Input,
+    clock: browser_core::effects::Clock,
+    ticking: Rc<std::cell::Cell<bool>>,
+    active: bool,
+}
+
+impl Motion {
+    fn new(input: Input) -> Self {
+        Motion { input, clock: Default::default(), ticking: Default::default(), active: false }
+    }
+
+    fn elapsed<V: 'static>(&mut self, run: bool, frame: std::time::Duration, window: &Window, cx: &mut Context<V>) -> std::time::Duration {
+        let now = Instant::now();
+        let active = engine::app_active() && window.is_window_active();
+        if active && !self.active {
+            self.input.set(Some(now));
+        }
+        self.active = active;
+        if !self.input.get().is_some_and(|at| browser_core::effects::awake(now - at)) {
+            self.input.set(None);
+        }
+        let Some(elapsed) = self.clock.tick(now, run && active && self.input.get().is_some()) else { return self.clock.held() };
+        if !self.ticking.replace(true) {
+            let ticking = self.ticking.clone();
+            cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(frame).await;
+                ticking.set(false);
+                this.update(cx, |_, cx| cx.notify()).ok();
+            })
+            .detach();
+        }
+        elapsed
+    }
+}
+
 /// The ASCII cloud bank behind the start card, redrawn every `fog::FRAME`; its own view, so
 /// windows that observe the `Browser` are not notified. One still frame while motion is reduced
 /// or the theme asks for it; none when the theme turns it off. Paused unless its window is the
-/// active one of the active app, so a frame redraws one window only.
-#[derive(Default)]
+/// active one of the active app, so a frame redraws one window only, and held after
+/// `effects::IDLE` without input.
 pub struct Fog {
     pub(crate) reduce: bool,
     /// The window's width left of the content area, which the fog does not cover.
     pub(crate) left: f32,
-    started: Option<Instant>,
-    ticking: bool,
+    motion: Motion,
     frame: Option<(FogKey, Vec<FogLine>)>,
 }
 
@@ -817,24 +912,8 @@ impl gpui::Render for Fog {
         let (cols, rows) = (((f32::from(size.width) - self.left).max(0.) / FOG_FONT.1) as usize, (f32::from(size.height) / FOG_LINE) as usize);
         let mode = Theme::fog_mode();
         let still = self.reduce || mode != browser_core::theme::Fog::On;
-        let active = engine::app_active() && window.is_window_active();
-        let step = match (still, active) {
-            (true, _) => 0,
-            (false, true) => fog::step(self.started.get_or_insert_with(Instant::now).elapsed()),
-            (false, false) => self.frame.as_ref().map_or(0, |(key, _)| key.2),
-        };
-        if !still && !self.ticking && active {
-            self.ticking = true;
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(std::time::Duration::from_secs_f32(fog::FRAME)).await;
-                this.update(cx, |fog, cx| {
-                    fog.ticking = false;
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
+        let elapsed = self.motion.elapsed(!still, std::time::Duration::from_secs_f32(fog::FRAME), window, cx);
+        let step = if still { 0 } else { fog::step(elapsed) };
         let key = (cols, rows, step, Theme::generation());
         if mode == browser_core::theme::Fog::Off {
             self.frame = None;
@@ -892,33 +971,19 @@ const SEARCH_ROW: f32 = 54.;
 
 /// The theme's search bar effect behind the start and command card (`browser_core::effects`),
 /// redrawn at `effects::FPS` while its window is the active one of the active app; its own view,
-/// like `Fog`. One still frame while motion is reduced or the window is in the background.
-#[derive(Default)]
+/// like `Fog`, and held like it. One still frame while motion is reduced.
 pub struct SearchFx {
     pub(crate) reduce: bool,
-    started: Option<Instant>,
-    ticking: bool,
+    motion: Motion,
 }
 
 impl gpui::Render for SearchFx {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use browser_core::effects::{self, Effect};
         let effect = Theme::search_effect();
-        let animate = !self.reduce && effect.fps() > 0. && engine::app_active() && window.is_window_active();
-        let t = if animate { effects::clock(self.started.get_or_insert_with(Instant::now).elapsed()) } else { effects::STILL };
-        if animate && !self.ticking {
-            self.ticking = true;
-            let frame = std::time::Duration::from_secs_f32(1. / effect.fps());
-            cx.spawn(async move |this, cx| {
-                cx.background_executor().timer(frame).await;
-                this.update(cx, |fx, cx| {
-                    fx.ticking = false;
-                    cx.notify();
-                })
-                .ok();
-            })
-            .detach();
-        }
+        let animate = !self.reduce && effect.fps() > 0.;
+        let elapsed = self.motion.elapsed(animate, std::time::Duration::from_secs_f32(1. / effect.fps().max(1.)), window, cx);
+        let t = if animate { effects::clock(elapsed + std::time::Duration::from_secs_f32(effects::STILL)) } else { effects::STILL };
         let (side, rise) = effects::reach(effect, SEARCH_ROW);
         let color = Theme::search_color();
         let layer = div().absolute().top(px(-rise)).left(px(-side)).right(px(-side)).bottom(px(-side)).overflow_hidden();

@@ -21,6 +21,21 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Hand freed memory back to the system (2026-11-24)
+
+What it does: once a minute, after tabs closed or slept, and once when Tarn leaves the front, the
+shell returns memory it freed to the system, so it holds less while idle.
+Shared API: `engine::lifecycle::release_memory(closed, was_active, active)`; macOS calls
+`platform::memory::release_free`, Linux `engine::trim::release_free`.
+Reference: `crates/app/src/shared.rs` (minute tick), `linux/src/ui.rs` (`SCHEDULE_TICK`).
+
+- [x] Windows — same code in `crates/app`; the Windows heap decommits free pages itself
+- [x] Linux — `malloc_trim` through `engine::trim`
+- [ ] iOS — call `malloc_zone_pressure_relief` from the shell's minute tick or memory warning in
+  `mobile/app`
+- [ ] Android — no allocator call needed beyond `onTrimMemory`; wire the decision into
+  `mobile/android` once the shell has a minute tick
+
 ### Client certificate picker (2026-11-23)
 
 What it does: when the page's own site asks for a TLS client certificate, a tab-modal prompt lists

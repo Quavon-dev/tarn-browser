@@ -445,9 +445,13 @@ fn peek_item(b: &Browser) -> Option<PeekItem> {
     Some(PeekItem { view, tab, title: browser_core::text::bounded_title(&peek.title), host, insecure })
 }
 
+#[cfg(test)]
 pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
+    snapshot_with(b, web_shown, &b.heavy_tabs())
+}
+
+pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> Snapshot {
     let key = b.model.active;
-    let heavy = b.heavy_tabs();
     let page = b.active_page().cloned().unwrap_or_default();
     let host = b.site_host().unwrap_or_default();
     let profile_id = b.model.profile().map(|p| p.1);
@@ -479,10 +483,10 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         tab: key.is_some(),
         secure: !page.url.starts_with("http:"),
         private,
-        rows: rows_with(b, &heavy),
-        strip: strip_rows(b, &heavy),
+        rows: rows_with(b, heavy),
+        strip: strip_rows(b, heavy),
         tabs_top: b.tabs_on_top(),
-        tiles: tiles_with(b, &heavy),
+        tiles: tiles_with(b, heavy),
         views: views(b, web_shown && !blank),
         split: split.filter(|_| web_shown).map(|s| split_view(b, s)),
         url: page.url.clone(),
@@ -497,7 +501,7 @@ pub fn snapshot(b: &Browser, web_shown: bool) -> Snapshot {
         zoom: if page.zoom > 0.0 { page.zoom } else { 1.0 },
         found: page.found,
         error: page.error.clone(),
-        hung: b.model.active.is_some() && b.hang.hung(std::time::Instant::now()) == b.model.active,
+        hung: b.hung(),
         blocked: page.blocked.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),

@@ -1,13 +1,53 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::LazyLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use nsh_core::platform::Lifecycle;
 use nsh_core::prelude::*;
 use nsh_core::{LayoutAnimation, LayoutCurve, LayoutTransition};
 
 static REDUCED: AtomicBool = AtomicBool::new(false);
+static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+static TOUCHED: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Clone, Copy, Default)]
+struct Woke;
+
+pub fn touched() {
+    let asleep = !browser_core::effects::awake(since_input());
+    TOUCHED.store(EPOCH.elapsed().as_millis() as u64, Ordering::Relaxed);
+    if asleep && let Some(woke) = try_global::<Woke>() {
+        Owner::detached().run(|| drop(spawn(async move { woke.set(Woke) })));
+    }
+}
+
+fn since_input() -> Duration {
+    EPOCH.elapsed().saturating_sub(Duration::from_millis(TOUCHED.load(Ordering::Relaxed)))
+}
+
+thread_local! {
+    static POINTER: Cell<Option<(f32, f32)>> = const { Cell::new(None) };
+}
+
+fn pointer_moved(e: &MouseEvent) {
+    let at = (e.page_position.x.0, e.page_position.y.0);
+    let moved = POINTER.get().is_some_and(|from| browser_core::effects::moved(from, at));
+    if moved || POINTER.get().is_none() {
+        POINTER.set(Some(at));
+    }
+    if moved {
+        touched();
+    }
+}
+
+pub fn watching(view: View) -> View {
+    view.on_mouse_move(pointer_moved)
+        .on_mouse_up(|_: &MouseEvent| touched())
+        .on_wheel(|_: &WheelEvent| touched())
+        .on_touch(|_: &nsh_core::TouchEvent| touched())
+}
 
 #[derive(Clone, Copy, Default)]
 struct Revision;
@@ -31,15 +71,29 @@ pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
 }
 
-pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick: impl Fn() + Clone + 'static) {
+pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick: impl Fn(Duration) + Clone + 'static) {
     let timer: Rc<RefCell<Option<Spawned<()>>>> = Rc::default();
+    let clock = Rc::new(RefCell::new(browser_core::effects::Clock::default()));
+    let rest = signal(0u32);
+    touched();
     effect(move || {
+        global::<Woke>().get();
+        rest.get();
+        clock.borrow_mut().tick(Instant::now(), false);
         if let Some(old) = timer.borrow_mut().take() {
             old.cancel();
         }
-        if animates(reduced(), lifecycle()) && running() {
-            let tick = tick.clone();
-            *timer.borrow_mut() = Some(untracked(|| set_interval(period, tick)));
+        if animates(reduced(), lifecycle()) && running() && browser_core::effects::awake(since_input()) {
+            let (clock, tick) = (clock.clone(), tick.clone());
+            *timer.borrow_mut() = Some(untracked(|| {
+                set_interval(period, move || {
+                    let held = clock.borrow_mut().tick(Instant::now(), browser_core::effects::awake(since_input()));
+                    match held {
+                        Some(held) => tick(held),
+                        None => rest.update(|n| *n += 1),
+                    }
+                })
+            }));
         }
     });
 }
@@ -156,6 +210,12 @@ mod tests {
         assert!(!animates(true, Lifecycle::Active));
         assert!(!animates(false, Lifecycle::Inactive));
         assert!(!animates(false, Lifecycle::Background));
+    }
+
+    #[test]
+    fn touching_resets_the_time_since_input() {
+        touched();
+        assert!(since_input() < Duration::from_secs(1));
     }
 
     #[test]

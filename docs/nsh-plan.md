@@ -254,8 +254,8 @@ tests use a test-signed bundle and no network).
 backdrop gradient in the brand mark's lake blues, an inset sidebar card with the blue gradient,
 lake-blue 16 % edge and elevation shadow, a Safari-style address capsule that shows the host at rest (`Not Secure — host`
 in amber for http, long hosts cut at the start), a Spotlight-style start card with the brand mark over
-the drifting ASCII fog (`tarn_nsh_shared::fog`, a canvas redrawn every `browser_core::fog::FRAME`, one
-still frame under the desktop's reduced motion), an accent edge on the active tab row, an accent-tinted New Tab
+the drifting ASCII fog (`tarn_nsh_shared::fog`, a canvas redrawn every `browser_core::fog::FRAME` that holds its frame after `browser_core::effects::IDLE`
+without input, one still frame under the desktop's reduced motion), an accent edge on the active tab row, an accent-tinted New Tab
 pill, a tab close button that slides in on hover (`ElementRef::animate_layout`), flat surface cards for prompts, banners and the find bar, and System Settings-style panels. Its tokens are
 mirrored by name in `nsh-shared/src/theme.rs`, shared with the mobile app (a test checks them against the GPUI source) and the
 icons and brand mark are `crates/ui`'s own files. Deviations:

@@ -393,6 +393,9 @@ pub fn navigated(profile: Id, tab: u64) {
 
 pub fn tick() {
     let effects = with(|rt| {
+        if !rt.rt.has_installs() {
+            return Vec::new();
+        }
         let (effects, expired) = rt.rt.tick(Instant::now());
         if expired {
             rt.push_all_rules();

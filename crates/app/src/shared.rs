@@ -242,13 +242,19 @@ pub(crate) fn start(cx: &mut App) -> bool {
     })
     .detach();
     cx.spawn(async move |cx| {
+        let mut was_active = true;
         loop {
             cx.background_executor().timer(MINUTE).await;
             let ticked = cx.update(|cx| {
+                let mut closed = false;
                 each(cx, |b, window, cx| {
-                    b.sleep_idle_tabs(cx);
+                    closed |= b.sleep_idle_tabs(cx);
                     b.follow_schedule(window, cx);
                 });
+                let active = engine::app_active();
+                if engine::lifecycle::release_memory(closed, std::mem::replace(&mut was_active, active), active) {
+                    platform::memory::release_free();
+                }
                 #[cfg(any(feature = "chromium", windows))]
                 count_chromium_blocks(&self::core(cx));
             });
@@ -293,21 +299,30 @@ pub(crate) fn start(cx: &mut App) -> bool {
 pub(crate) fn count_chromium_blocks(core: &AppCore) {
     let blocked = engine::chromium::take_blocked();
     let Some(profile_id) = core.chromium_profile.get() else { return };
-    for (host, n) in blocked {
-        core.disk.count(profile_id, store::Counter::ChromiumRequests, n, Some(&host)).ok();
+    if blocked.is_empty() {
+        return;
     }
+    let items: Vec<_> = blocked.iter().map(|(host, n)| (Some(host.as_str()), *n)).collect();
+    core.disk.count_many(profile_id, store::Counter::ChromiumRequests, &items).ok();
     crate::shield_card::touch();
 }
 
 /// Each profile has its own Chromium profile on Windows, so each counts its own blocks.
 #[cfg(windows)]
 pub(crate) fn count_chromium_blocks(core: &AppCore) {
+    let mut counted = false;
     for (&(private, profile_id), rt) in core.profiles.borrow().iter() {
-        for (host, n) in rt.data.take_blocked() {
-            core.store(private).count(profile_id, store::Counter::ChromiumRequests, n, Some(&host)).ok();
+        let blocked = rt.data.take_blocked();
+        if blocked.is_empty() {
+            continue;
         }
+        let items: Vec<_> = blocked.iter().map(|(host, n)| (Some(host.as_str()), *n)).collect();
+        core.store(private).count_many(profile_id, store::Counter::ChromiumRequests, &items).ok();
+        counted = true;
     }
-    crate::shield_card::touch();
+    if counted {
+        crate::shield_card::touch();
+    }
 }
 
 fn toast_front(tone: browser_core::toast::Tone, text: impl Into<gpui::SharedString>, action: Option<crate::toast::Action>, cx: &mut App) {

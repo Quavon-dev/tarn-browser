@@ -354,6 +354,9 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 - **Hung pages:** the hung-page card's Reload builds a new view; Chromium may place it in the same
   renderer process as the hung page when the site matches, and CEF offers no call to end one view's
   renderer, so such a page can stay hung until it lets go.
+- **Window buffers:** on macOS a browser window keeps two Metal drawables instead of GPUI's three
+  (`Host::double_buffer`). GPUI's DXGI swap chain is created with three buffers and resized with
+  the same count, so a Windows window keeps three until GPUI lets the count be set.
 - **AppContainer:** may not be feasible with WebView2 and GPUI's DirectX device; then S12 is
   weaker on Windows than on macOS.
 - **Request filtering cost:** `WebResourceRequested` for every request is slower than compiled

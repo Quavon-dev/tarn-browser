@@ -149,6 +149,7 @@ pub struct Browser {
     pub processes: HashMap<TabKey, i32>,
     pub samples: crate::memory::Samples,
     pub used: HashMap<TabKey, std::time::Instant>,
+    pub heavy_shown: HashSet<TabKey>,
     pub playing: HashSet<TabKey>,
     pub player: browser_core::media::Player,
     /// The tab and committed address Insert Snippet opened on.
@@ -247,6 +248,7 @@ impl Browser {
             processes: HashMap::new(),
             samples: Default::default(),
             used: HashMap::new(),
+            heavy_shown: HashSet::new(),
             playing: HashSet::new(),
             player: Default::default(),
             snippet_page: None,

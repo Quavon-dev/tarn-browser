@@ -1,5 +1,5 @@
 use std::ops::Range;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use nsh_core::canvas::CanvasTextBaseline;
 use nsh_core::prelude::*;
@@ -50,8 +50,7 @@ pub fn fog(frame: impl Fn(usize, usize, Duration) -> Vec<Row> + 'static, period:
 fn layer(frame: impl Fn(usize, usize, Duration) -> Vec<Row> + 'static, period: Duration, moving: bool) -> View {
     let size = signal((0f32, 0f32));
     let elapsed = signal(Duration::ZERO);
-    let start = Instant::now();
-    crate::motion::while_active(period, move || moving, move || elapsed.set(start.elapsed()));
+    crate::motion::while_active(period, move || moving, move |held| elapsed.set(held));
     let painter = move || {
         let (width, height) = size.get();
         let (cols, rows) = grid(width, height);

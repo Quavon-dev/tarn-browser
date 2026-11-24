@@ -210,15 +210,20 @@ impl Browser {
     /// Keeps `seen` even when sleeping is Never, since the heavy marker ranks by it. Unless sleeping
     /// is Never, background tabs over their window's equal part of the memory budget sleep too, the
     /// heaviest first; pinned tabs only for the budget, once unused for `PINNED_IDLE`.
-    pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) -> bool {
         // Short of memory, a tab left for five minutes sleeps; the web processes are what holds the memory.
         let max_idle = browser_core::settings::max_idle(crate::prefs::sleep_after(&self.core.disk), platform::memory::pressure());
-        let (now, keys) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>());
+        let (now, keys, heavy) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>(), self.heavy.clone());
+        let seen = self.seen.len();
         self.seen.retain(|k, _| keys.contains(k));
+        let closed = self.seen.len() < seen;
         self.typed_in.retain(|k| keys.contains(k));
         let mut background = Vec::new();
         for key in keys {
-            let pinned = self.store(key.private).tab(key.id).is_ok_and(|t| t.kind != TabKind::Ephemeral);
+            let pinned = match self.model.tab(key) {
+                Some(t) => t.kind != TabKind::Ephemeral,
+                None => self.store(key.private).tab(key.id).is_ok_and(|t| t.kind != TabKind::Ephemeral),
+            };
             let on_screen = self.model.active == Some(key) || self.in_split(key);
             let seen = self.seen.entry(key).or_insert(now);
             if on_screen {
@@ -232,7 +237,7 @@ impl Browser {
                 self.sleep_unless_playing(key, cx);
             }
         }
-        self.sample_processes(cx);
+        self.sample_processes();
         if max_idle.is_some() {
             let costs = self.tab_costs();
             // A tab kept for typed input counts like a playing one, so the budget sleeps others instead.
@@ -243,6 +248,10 @@ impl Browser {
             }
         }
         self.probe_heavy(cx);
+        if self.heavy != heavy {
+            cx.notify();
+        }
+        closed
     }
 
     /// Asks each awake background tab, in every space for the memory budget, whether it is playing,
@@ -564,7 +573,8 @@ impl Browser {
     fn ping_page(&mut self, cx: &mut Context<Self>) {
         let now = Instant::now();
         let was = self.hang.hung(now);
-        match self.model.active.and_then(|k| Some((k, self.views.get(&k)?.clone()))) {
+        let active = engine::app_active();
+        match self.model.active.filter(|_| active).and_then(|k| Some((k, self.views.get(&k)?.clone()))) {
             Some((key, view)) if self.hang.ping(key, now) => {
                 let (tx, mut rx) = mpsc::unbounded();
                 view.ping(move || drop(tx.unbounded_send(())));

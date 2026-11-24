@@ -5,7 +5,6 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::Hash;
 use std::time::{Duration, Instant};
 
-use gpui::Context;
 use platform::memory::Usage;
 
 use crate::browser::{Browser, TabKey};
@@ -86,10 +85,9 @@ impl Browser {
     }
 
     /// Samples every tab's process; the CPU figures come from the change between samples.
-    pub(crate) fn sample_processes(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sample_processes(&mut self) {
         let live = self.tab_processes().into_iter().filter_map(|(_, pid)| Some((pid, platform::memory::usage(pid)?))).collect();
         self.samples.record(live, Instant::now());
-        cx.notify();
     }
 
     pub(crate) fn tab_costs(&self) -> HashMap<TabKey, Cost> {

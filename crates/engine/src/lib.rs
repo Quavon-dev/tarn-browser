@@ -18,6 +18,8 @@ pub mod request_filter;
 pub mod startup;
 pub mod tarn_ext;
 pub mod translation;
+#[cfg(target_os = "linux")]
+pub mod trim;
 pub mod view_policy;
 
 #[cfg(target_os = "macos")]

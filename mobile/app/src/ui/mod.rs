@@ -680,10 +680,13 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
-    set_interval(engine::lifecycle::PING_EVERY, move || ui.run_quietly(|s| s.ping_page(Instant::now())));
+    set_interval(engine::lifecycle::PING_EVERY, move || {
+        let active = untracked(lifecycle) == nsh_core::platform::Lifecycle::Active;
+        ui.run_quietly(|s| s.ping_page(Instant::now(), active));
+    });
     media::poll(ui);
     extensions::start(ui);
-    view()
+    tarn_nsh_shared::motion::watching(view())
         .flex_1()
         .pt_safe_area()
         .px_safe_area()

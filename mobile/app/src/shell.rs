@@ -988,9 +988,9 @@ impl<D: Platform> Shell<D> {
         self.model.active.map(|k| vec![Effect::Command(k, name, args)]).unwrap_or_default()
     }
 
-    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`.
-    pub fn ping_page(&mut self, now: std::time::Instant) -> Vec<Effect> {
-        match self.model.active {
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY` while `active`.
+    pub fn ping_page(&mut self, now: std::time::Instant, active: bool) -> Vec<Effect> {
+        match self.model.active.filter(|_| active) {
             Some(key) if self.hang.ping(key, now) => vec![Effect::Command(key, "ping", serde_json::json!({ "seq": 0 }))],
             Some(_) => Vec::new(),
             None => {
@@ -1001,7 +1001,7 @@ impl<D: Platform> Shell<D> {
     }
 
     pub fn hung(&self) -> bool {
-        self.model.active.is_some() && self.hang.hung(std::time::Instant::now()) == self.model.active
+        self.hang.hung_on(self.model.active, std::time::Instant::now())
     }
 
     pub fn wait_for_page(&mut self) -> Vec<Effect> {

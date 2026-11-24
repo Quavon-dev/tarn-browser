@@ -221,6 +221,8 @@ impl Browser {
         if self.hidden_field_focused(window, cx) || (std::mem::take(&mut self.refocus) || stranded) && !self.overlay_open() && self.active_prompt().is_none() {
             window.focus(&self.focus_handle(cx));
         }
+        let start = (self.command_mode.is_some() && !self.inline_editing()) || self.model.active.is_none();
+        let watch = self.watch.element(start, [self.fog.entity_id(), self.search_fx.entity_id()], window, cx);
         let mut root = self.root_shell(cx);
         root = self.root_tab_actions(root, cx);
         root = self.root_listeners(root, cx);
@@ -268,6 +270,7 @@ impl Browser {
                     .child(timed("content", || content::render(self, window, cx))),
             )
             .children(assistant::render(self, window, cx))
+            .child(watch)
             .into_any_element()
     }
 

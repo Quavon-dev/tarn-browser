@@ -122,12 +122,18 @@ impl Browser {
                 }
             }
             Event::TitleChanged(title) => {
-                self.store(key.private).set_tab_title(key.id, &title).ok();
+                let unchanged = self.model.tab(key).is_some_and(|t| t.title == title);
+                if !unchanged {
+                    self.store(key.private).set_tab_title(key.id, &title).ok();
+                }
                 // WebKit can report an empty title for the outgoing page just before the next one commits.
                 if let (false, Some(profile_id), Some((visit, url))) =
                     (title.is_empty(), self.profile_of(key), self.pages.get(&key).and_then(|p| p.visit.clone()))
                 {
                     self.store(key.private).retitle_visit(profile_id, visit, &url, &title).ok();
+                }
+                if unchanged {
+                    return;
                 }
                 if self.private_matches(key)
                     && let Some(t) = self.model.tabs.iter_mut().find(|t| t.id == key.id)
@@ -259,6 +265,7 @@ impl Browser {
                 if let Some(profile) = self.profile_of(key).filter(|_| !key.private) {
                     self.core.tarn.borrow().send(crate::tarn_ext::Msg::Tab { profile, tab: key.id as u64, world, frame, origin, json });
                 }
+                return;
             }
             Event::ContentProcessTerminated => {
                 self.link_hovered(key, None, cx);
