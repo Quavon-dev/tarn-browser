@@ -448,10 +448,15 @@ model S31), with the same switch, bar, throwaway window and setup text as macOS;
 `main` before NSH starts (in the Flatpak, `flatpak run --command=tarn de.quavon.tarn --mcp`). The component
 takes `agent {seq, body}` and the `agentSites` prop and reports `agentAnswer` and `agentHeld`; page text is
 read through `agent` (the `readText` command stops at the history limit). Gap: WebKitGTK does not say which
-frame a navigation targets, so the gate holds link clicks and form submissions (a click in a frame too) but
-not a navigation a script starts without a click, which the existing gate treats the same way. Screenshots
-are the 752 px `snapshot`. Checked by a display test (an agent script answers; a held navigation does not
-load); the window, bar and switch are compiled and unit-tested, not run against an agent.
+frame a navigation targets, so only one the existing gate counts as the main frame's (a click WebKit reports
+as a user gesture, the agent's included, or a redirect of the tab's load) is held and asked about; any other
+page-started navigation to a site without a grant (a frame's load, a script's navigation) is cancelled
+without asking, so allowing it cannot load a frame's target into the whole tab. A gesture click on a link
+inside a frame still counts as the main frame's, as it does for the existing gate. Screenshots are the 752 px `snapshot`, matched to the agent's request by
+its seq. Checked by display tests (an agent script answers; a refused navigation does not load; only a known
+main-frame one is reported) and by `browser::tests` (the agent window refuses pop-ups, Ctrl-click tabs,
+peeks, tear-off and permission prompts, and burns its profile on close); the window, bar and switch are not
+run against an agent.
 
 ## 7. Testing
 

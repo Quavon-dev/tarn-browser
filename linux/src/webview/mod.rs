@@ -595,13 +595,16 @@ fn store_install_intercepted(state: &Rc<State>, url: &Url, store: engine::nav_po
     false
 }
 
-fn agent_held(state: &State, url: &Url, page_started: bool) -> bool {
-    let held =
+/// A page-started navigation of an agent's tab to a site its gate refuses is cancelled. Only a
+/// known main-frame one is reported (`agentHeld`), since allowing it loads the address in the tab;
+/// WebKitGTK cannot tell a frame's navigation from a script's top-level one.
+fn agent_held(state: &State, url: &Url, page_started: bool, main_frame: bool) -> bool {
+    let refused =
         page_started && state.agent_sites.borrow().as_ref().is_some_and(|sites| browser_core::agent::site_of(url).is_some_and(|site| !sites.contains(&site)));
-    if held {
+    if refused && main_frame {
         state.emit("agentHeld", json!({ "url": url.as_str() }));
     }
-    held
+    refused
 }
 
 fn allow_navigation(state: &Rc<State>, web: &WebView, action: &webkit6::NavigationAction, url: &Url, javascript: bool, main_frame: bool) {
@@ -690,10 +693,9 @@ fn decide_navigation(state: &Rc<State>, web: &WebView, decision: &webkit6::Polic
     let site = state.site(&url);
     let store = engine::nav_policy::StoreNav { redirect, shell_load: from_shell, page_link, clicked: nav_type == NavigationType::LinkClicked && gesture };
     let shell_started = from_shell || step || upgraded.as_ref().is_some_and(|(_, _, user)| *user);
-    let top = main_frame || nav_type != NavigationType::Other;
     if gated(state, &uri, site.blocked, main_frame, from_shell)
         || store_install_intercepted(state, &url, store)
-        || agent_held(state, &url, top && !shell_started)
+        || agent_held(state, &url, !shell_started, main_frame)
     {
         decision.ignore();
         return true;
@@ -921,12 +923,12 @@ fn mute(state: &State, muted: bool) {
     }
 }
 
-fn snapshot(state: &Rc<State>, web: &WebView) {
+fn snapshot(state: &Rc<State>, web: &WebView, seq: JsonValue) {
     let weak = Rc::downgrade(state);
     web.snapshot(webkit6::SnapshotRegion::Visible, webkit6::SnapshotOptions::NONE, None::<&webkit6::gio::Cancellable>, move |result| {
         let Some(state) = weak.upgrade() else { return };
         let png = result.ok().and_then(|texture| scaled_png(&texture, SNAPSHOT_WIDTH));
-        state.emit("snapshot", json!({ "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
+        state.emit("snapshot", json!({ "seq": seq, "png": png.map(|b| format!("data:image/png;base64,{}", glib::base64_encode(&b))) }));
     });
 }
 
@@ -1465,7 +1467,7 @@ impl NativeComponent for TarnWebView {
                 });
             }
             "pdf" => save_pdf(state, &web, args),
-            "snapshot" => snapshot(state, &web),
+            "snapshot" => snapshot(state, &web, args["seq"].clone()),
             "screenshot" => screenshot(state, &web, args),
             "snapshotRect" => snapshot_rect(state, &web, args),
             "zoom" => {

@@ -116,7 +116,7 @@ fn insert_text_types_into_the_focused_field_only() {
 
 #[test]
 #[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
-fn an_agent_script_answers_and_its_gate_holds_a_page_started_navigation() {
+fn an_agent_script_answers_and_its_gate_stops_a_page_started_navigation() {
     gtk::init().expect("a display");
     let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
     let web = open(&state);
@@ -136,11 +136,30 @@ fn an_agent_script_answers_and_its_gate_holds_a_page_started_navigation() {
     assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
     state.events.borrow_mut().clear();
     page_eval(&web, &click("http://other.test/away"));
-    assert!(spin_until(|| event(&state, "agentHeld").is_some(), 20), "the gate held the link: {:?}", state.events.borrow());
+    assert!(spin_until(|| event(&state, "agentHeld").is_some(), 20), "a click run from outside the page is held: {:?}", state.events.borrow());
     assert_eq!(event(&state, "agentHeld").unwrap(), json!({ "url": "http://other.test/away" }));
     spin_until(|| false, 1);
     assert_eq!(web.uri().unwrap_or_default(), "http://page.test/", "the held navigation never loaded");
     assert!(event(&state, "started").is_none(), "{:?}", state.events.borrow());
+    state.events.borrow_mut().clear();
+    web.load_html("<html><body><script>location.href = 'http://other.test/script'</script></body></html>", Some("http://page.test/"));
+    assert!(spin_until(|| decided(&state, "http://other.test/script"), 20), "the page's own navigation reached the policy");
+    spin_until(|| false, 1);
+    assert_eq!(web.uri().unwrap_or_default(), "http://page.test/", "the refused navigation never loaded");
+    assert!(event(&state, "agentHeld").is_none(), "a navigation that may be a frame's is cancelled without asking");
+}
+
+#[test]
+fn the_agent_gate_reports_only_a_known_main_frame_navigation() {
+    let state = State::default();
+    let away = Url::parse("https://other.test/away").unwrap();
+    assert!(!agent_held(&state, &away, true, true), "no gate outside an agent's window");
+    *state.agent_sites.borrow_mut() = Some(HashSet::from(["page.test".to_owned()]));
+    assert!(!agent_held(&state, &Url::parse("https://www.page.test/").unwrap(), true, true), "an allowed site goes through");
+    assert!(!agent_held(&state, &away, false, true), "the shell's own load goes through");
+    assert!(agent_held(&state, &away, true, false) && event(&state, "agentHeld").is_none(), "a frame's or a script's is only cancelled");
+    assert!(agent_held(&state, &away, true, true));
+    assert_eq!(event(&state, "agentHeld").unwrap(), json!({ "url": "https://other.test/away" }));
 }
 
 #[test]
@@ -797,8 +816,9 @@ fn a_snapshot_answers_and_a_scripted_shift_click_does_not_peek() {
     window.present();
     let web = open(&state);
     state.events.borrow_mut().clear();
-    snapshot(&state, &web);
+    snapshot(&state, &web, json!(5));
     assert!(spin_until(|| event(&state, "snapshot").is_some(), 20), "the snapshot answered");
+    assert_eq!(event(&state, "snapshot").unwrap()["seq"], 5, "the answer names its request");
     let png = event(&state, "snapshot").unwrap()["png"].clone();
     assert!(png.as_str().is_some_and(|p| p.starts_with("data:image/png;base64,")), "a PNG of the page");
     state.events.borrow_mut().clear();

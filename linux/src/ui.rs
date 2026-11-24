@@ -596,7 +596,7 @@ fn web_views(ui: Ui) -> View {
                             return capture::shown(ui, key, &event.data);
                         }
                         if &*event.name == "snapshot" {
-                            if !agent::shot(key, &event.data["png"]) {
+                            if !agent::shot(ui, &event.data) {
                                 peek::shot(ui, key, &event.data["png"]);
                             }
                             return;
@@ -2855,6 +2855,18 @@ fn close_window(ui: Ui, here: &WindowRef) {
         });
         return quit();
     }
+    retire_window(ui, here);
+}
+
+/// The agent's session closed its window; the last one makes way for a new window, not a quit.
+fn close_agent_window(ui: Ui, here: &WindowRef) {
+    if WINDOWS.with_borrow(|windows| windows.len()) <= 1 {
+        open_browser_window(Browser::window_row(&core(), SavedWindow::default()), None);
+    }
+    retire_window(ui, here);
+}
+
+fn retire_window(ui: Ui, here: &WindowRef) {
     extensions::show_popup(ui, None);
     act(ui, Browser::close_window);
     BROWSERS.with_borrow_mut(|windows| windows.remove(&ui.window));
@@ -2915,8 +2927,9 @@ fn open_agent_window() -> bool {
         move || match browser.take() {
             Some(browser) => {
                 let ui = ui_for(next_window(), browser);
+                let shown = browser_window(ui);
                 agent::opened(ui);
-                browser_window(ui)
+                shown
             }
             None => view().into_element(),
         },

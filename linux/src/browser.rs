@@ -1054,7 +1054,7 @@ impl Browser {
                 if matches!(self.notice, None | Some(Notice::Message(_))) {
                     let url = Url::parse(&text("url")).ok();
                     let message = nav_policy::popup_blocked_notice(url.as_ref());
-                    let offer = url.filter(|u| nav_policy::decide(u, Source::Typed) == Decision::Allow);
+                    let offer = url.filter(|u| self.model.agent_profile.is_none() && nav_policy::decide(u, Source::Typed) == Decision::Allow);
                     self.notice = Some(match offer {
                         Some(url) => Notice::NewTab { key, url: url.into(), message },
                         None => Notice::Message(message),
@@ -1225,7 +1225,6 @@ impl Browser {
     pub fn open_blocked_popup(&mut self) {
         if let Some(Notice::NewTab { key, url, .. }) = self.notice.take_if(|n| matches!(n, Notice::NewTab { .. }))
             && self.model.tab(key).is_some()
-            && self.model.agent_profile.is_none()
         {
             self.open_tab(&url, Opened::Link(key));
         }
@@ -1317,11 +1316,13 @@ impl Browser {
     }
 
     /// Shows `key` and loads `url` there as a link, or as typed as `open_link_tab` says.
-    pub fn load_link_in(&mut self, key: TabKey, url: &str, typed: bool) {
-        if self.agent_show(key) {
+    pub fn load_link_in(&mut self, key: TabKey, url: &str, typed: bool) -> bool {
+        let shown = self.agent_show(key);
+        if shown {
             self.load(key, url);
             self.pages.entry(key).or_default().link = !typed;
         }
+        shown
     }
 
     /// Makes an agent's tab the shown one, so its view is awake.

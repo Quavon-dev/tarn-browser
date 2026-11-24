@@ -7,7 +7,6 @@ use std::io::BufReader;
 use std::sync::mpsc as std_mpsc;
 use std::time::{Duration, Instant};
 
-use browser_core::Core;
 use browser_core::agent::control::{Choice, Controller, Ctx, Effect, MAX_TEXT_CHARS, Op, Page, Raw};
 use browser_core::agent::mcp::{self, Outcome};
 use browser_core::agent::{self, Tool};
@@ -26,7 +25,6 @@ use super::tools::note;
 use super::{REFS, Ui, WINDOW_REFS, act, act_quietly, read};
 use crate::browser::Browser;
 use crate::controls::{body, group, switch};
-use crate::data::Data;
 use crate::theme::{Secure, Theme};
 
 pub const SWITCH: Switch = Switch { key: agent::SETTING, default: false };
@@ -42,6 +40,7 @@ enum Msg {
 enum Wait {
     Script,
     Text,
+    Shot,
 }
 
 #[derive(Default)]
@@ -50,12 +49,14 @@ struct Agent {
     /// Set to stop the listener, whose socket exists only while agent control is on.
     listening: Option<engine::agent_socket::Server>,
     ticking: bool,
+    enabled: bool,
+    /// Settings › Privacy › Open localhost links from other apps, read again for each tool call.
+    localhost: bool,
     ctl: Controller<TabKey, Reply>,
     window: Option<Ui>,
     /// What the session last said the gate lets through, for a window that opens after it.
     sites: Option<Option<Vec<String>>>,
     scripts: HashMap<u64, Wait>,
-    shots: HashMap<TabKey, u64>,
 }
 
 thread_local! {
@@ -76,13 +77,16 @@ pub(super) fn init() {
             }
         }))
     });
-    if SWITCH.on(&super::core().disk) {
+    let on = SWITCH.on(&super::core().disk);
+    with(|a| a.enabled = on);
+    if on {
         listen();
     }
 }
 
 /// Settings › AI turned agent control on or off. Off ends a session and closes the socket.
 fn set_enabled(on: bool) {
+    with(|a| a.enabled = on);
     if on {
         return listen();
     }
@@ -120,16 +124,17 @@ fn serve(conn: u64, stream: engine::agent_socket::Stream, tx: UnboundedSender<Ms
 
 fn on_msg(msg: Msg) {
     match msg {
-        Msg::Call { conn, client, tool, reply } => with_ctx(|ctl, ctx| ctl.call(conn, client.as_deref(), tool, reply, ctx)),
+        Msg::Call { conn, client, tool, reply } => {
+            let localhost =
+                super::WINDOWS.with_borrow(|windows| windows.first().copied()).and_then(|ui| read(ui, |b| b.setting_on(LOCALHOST_FROM_APPS))).unwrap_or(false);
+            with(|a| a.localhost = localhost);
+            with_ctx(|ctl, ctx| ctl.call(conn, client.as_deref(), tool, reply, ctx));
+        }
         Msg::Closed(conn) => {
             let effects = with(|a| a.ctl.closed(conn));
             apply(effects);
         }
     }
-}
-
-fn localhost(core: &Core<Data>) -> bool {
-    core.disk.setting(LOCALHOST_FROM_APPS).ok().flatten().as_deref() != Some("off")
 }
 
 fn pages(b: &Browser) -> Vec<Page<TabKey>> {
@@ -148,8 +153,7 @@ fn pages(b: &Browser) -> Vec<Page<TabKey>> {
 
 /// Runs `f` with what the core needs to know now: the switches and the agent window's tabs.
 fn with_ctx(f: impl FnOnce(&mut Controller<TabKey, Reply>, &Ctx<TabKey>) -> Vec<Effect<TabKey, Reply>>) {
-    let core = super::core();
-    let (enabled, localhost) = (SWITCH.on(&core.disk), localhost(&core));
+    let (enabled, localhost) = with(|a| (a.enabled, a.localhost));
     let tabs = with(|a| a.window).and_then(|ui| read(ui, pages)).unwrap_or_default();
     let effects = with(|a| f(&mut a.ctl, &Ctx { enabled, localhost, now: browser_core::now(), tabs: &tabs }));
     apply(effects);
@@ -169,7 +173,7 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>) {
                 if let Some(ui) = with(|a| a.window.take().inspect(|_| forget_runs(a)))
                     && let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned())
                 {
-                    super::close_window(ui, &here);
+                    super::close_agent_window(ui, &here);
                 }
             }
             Effect::Show(asking) => {
@@ -237,7 +241,6 @@ pub(super) fn window_closed(ui: Ui) {
 /// Drops the answers still awaited from the agent's window, so none takes another view's event.
 fn forget_runs(a: &mut Agent) {
     a.scripts.clear();
-    a.shots.clear();
 }
 
 fn agent_window(ui: Ui) -> bool {
@@ -246,7 +249,7 @@ fn agent_window(ui: Ui) -> bool {
 
 fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
     let Some(ui) = with(|a| a.window) else { return };
-    let localhost = localhost(&super::core());
+    let localhost = with(|a| a.localhost);
     let typed = |url: &Url| engine::nav_policy::app_link_typed(url, localhost);
     let immediate = match (op, tab) {
         (Op::Open(url), _) => {
@@ -254,14 +257,19 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
             act(ui, |b| key = b.open_link_tab(url.as_str(), typed(&url)));
             Some(Raw::Opened(key))
         }
-        (_, None) => None,
+        (_, None) => Some(Raw::Unavailable),
         (Op::Load(url), Some(key)) => {
-            act(ui, |b| b.load_link_in(key, url.as_str(), typed(&url)));
-            None
+            let mut loaded = false;
+            act(ui, |b| loaded = b.load_link_in(key, url.as_str(), typed(&url)));
+            Some(if loaded { Raw::Done } else { Raw::Unavailable })
         }
         (Op::Close, Some(key)) => {
-            act(ui, |b| b.close_tab(key));
-            None
+            let mut open = false;
+            act(ui, |b| {
+                open = b.model.tab(key).is_some();
+                b.close_tab(key);
+            });
+            Some(if open { Raw::Done } else { Raw::Unavailable })
         }
         (op, Some(key)) => page_op(ui, run, key, op),
     };
@@ -270,14 +278,15 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op) {
     }
 }
 
-/// Runs `op` on the live view of `key`; its answer comes back as a page event.
+/// Runs `op` on the live view of `key`; a script's, text's or snapshot's answer comes back as a page event.
 fn page_op(ui: Ui, run: u64, key: TabKey, op: Op) -> Option<Raw<TabKey>> {
     with(|a| match &op {
         Op::Script(..) => drop(a.scripts.insert(run, Wait::Script)),
         Op::Text => drop(a.scripts.insert(run, Wait::Text)),
-        Op::Screenshot => drop(a.shots.insert(key, run)),
+        Op::Screenshot => drop(a.scripts.insert(run, Wait::Shot)),
         _ => {}
     });
+    let steps = matches!(op, Op::Back | Op::Forward | Op::Reload);
     let mut shown = false;
     act(ui, |b| {
         shown = b.agent_show(key);
@@ -293,19 +302,14 @@ fn page_op(ui: Ui, run: u64, key: TabKey, op: Op) -> Option<Raw<TabKey>> {
                 let body = b.pages.get(&key).and_then(|p| Url::parse(&p.url).ok()).and_then(|u| engine::page_scripts::page_text_script(&u, MAX_TEXT_CHARS));
                 b.outbox.push((key, "agent", json!({ "seq": run, "body": body })));
             }
-            Op::Screenshot => b.outbox.push((key, "snapshot", JsonValue::Null)),
+            Op::Screenshot => b.outbox.push((key, "snapshot", json!({ "seq": run }))),
             Op::Open(_) | Op::Load(_) | Op::Close => {}
         }
     });
     if shown && REFS.with_borrow(|refs| refs.contains_key(&(ui.window, key))) {
-        return None;
+        return steps.then_some(Raw::Done);
     }
-    with(|a| {
-        a.scripts.remove(&run);
-        if a.shots.get(&key) == Some(&run) {
-            a.shots.remove(&key);
-        }
-    });
+    with(|a| a.scripts.remove(&run));
     Some(Raw::Unavailable)
 }
 
@@ -315,19 +319,23 @@ pub(super) fn answered(ui: Ui, data: &JsonValue) {
         return;
     }
     let Some(run) = data["seq"].as_u64() else { return };
-    let Some(wait) = with(|a| a.scripts.remove(&run)) else { return };
+    let Some(wait) = with(|a| a.scripts.get(&run).filter(|w| !matches!(w, Wait::Shot)).is_some().then(|| a.scripts.remove(&run)).flatten()) else { return };
     let text = data["text"].as_str().unwrap_or_default().to_owned();
     let raw = match wait {
-        Wait::Script => Raw::Script(text),
         Wait::Text => Raw::Text(text),
+        Wait::Script | Wait::Shot => Raw::Script(text),
     };
     with_ctx(|ctl, ctx| ctl.raw(run, raw, ctx));
 }
 
-/// A tab's snapshot; true when the agent asked for it.
-pub(super) fn shot(key: TabKey, png: &JsonValue) -> bool {
-    let Some(run) = with(|a| a.shots.remove(&key)) else { return false };
-    let png = png.as_str().and_then(|p| p.strip_prefix("data:image/png;base64,")).map(str::to_owned);
+/// A tab's snapshot (`snapshot`); true when the agent asked for it, which its seq says.
+pub(super) fn shot(ui: Ui, data: &JsonValue) -> bool {
+    let Some(run) = data["seq"].as_u64().filter(|_| agent_window(ui)) else { return false };
+    if with(|a| !matches!(a.scripts.get(&run), Some(Wait::Shot))) {
+        return false;
+    }
+    with(|a| a.scripts.remove(&run));
+    let png = data["png"].as_str().and_then(|p| p.strip_prefix("data:image/png;base64,")).map(str::to_owned);
     with_ctx(|ctl, ctx| ctl.raw(run, Raw::Png(png), ctx));
     true
 }
@@ -360,27 +368,27 @@ fn tick() {
     later_tick();
 }
 
-fn press(ui: Ui, choice: Choice, waits: bool) {
+fn press(ui: Ui, choice: Choice, prompt: u64, waits: bool) {
     if !agent_window(ui) {
         return;
     }
     if waits && read(ui, |b| browser_core::prompts::stable(b.guard_since, Instant::now())) != Some(true) {
         return;
     }
-    with_ctx(|ctl, ctx| ctl.answer(choice, ctx));
+    with_ctx(|ctl, ctx| ctl.answer(choice, prompt, ctx));
 }
 
 /// The agent bar at the top of the agent's window: its question, or who controls the window.
 pub(super) fn bar(ui: Ui) -> AnyElement {
     dynamic(move || {
         let banner = ui.snap.with(|s| s.agent.clone())?;
-        let asking = banner.asking;
+        let (asking, prompt) = (banner.asking, banner.prompt);
         let buttons: Vec<AnyElement> = banner
             .buttons
             .into_iter()
             .map(|(label, choice, primary)| {
                 let waits = asking && !matches!(choice, Choice::Stop | Choice::Deny | Choice::Pause);
-                secure_button(label, move || press(ui, choice, waits), primary).into_element()
+                secure_button(label, move || press(ui, choice, prompt, waits), primary).into_element()
             })
             .collect();
         let surface = secure_surface(Theme::radius_panel()).flex_row().items_center().gap_2().min_h(px(42.)).pl(px(14.)).pr_2().py_1().mb_2();
@@ -401,8 +409,7 @@ pub(super) fn settings(ui: Ui) -> View {
     let mut out =
         view().child(section_with("Agent control", "")).child(group().child(described(switch(on, "Let AI agents control Tarn", toggle), agent::DETAIL)));
     if on {
-        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "tarn".into());
-        out = out.child(note(agent::setup(&exe)));
+        out = out.child(note(setup()));
         let entries = with(|a| a.ctl.log());
         if !entries.is_empty() {
             let rows = entries.into_iter().take(20).enumerate().map(|(ix, e)| {
@@ -413,4 +420,15 @@ pub(super) fn settings(ui: Ui) -> View {
         }
     }
     out
+}
+
+/// How to connect an agent; in the Flatpak, through `flatpak run`, since the binary's path is the sandbox's.
+fn setup() -> String {
+    if !std::path::Path::new("/.flatpak-info").exists() {
+        return agent::setup(&std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "tarn".into()));
+    }
+    let app = crate::APP_ID;
+    format!(
+        "Claude Code: claude mcp add tarn -- flatpak run --command=tarn {app} --mcp\nCodex, in ~/.codex/config.toml:\n[mcp_servers.tarn]\ncommand = 'flatpak'\nargs = [\"run\", \"--command=tarn\", \"{app}\", \"--mcp\"]"
+    )
 }
