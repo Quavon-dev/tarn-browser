@@ -217,10 +217,19 @@ Security and privacy
    IPC listener per running data directory for agent control. It is off by default, opens only
    after the user opts in, and accepts connections only from the same OS user account. Each
    connection needs explicit approval in Tarn before receiving browser data or controlling a
-   tab. It may use only a dedicated throwaway profile at Strict with per-site approval. Turning
-   the setting off closes the listener and ends the session, including profile cleanup. This
-   exception permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge
-   or new outbound request by the shell.
+   tab. By default it uses a dedicated throwaway profile at Strict with per-site approval. Two
+   further modes are allowed, each off by default behind its own setting that only the user can
+   switch in Tarn: the agent opens its own tabs in a profile the user picks, with that profile's
+   cookies and logins, or it controls tabs the user already has open. In these modes each site
+   needs the user's approval in Tarn and the approved list starts empty for every session; the
+   profile's Shield level applies and is never lowered for the agent; private-space tabs stay
+   out of reach; every tab the agent controls shows a visible indicator with a one-click stop; a
+   form submission, a payment or a filled secret field needs the user's confirmation; and the
+   agent gets no access to saved passwords, passkeys or autofill. Turning the setting off closes
+   the listener and ends the session, including cleanup of the throwaway profile; in the other
+   modes it releases every tab and leaves the user's data as it was. This exception permits no
+   TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge or new outbound
+   request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
