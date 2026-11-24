@@ -13,7 +13,10 @@ default: if you do it differently, say so in the pull request and a maintainer d
 - For a feature or a large change, open an issue first so you learn whether it is wanted before
   you spend the work.
 - Build the clients you can. A change that reaches one client is welcome with a
-  `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports").
+  `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports"); a client that
+  cannot support it gets the gap and its reason in its plan doc.
+- Privacy comes first: anything that sends data off the device or keeps more about the user is
+  off until the user turns it on, and protections are on by default (`AGENTS.md`, rule 9).
 - You do not need every toolchain below: set up the clients you work on, CI runs the rest.
 
 ## Ways to help

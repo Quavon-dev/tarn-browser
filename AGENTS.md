@@ -4,7 +4,8 @@ Tarn is an open-source, keyboard-first browser with built-in tracker and ad bloc
 Rust. What it does not give up:
 
 1. **Private by default.** No telemetry, accounts or crash upload. Every request the browser makes
-   on its own is listed in `PRIVACY.md`, and that list does not grow by accident.
+   on its own is listed in `PRIVACY.md`, and that list does not grow by accident. What could
+   reveal something about the user is off until they turn it on (rule 9).
 2. **The same protection everywhere.** Shield levels, page isolation and private-session cleanup
    hold on all five clients, or the change is not done.
 3. **Five clients, one core.** State, decisions and policy are written once in the shared crates;
@@ -56,8 +57,8 @@ rules under "Rules for AI agents".
 | `crates/platform` | macOS and Windows services: XPC, credentials, memory pressure, the updater |
 | `crates/import` | Reads cookies, history and bookmarks from other browsers |
 | `crates/devkit` | Developer tools: JSON viewer, responsive preview, localhost helpers |
-| `crates/ai`, `crates/cli-bridge` | AI providers and the sandboxed bridge to a local AI CLI |
-| `crates/sync` | Encrypted sync file format and merge core |
+| `crates/ai`, `crates/cli-bridge` | AI providers for the assistant (off until the user enables AI), and a sandboxed bridge to a local AI CLI that no client builds in |
+| `crates/sync` | Encrypted sync file format and merge core; no client builds it in |
 | `crates/app-dll`, `crates/chromium-helper` | The Windows DLL and the macOS helper process that embedded Chromium (CEF) needs |
 | `crates/filter-bundle` | Build tool for the signed filter bundles Shield ships with |
 | `nsh-shared` | Theme, icons and controls shared by Linux and mobile |
@@ -91,7 +92,9 @@ Read the matching doc before you change code in that area; review holds the chan
 1. **Every feature lands on every client.** A feature, UI change or UX change is done only when
    macOS, Windows, Linux, iOS and Android all have it. Port it to every client you can build
    rather than asking whether to. Clients you cannot build, or that the person leaves out, go to
-   the port backlog (see "Partial ports"); the change is welcome without them.
+   the port backlog (see "Partial ports"); the change is welcome without them. A client that
+   cannot have it at all gets its gap documented (rule 7). Every client ends with the feature, a
+   backlog entry or a documented gap.
 2. **Core first, least code.** Put state, decisions, parsing, policy and persistence in
    `browser-core`, `engine`, `shield` or `store`, never in a shell. A shell only renders the core's
    state and forwards input. If logic would be written twice, it belongs in the core. Move existing
@@ -113,6 +116,15 @@ Read the matching doc before you change code in that area; review holds the chan
    `docs/nsh-plan.md`) with the reason. "Not done yet" is not a gap.
 8. **Security is identical everywhere.** Shield levels, page isolation (no page-to-shell bridge),
    private-session cleanup and the mitigations in `docs/threat-model.md` hold on every client.
+9. **Private by default.** A feature is off until the user turns it on when it sends anything off
+   the device, contacts a party Tarn did not contact before, carries data across sites, profiles
+   or apps, or keeps more about the user than Tarn kept before. Where it is switched on, it says
+   what leaves the device and to whom. A protection is the reverse: on by default, and the user
+   may switch it off. A feature that reveals nothing new and that users expect to work may be on
+   by default; say in the pull request why that is better for them. When in doubt, off. The
+   default is set once in the shared crates (`browser-core`, `store`), so it is the same on
+   every client,
+   and a request the browser makes on its own still needs its row in `PRIVACY.md` (hard rule 8).
 
 ## Workflow for a feature
 
@@ -130,11 +142,14 @@ Read the matching doc before you change code in that area; review holds the chan
 The most common defect is a change that works on the path you tried and is missing beside it.
 Walk this list and say in the pull request which entries applied:
 
-- **Clients.** All five have it, or the missing ones have a `docs/port-backlog.md` entry.
+- **Clients.** All five have it. Each one that does not has a `docs/port-backlog.md` entry (not
+  ported yet) or a documented gap in its plan doc (cannot be done there, with the reason).
 - **Engines.** On macOS it works on WebKit and on Chromium; a web view operation or event reaches
   every implementation (rule 6).
 - **Entry points.** Menu, command palette, shortcut and settings on desktop, the matching control
   or gesture on touch. Fixing one is not fixing the feature.
+- **Default.** A new setting or behaviour has the default rule 9 asks for, the same on every
+  client, and the pull request says which and why.
 - **Modes.** Decide what it does in every profile, in a private space and at each Shield level,
   Lockdown included.
 - **Way back.** Every state a user can enter has a visible way out (open and close, on and off).
@@ -217,8 +232,9 @@ rendering or tab switching (`README.md`, "Development").
   run `scripts/third-party-licenses.sh` and `cargo deny check` (guideline 8).
 - **`unsafe`.** Only in `crates/engine` and `crates/platform`, plus the one export in
   `crates/app-dll`; every other crate is `#![forbid(unsafe_code)]`. Each block carries a
-  `// SAFETY:` comment with its invariant; `undocumented_unsafe_blocks` is denied (hard rule 9).
-  The shell reaches the platform through `engine` and `platform`, never through its own FFI.
+  `// SAFETY:` comment with its invariant, which the root and `mobile/` workspaces enforce by
+  denying `undocumented_unsafe_blocks` (hard rule 9).
+  `crates/app` reaches the platform through `engine` and `platform`, never through its own FFI.
 - **Platform code.** `crates/app` compiles for macOS and Windows: a macOS-only item has a
   `#[cfg(windows)]` counterpart of the same name and signature (rule 4).
 - **Tests.** Logic is tested where it lives, as unit tests in the shared crate. The protections
@@ -227,8 +243,8 @@ rendering or tab switching (`README.md`, "Development").
   Linux has display tests under Xvfb (`linux/scripts/display-tests.sh`); parsers of untrusted
   input (filter lists, bundles, themes, imported profiles, reader and page scripts) have fuzz
   targets in `fuzz/fuzz_targets`.
-- **Comments.** A comment states what the code cannot: a constraint, the reason for a workaround,
-  an invariant. No narration, no commented-out code.
+- **Comments.** Default to none. Write one only for what the code cannot show: a constraint, the
+  reason for a workaround, an invariant. No narration, no commented-out code.
 - **Lints.** Fix the cause. `#[allow(...)]` and `#[expect(...)]` are not a fix (hard rule 2).
 - **Prose.** Docs use British spelling (licence, behaviour, colour) and say what is true now; a
   plan doc marks what is not built yet as such (rule 7).
