@@ -5,7 +5,7 @@ mod models;
 
 pub use db::{
     Error, MAX_AI_NAME, MAX_AI_TEMPLATE, MAX_CHAT, MAX_CHATS, MAX_HISTORY_TEXT, MAX_NOTE, MAX_NOTE_TITLE, MAX_NOTES, MAX_SITE_CSS, MAX_SNIPPET,
-    MAX_SNIPPET_NAME, MAX_THEME_CSS, Store, clip_history_text, valid_snippet_name,
+    MAX_SNIPPET_NAME, MAX_THEME_CSS, MISSING_CHAT, Store, clip_history_text, valid_snippet_name,
 };
 pub use models::{
     AiCommand, Bookmark, Chat, ChatTitle, ChatTurn, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Note,

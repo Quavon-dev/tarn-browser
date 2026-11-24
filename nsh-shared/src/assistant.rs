@@ -985,7 +985,7 @@ fn chat_list<H: Host>(host: H, chat: Chat, open: Signal<bool>) -> AnyElement {
                         rev.update(|r| *r += 1);
                         chat.render();
                     }
-                    Err(_) => error.set(Some(format!("A title has 1 to {} characters.", store::MAX_NOTE_TITLE))),
+                    Err(e) => error.set(Some(browser_core::assistant::rename_problem(&e))),
                 }
             };
             Some(

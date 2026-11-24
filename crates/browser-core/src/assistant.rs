@@ -595,6 +595,14 @@ pub fn find_chats<'a>(titles: &'a [store::ChatTitle], query: &str) -> Vec<&'a st
     titles.iter().filter(|c| c.title.to_lowercase().contains(&query)).collect()
 }
 
+/// What a client says when renaming a saved chat failed.
+pub fn rename_problem(error: &store::Error) -> String {
+    match error {
+        store::Error::Invalid(what) if *what == store::MISSING_CHAT => "This chat was deleted, so it cannot be renamed.".to_owned(),
+        _ => format!("A title has 1 to {} characters.", store::MAX_NOTE_TITLE),
+    }
+}
+
 /// A chat's title: its first question's first line, bounded, or "Chat".
 pub fn chat_title(history: &[Turn]) -> String {
     let first = history.iter().find(|t| t.role == Role::You).map(|t| crate::notes::first_line(&t.text)).unwrap_or_default();

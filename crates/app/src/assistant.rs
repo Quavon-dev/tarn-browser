@@ -600,8 +600,8 @@ impl Browser {
         let (Some(id), Some(profile)) = (self.assistant.renaming.take(), self.assistant.session.as_ref().map(Session::profile)) else { return };
         let title = self.assistant.rename.read(cx).text().to_owned();
         self.assistant.title.take();
-        if self.core.disk.rename_chat(profile, id, &title).is_err() {
-            self.show_toast_as(browser_core::toast::Tone::Warning, "That title cannot be used.", None, cx);
+        if let Err(e) = self.core.disk.rename_chat(profile, id, &title) {
+            self.show_toast_as(browser_core::toast::Tone::Warning, core::rename_problem(&e), None, cx);
         }
         cx.notify();
     }
@@ -1238,7 +1238,12 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                         )
                         .on_click({
                             let typed = format!("/{name} ");
+                            let picked = name.clone();
                             cx.listener(move |b, _, _, cx| {
+                                if !b.chat_commands().iter().any(|(n, _)| *n == picked) {
+                                    b.assistant.slash = false;
+                                    return cx.notify();
+                                }
                                 b.assistant.input.update(cx, |i, cx| {
                                     i.set_text(typed.clone(), cx);
                                     i.append_selected("", cx);

@@ -306,6 +306,8 @@ pub const MAX_NOTES: usize = 1000;
 /// The most chats a profile keeps and the most bytes one chat's turns and sources take.
 pub const MAX_CHATS: usize = 200;
 pub const MAX_CHAT: usize = 1024 * 1024;
+/// What `rename_chat` refuses when the profile has no such chat, as opposed to a bad title.
+pub const MISSING_CHAT: &str = "missing chat";
 
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
@@ -1301,10 +1303,10 @@ impl Store {
     pub fn rename_chat(&self, profile_id: Id, id: Id, title: &str) -> Result<()> {
         let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
         if title.is_empty() || title.chars().count() > MAX_NOTE_TITLE {
-            return Err(Error::Invalid("chat"));
+            return Err(Error::Invalid("chat title"));
         }
         match self.conn.execute("UPDATE chats SET title = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, title])? {
-            0 => Err(Error::Invalid("chat")),
+            0 => Err(Error::Invalid(MISSING_CHAT)),
             _ => Ok(()),
         }
     }
@@ -2690,7 +2692,8 @@ mod tests {
         assert!(store.save_chat(1, None, Some(" "), &turns, &[]).is_err());
         assert!(store.save_chat(1, None, Some("x"), &[turn(true, &"x".repeat(MAX_CHAT))], &[]).is_err());
         store.rename_chat(1, id, "Sky").unwrap();
-        assert!(store.rename_chat(2, id, "Not mine").is_err(), "another profile's chat is not renamed");
+        assert!(matches!(store.rename_chat(2, id, "Not mine"), Err(Error::Invalid(MISSING_CHAT))), "another profile's chat is not renamed");
+        assert!(matches!(store.rename_chat(1, id, " "), Err(Error::Invalid(what)) if what != MISSING_CHAT), "a bad title is told apart from a missing chat");
         assert_eq!(store.chat_titles(1).unwrap().iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Sky"]);
         assert!(store.rename_chat(1, id, "\u{200b}").is_err());
         store.delete_chat(2, id).unwrap();
