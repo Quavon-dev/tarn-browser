@@ -62,7 +62,9 @@ engines get their fixes from their vendors (see "Scope").
 Every release on GitHub lists `SHA256SUMS`, and every binary carries a GitHub attestation signed
 by the release workflow of this repository, naming the commit and tag it was built from. A
 macOS-only release carries the previous release's `windows-update.json` and `.sig` over unchanged;
-they are outside its `SHA256SUMS`, and their Ed25519 signature covers them.
+they are outside its `SHA256SUMS`, and their Ed25519 signature covers them. It also carries
+`install.ps1`, which is listed in the `SHA256SUMS` of the release it names in its `$Tag` line;
+check it there.
 
 ```sh
 shasum -a 256 -c SHA256SUMS --ignore-missing

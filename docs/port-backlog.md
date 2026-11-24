@@ -21,6 +21,21 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Portable download (2026-11-24)
+
+What it does: a download that runs without installing and keeps all its data in a `Data` folder
+beside the executable, with a command-line install for the regular build.
+Shared API: `browser_core::portable_dir` (a `tarn-portable` file beside the executable), used by
+`browser_core::data_dir`; Windows only so far.
+Reference: `.github/workflows/release.yml` (`windows` job, portable zip; `assets` job,
+`install.ps1`), `crates/platform/src/updater/windows.rs` (portable updater), `packaging/homebrew/`.
+
+- [ ] Linux — turn `portable_dir` on for Linux, refusing a folder the user does not own or others
+  can write (a marker in `/tmp` would take a victim's profile); key `single_instance`
+  (`linux/src/main.rs`) on the data folder as Windows does; and build a release archive (AppImage or
+  tarball with `tarn-portable`) in `linux/packaging/build-all.sh`, which needs WebKitGTK 6 from the
+  distribution or bundles it.
+
 ### Hand freed memory back to the system (2026-11-24)
 
 What it does: once a minute, after tabs closed or slept, and once when Tarn leaves the front, the

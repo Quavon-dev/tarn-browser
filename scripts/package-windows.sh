@@ -2,7 +2,7 @@
 # Collects Tarn, the CEF runtime it loads from its own folder and the licence texts into DIR (Git
 # Bash on Windows, with the Windows SDK and MSVC tools installed). tarn.exe is CEF's bootstrap
 # launcher, which starts the Chromium sandbox and loads Tarn from tarn.dll (target/release/app_dll.dll);
-# it gets Tarn's manifest and the 8 MiB main-thread stack the development tarn.exe links with.
+# it gets Tarn's icon, manifest and the 8 MiB main-thread stack the development tarn.exe links with.
 # Unsigned: sign tarn.exe and tarn.dll with the same certificate, or the launcher refuses the DLL.
 set -euo pipefail
 cef="${CEF_PATH:?CEF_PATH must name the unpacked windows64 CEF build}"
@@ -19,6 +19,7 @@ crt="$( { find "/c/Program Files/Microsoft Visual Studio" "/c/Program Files (x86
 rm -rf "$dest"
 mkdir -p "$dest"
 cp "$cef/bootstrap.exe" "$dest/tarn.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$(cygpath -w scripts/set-exe-icon.ps1)" -Exe "$(cygpath -w "$dest/tarn.exe")" -Icon "$(cygpath -w packaging/windows/tarn.ico)"
 cp target/release/app_dll.dll "$dest/tarn.dll"
 cp "$crt" "$dest/"
 dumpbin="$(tool dumpbin.exe)"

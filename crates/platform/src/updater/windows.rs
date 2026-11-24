@@ -97,6 +97,21 @@ fn config(conf: &str) -> Option<Config> {
     Some(Config { feed, nightly_feed, key, downloads })
 }
 
+/// The release page of an installer under `config.downloads`, where a portable Tarn's zip is.
+fn release_page(config: &Config, installer: &str) -> Option<Url> {
+    let tag = installer.strip_prefix(config.downloads.as_str())?.split('/').next().filter(|t| !t.is_empty() && !t.starts_with('.'))?;
+    config.downloads.join(&format!("../tag/{tag}")).ok()
+}
+
+/// What a portable Tarn reports for `offer`: each later version once, and again when asked.
+fn announce(announced: &mut Option<String>, config: &Config, offer: &Offer, manual: bool) -> Option<Report> {
+    if !manual && announced.as_deref() == Some(offer.version.as_str()) {
+        return None;
+    }
+    *announced = Some(offer.version.clone());
+    Some(Report::UpdateAvailable { version: offer.version.clone(), page: release_page(config, &offer.url) })
+}
+
 fn signature(text: &[u8]) -> Result<Signature, Refused> {
     let bytes = BASE64.decode(text.trim_ascii()).map_err(|_| Refused::BadSignature)?;
     Signature::from_slice(&bytes).map_err(|_| Refused::BadSignature)
@@ -203,12 +218,15 @@ struct Checker {
     ready: Arc<Mutex<Option<Ready>>>,
     nightly: Arc<AtomicBool>,
     report: Box<dyn Fn(Report) + Send>,
+    /// A portable Tarn only announces a later version: the installer would install elsewhere.
+    portable: bool,
+    announced: Option<String>,
 }
 
 impl Checker {
     /// Wakes hourly and compares wall-clock time, since waits stop while Windows sleeps: a day
     /// after a check that reached the feed, an hour after one that did not.
-    fn run(self, mut automatic: bool, messages: mpsc::Receiver<Message>) {
+    fn run(mut self, mut automatic: bool, messages: mpsc::Receiver<Message>) {
         let mut next = SystemTime::now();
         if automatic {
             next += if self.check(false) { DAY } else { HOUR };
@@ -231,7 +249,7 @@ impl Checker {
     }
 
     /// Whether the feed was reached and verified.
-    fn check(&self, manual: bool) -> bool {
+    fn check(&mut self, manual: bool) -> bool {
         let agent = agent(Duration::from_secs(120));
         let nightly_feed = self.config.nightly_feed.as_ref().filter(|_| self.nightly.load(Ordering::Relaxed));
         let feed_url = nightly_feed.unwrap_or(&self.config.feed).as_str();
@@ -260,6 +278,12 @@ impl Checker {
         };
         if offer.critical {
             (self.report)(Report::CriticalFound);
+        }
+        if self.portable {
+            if let Some(report) = announce(&mut self.announced, &self.config, &offer, manual) {
+                (self.report)(report);
+            }
+            return true;
         }
         let known = self.ready.lock().ok().and_then(|ready| ready.as_ref().map(|r| r.version == offer.version));
         if known == Some(true) {
@@ -326,9 +350,9 @@ pub struct Updater {
 
 impl Updater {
     /// `None` in debug builds and when `packaging/updates.conf` names no valid feed and key.
-    /// Downloads go into `dir`; folders of versions not newer than this one go first. `report`
-    /// hears from a background thread.
-    pub fn start(automatic: bool, nightly: bool, dir: &Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
+    /// Downloads go into `dir`; folders of versions not newer than this one go first. A `portable`
+    /// Tarn downloads nothing and reports `UpdateAvailable`. `report` hears from a background thread.
+    pub fn start(automatic: bool, nightly: bool, portable: bool, dir: &Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
         if cfg!(debug_assertions) || !dir.is_absolute() {
             return None;
         }
@@ -342,7 +366,8 @@ impl Updater {
         let (messages, receiver) = mpsc::channel();
         let ready = Arc::new(Mutex::new(None));
         let nightly = Arc::new(AtomicBool::new(nightly));
-        let checker = Checker { config, dir: dir.to_owned(), ready: ready.clone(), nightly: nightly.clone(), report: Box::new(report) };
+        let checker =
+            Checker { config, dir: dir.to_owned(), ready: ready.clone(), nightly: nightly.clone(), report: Box::new(report), portable, announced: None };
         std::thread::Builder::new().name("tarn-updater".into()).spawn(move || checker.run(automatic, receiver)).ok()?;
         Some(Updater { messages, nightly, ready, install: std::cell::Cell::new(false), automatic: std::cell::Cell::new(automatic) })
     }
@@ -465,6 +490,30 @@ mod tests {
         assert_eq!(embedded.downloads.as_str(), "https://github.com/Quavon-dev/tarn-browser/releases/download/");
         assert!(config("feed_url=http://github.com/a.xml\npublic_ed_key=x").is_none());
         assert!(config("").is_none());
+    }
+
+    #[test]
+    fn a_portable_tarn_links_the_release_page_of_the_offer() {
+        let config = test_config();
+        let page = |installer: &str| release_page(&config, installer).map(String::from);
+        assert_eq!(page(&url("9.0.0")).as_deref(), Some("https://github.com/Quavon-dev/tarn-browser/releases/tag/v9.0.0"));
+        assert_eq!(
+            page("https://github.com/Quavon-dev/tarn-browser/releases/download/nightly/Tarn-setup.exe").as_deref(),
+            Some("https://github.com/Quavon-dev/tarn-browser/releases/tag/nightly")
+        );
+        assert_eq!(page("https://github.com/Quavon-dev/tarn-browser/releases/download/../x.exe"), None);
+        assert_eq!(page("https://example.com/v9.0.0/x.exe"), None);
+    }
+
+    #[test]
+    fn a_portable_tarn_announces_each_later_version_once_unless_asked() {
+        let config = test_config();
+        let offer = check(&feed_json("9.0.0", false, &url("9.0.0"), &sha256_hex(INSTALLER)), "0.4.0").unwrap().offer.unwrap();
+        let page = Some(Url::parse("https://github.com/Quavon-dev/tarn-browser/releases/tag/v9.0.0").unwrap());
+        let mut announced = None;
+        assert_eq!(announce(&mut announced, &config, &offer, false), Some(Report::UpdateAvailable { version: "9.0.0".into(), page: page.clone() }));
+        assert_eq!(announce(&mut announced, &config, &offer, false), None);
+        assert_eq!(announce(&mut announced, &config, &offer, true), Some(Report::UpdateAvailable { version: "9.0.0".into(), page }));
     }
 
     #[test]

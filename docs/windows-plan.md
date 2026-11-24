@@ -35,7 +35,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   thumbprint), so the signing step must sign `tarn.exe` and `tarn.dll` together and with one
   certificate, after `package-windows.sh` has edited `tarn.exe`. `cargo run` keeps the plain
   `tarn.exe`, which has no launcher and so starts Chromium with `--no-sandbox` (development only).
-  The launcher still carries CEF's icon until Tarn has a Windows icon to put in its place. On each CEF update, check that `bootstrap.exe` carries no `CEF_INSTALLER_CONFIG` resource:
+  `package-windows.sh` writes `packaging/windows/tarn.ico` into the launcher's icon resources
+  (`scripts/set-exe-icon.ps1`): as group icon 1, which GPUI loads for the window and taskbar, and
+  over CEF's own, which Explorer shows. On each CEF update, check that `bootstrap.exe` carries no `CEF_INSTALLER_CONFIG` resource:
   CEF's launcher can download and install CEF itself when built with one (`USE_INSTALLER`).
 - **Engine surface** (`crates/engine/src/*_windows.rs`): `Host` (HWND, DPI-scaled placement),
   `WebView` (a Chrome-style CEF browser in a child window), `DataStore` (one Chromium profile per
@@ -52,6 +54,23 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   `{localappdata}\Programs\Tarn` (`UsePreviousAppDir=no`); at start the installed `tarn.exe`
   re-points an earlier Make Default registration that names another path, a development build's
   included.
+- **Portable:** `Tarn-<tag>-windows-x64-portable-unsigned.zip` is the installer's folder plus a
+  `tarn-portable` file; with it beside `tarn.exe`, `browser_core::portable_dir` puts all data,
+  Chromium's included, in `Data` there and nothing in `%LOCALAPPDATA%`. At start Tarn gives `Data` a
+  protected access list for the current user, SYSTEM and Administrators (`engine::restrict_to_user`)
+  unless it already has a protected one, as Local AppData's inherited one does for an install; when
+  that fails (FAT and exFAT have no permissions, or another account owns the folder) the storage
+  warning says so at every start. The updater still checks
+  the signed feed (the Chromium staleness gate needs it) but downloads and runs no installer, which
+  would install elsewhere: a later version shows a toast whose Download opens the release page.
+  Settings shows no Make Default on Windows, so a portable Tarn registers nothing. The AI token
+  stays in the Credential Manager, and Chromium encrypts cookies and passwords with DPAPI, so on
+  another computer or account sites sign out and the token is asked for again.
+- **Install script:** `install.ps1` in every release (`docs/release.md`) runs the installer
+  silently for the current user, or with `-Portable [-Path <folder>]` unpacks the portable zip into
+  an empty or portable folder: it replaces the files the zip ships and old runtime files (`*.dll`,
+  `*.pak`, `*.bin`), never `Data`, the marker or other files, stops before deleting anything when
+  one of them is or holds a link, and refuses any other folder or a drive. `scripts/install-script.test.ps1` runs in the `windows` CI job.
 - **Window and input:** the toolbar and the settings header are the caption (the hook starts the
   system move; a double click maximizes), with Windows minimize/maximize/close buttons. Pop-ups
   opened without focus (address suggestions, hover cards, peek) stay inactive until clicked,
@@ -203,8 +222,8 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   thumbprint or Azure Trusted Signing, SHA-256 with RFC 3161 timestamp, `signtool verify /pa`) signs
   by hand once one is. Settings › General › Nightly builds switches to the `nightly` release's feed
   (`docs/release.md` "Update channels"). The installer, Start menu entry and uninstaller use `packaging/windows/tarn.ico`
-  (from `packaging/Tarn.icns`); `tarn.exe`, CEF's launcher, still carries CEF's icon and version
-  resources: replacing them needs a resource editor step the packaging does not have yet.
+  (from `packaging/Tarn.icns`), and so does `tarn.exe` (`scripts/set-exe-icon.ps1`, tested in the
+  `windows` CI job); it still carries CEF's version resources.
 - **Checked by hand:** pages load and render (example.com, DuckDuckGo, Wikipedia), typing in
   pages and in the address field with suggestions, Shield's per-profile request filter, tab
   titles, shortcuts from page focus, new and switched tabs, back, settings, window move,

@@ -323,6 +323,116 @@ fn register_browser(exe: &str) -> bool {
     registered
 }
 
+/// Gives `dir`, a portable Tarn's data folder, a protected access list for the current user,
+/// SYSTEM and Administrators, as Local AppData has for an install, unless it has a protected one
+/// already; everything inside inherits it. Fails on a file system without permissions, such as
+/// exFAT, and on a folder whose access list the user may not change.
+pub fn restrict_to_user(dir: &std::path::Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{ERROR_INVALID_SECURITY_DESCR, ERROR_SUCCESS, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
+    };
+    use windows_sys::Win32::Security::{ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+    std::fs::create_dir_all(dir)?;
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    if dacl_protected(&path)? {
+        return Ok(());
+    }
+    let sddl = wide(&format!("D:P(A;OICI;FA;;;{})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)", current_user_sid()?));
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: `sddl` is NUL-terminated; on success `descriptor` is a LocalAlloc block freed below.
+    if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let (mut present, mut defaulted, mut dacl) = (0, 0, std::ptr::null_mut::<ACL>());
+    // SAFETY: `descriptor` is the valid descriptor made above; `dacl` points into it.
+    let found = unsafe { GetSecurityDescriptorDacl(descriptor, &mut present, &mut dacl, &mut defaulted) } != 0 && present != 0;
+    let status = if found {
+        // SAFETY: `path` is NUL-terminated and `dacl` stays valid until `descriptor` is freed below.
+        unsafe {
+            SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                dacl,
+                std::ptr::null(),
+            )
+        }
+    } else {
+        ERROR_INVALID_SECURITY_DESCR
+    };
+    // SAFETY: frees the block ConvertStringSecurityDescriptorToSecurityDescriptorW allocated.
+    unsafe { LocalFree(descriptor) };
+    if status == ERROR_SUCCESS { Ok(()) } else { Err(std::io::Error::from_raw_os_error(status as i32)) }
+}
+
+/// Whether the object at `path` (NUL-terminated) has a protected access list, one that inherits nothing.
+fn dacl_protected(path: &[u16]) -> std::io::Result<bool> {
+    use windows_sys::Win32::Foundation::{ERROR_SUCCESS, LocalFree};
+    use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+    use windows_sys::Win32::Security::{DACL_SECURITY_INFORMATION, GetSecurityDescriptorControl, PSECURITY_DESCRIPTOR, SE_DACL_PROTECTED};
+    let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: `path` is NUL-terminated; on success `descriptor` is a LocalAlloc block freed below.
+    let status = unsafe {
+        GetNamedSecurityInfoW(
+            path.as_ptr(),
+            SE_FILE_OBJECT,
+            DACL_SECURITY_INFORMATION,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut descriptor,
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return Err(std::io::Error::from_raw_os_error(status as i32));
+    }
+    let (mut control, mut revision) = (0u16, 0u32);
+    // SAFETY: `descriptor` is valid until it is freed below.
+    let read = unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) } != 0;
+    // SAFETY: frees the block GetNamedSecurityInfoW allocated.
+    unsafe { LocalFree(descriptor) };
+    Ok(read && control & SE_DACL_PROTECTED != 0)
+}
+
+/// The SID of the user this process runs as, in SDDL's `S-1-…` form.
+fn current_user_sid() -> std::io::Result<String> {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
+    use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
+    use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_QUERY, TOKEN_USER, TokenUser};
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: the current-process pseudo handle needs no closing; `token` is closed below.
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let mut buffer = vec![0u64; 128];
+    let mut written = 0;
+    // SAFETY: `buffer` is writable for the size passed and aligned for TOKEN_USER.
+    let read = unsafe { GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), (buffer.len() * 8) as u32, &mut written) } != 0;
+    let error = std::io::Error::last_os_error();
+    // SAFETY: closes the token opened above.
+    unsafe { CloseHandle(token) };
+    if !read {
+        return Err(error);
+    }
+    let mut text: windows_sys::core::PWSTR = std::ptr::null_mut();
+    // SAFETY: `buffer` now holds a TOKEN_USER whose SID points into `buffer`; on success `text` is a
+    // LocalAlloc string freed below.
+    if unsafe { ConvertSidToStringSidW((*buffer.as_ptr().cast::<TOKEN_USER>()).User.Sid, &mut text) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    // SAFETY: `text` is a NUL-terminated wide string until it is freed below.
+    let sid = String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(text, (0..).take_while(|&i| *text.add(i) != 0).count()) });
+    // SAFETY: frees the string ConvertSidToStringSidW allocated.
+    unsafe { LocalFree(text.cast()) };
+    Ok(sid)
+}
+
 /// The user's Local AppData folder as the shell resolves it, the folder the installer uses too;
 /// for when `LOCALAPPDATA` is missing from the environment.
 pub fn local_app_data() -> Option<PathBuf> {
@@ -400,6 +510,40 @@ fn external_allowed(url: &Url) -> bool {
 #[cfg(test)]
 mod tests {
     use url::Url;
+
+    #[test]
+    fn a_portable_data_folder_admits_only_the_user_system_and_administrators() {
+        use std::os::windows::ffi::OsStrExt;
+        use windows_sys::Win32::Foundation::LocalFree;
+        use windows_sys::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+        use windows_sys::Win32::Security::{ACL, DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR};
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("Data");
+        let path: Vec<u16> = data.as_os_str().encode_wide().chain(Some(0)).collect();
+        super::restrict_to_user(&data).unwrap();
+        assert!(super::dacl_protected(&path).unwrap(), "inherited permissions no longer apply");
+        super::restrict_to_user(&data).unwrap();
+        assert!(super::current_user_sid().unwrap().starts_with("S-1-"));
+        let (mut dacl, mut descriptor): (*mut ACL, PSECURITY_DESCRIPTOR) = (std::ptr::null_mut(), std::ptr::null_mut());
+        // SAFETY: `path` is NUL-terminated; on success `descriptor` is a LocalAlloc block freed below and `dacl` points into it.
+        let status = unsafe {
+            GetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut descriptor,
+            )
+        };
+        assert_eq!(status, 0);
+        // SAFETY: `dacl` points into `descriptor`, valid until freed below.
+        assert_eq!(unsafe { (*dacl).AceCount }, 3, "the user, SYSTEM and Administrators");
+        // SAFETY: frees the block GetNamedSecurityInfoW allocated.
+        unsafe { LocalFree(descriptor) };
+    }
 
     #[test]
     fn local_programs_and_shell_paths_are_refused() {

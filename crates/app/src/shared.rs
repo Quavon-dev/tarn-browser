@@ -132,6 +132,14 @@ pub(crate) fn start(cx: &mut App) -> bool {
             return false;
         }
     };
+    #[cfg(windows)]
+    let kept = browser_core::portable_dir()
+        .filter(|dir| *dir == data_dir())
+        .and_then(|dir| {
+            let e = engine::restrict_to_user(&dir).err()?;
+            Some(format!("Other accounts on this computer may read the portable data in {}: its permissions could not be limited to you ({e}).", dir.display()))
+        })
+        .or(kept);
     let mut core = crate::browser::Core::open(&data_dir(), cfg!(feature = "chromium"));
     engine::startup::mark("store open");
     core.storage_warning = core.storage_warning.or(kept);
@@ -144,7 +152,9 @@ pub(crate) fn start(cx: &mut App) -> bool {
     let prefs = Cell::new(Prefs::load(&core.disk));
     let (reports, mut update_reports) = mpsc::unbounded();
     let (checks, nightly) = (prefs.get().get(crate::prefs::Pref::UpdateChecks), prefs.get().get(crate::prefs::Pref::NightlyUpdates));
-    let updater = platform::updater::Updater::start(checks, nightly, &data_dir().join("updates"), move |report| drop(reports.unbounded_send(report)));
+    let updater = platform::updater::Updater::start(checks, nightly, browser_core::portable_dir().is_some(), &data_dir().join("updates"), move |report| {
+        drop(reports.unbounded_send(report))
+    });
     let (downloads, mut download_events) = mpsc::unbounded();
     let core = Rc::new(AppCore {
         core,
@@ -359,6 +369,9 @@ fn updater_reported(report: platform::updater::Report, cx: &mut App) {
         }
         Report::UpToDate => toast_front(browser_core::toast::Tone::Success, "Tarn is up to date", None, cx),
         Report::CheckFailed => toast_front(browser_core::toast::Tone::Warning, "Tarn could not check for updates", None, cx),
+        Report::UpdateAvailable { version, page } => {
+            toast_front(browser_core::toast::Tone::Info, format!("Tarn {version} is available"), page.map(crate::toast::Action::Download), cx)
+        }
     }
     #[cfg(any(feature = "chromium", windows))]
     check_chromium(cx);

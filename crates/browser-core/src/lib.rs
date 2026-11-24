@@ -99,21 +99,36 @@ pub fn now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
-/// Where Tarn keeps its data: `TARN_DATA_DIR`, else `base`, else the platform's default. iOS and
-/// Android have none, so their host passes `base`.
+/// Where Tarn keeps its data: `TARN_DATA_DIR`, else `base`, else a portable Tarn's folder, else
+/// the platform's default. iOS and Android have none, so their host passes `base`.
 pub fn data_dir(base: Option<&Path>) -> Option<PathBuf> {
     let platform = if cfg!(windows) { "LOCALAPPDATA" } else { "XDG_DATA_HOME" };
-    resolve_data_dir(std::env::var_os("TARN_DATA_DIR"), base, std::env::home_dir(), std::env::var_os(platform))
+    resolve_data_dir(std::env::var_os("TARN_DATA_DIR"), base.map(Path::to_owned).or_else(portable_dir), std::env::home_dir(), std::env::var_os(platform))
+}
+
+/// Marks a portable Tarn: a file of this name beside the executable keeps its data in `Data` there.
+const PORTABLE_MARKER: &str = "tarn-portable";
+
+/// The data folder of a portable Tarn, on Windows only, decided once per run. macOS keeps site data
+/// under `~/Library/WebKit` and secrets in the Keychain; Linux has no portable download yet.
+pub fn portable_dir() -> Option<PathBuf> {
+    static DIR: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| if cfg!(windows) { portable_dir_beside(&std::env::current_exe().ok()?) } else { None }).clone()
+}
+
+fn portable_dir_beside(exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent().filter(|d| d.is_absolute())?;
+    dir.join(PORTABLE_MARKER).is_file().then(|| dir.join("Data"))
 }
 
 /// `xdg` is `XDG_DATA_HOME` on Linux and `LOCALAPPDATA` on Windows.
 #[cfg_attr(not(target_os = "linux"), allow(unused_variables))]
-fn resolve_data_dir(tarn: Option<OsString>, base: Option<&Path>, home: Option<PathBuf>, xdg: Option<OsString>) -> Option<PathBuf> {
+fn resolve_data_dir(tarn: Option<OsString>, base: Option<PathBuf>, home: Option<PathBuf>, xdg: Option<OsString>) -> Option<PathBuf> {
     if let Some(dir) = tarn {
         return Some(dir.into());
     }
     if let Some(base) = base {
-        return Some(base.to_owned());
+        return Some(base);
     }
     #[cfg(target_os = "macos")]
     return Some(home.unwrap_or_default().join("Library/Application Support/Tarn"));
@@ -428,7 +443,7 @@ mod tests {
     #[test]
     fn data_dir_prefers_the_override_then_the_host_then_the_platform() {
         let resolve = |tarn: Option<&str>, base: Option<&str>, home: Option<&str>, xdg: Option<&str>| {
-            resolve_data_dir(tarn.map(OsString::from), base.map(Path::new), home.map(PathBuf::from), xdg.map(OsString::from))
+            resolve_data_dir(tarn.map(OsString::from), base.map(PathBuf::from), home.map(PathBuf::from), xdg.map(OsString::from))
         };
         assert_eq!(resolve(Some("/t"), Some("/b"), Some("/h"), None), Some("/t".into()));
         assert_eq!(resolve(None, Some("/b"), Some("/h"), None), Some("/b".into()));
@@ -446,6 +461,19 @@ mod tests {
         } else {
             assert_eq!(default, None, "the host passes the directory");
         }
+    }
+
+    #[test]
+    fn portable_dir_needs_the_marker_beside_the_executable() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("tarn.exe");
+        assert_eq!(portable_dir_beside(&exe), None);
+        std::fs::create_dir(dir.path().join(PORTABLE_MARKER)).unwrap();
+        assert_eq!(portable_dir_beside(&exe), None, "a folder is no marker");
+        std::fs::remove_dir(dir.path().join(PORTABLE_MARKER)).unwrap();
+        std::fs::write(dir.path().join(PORTABLE_MARKER), "").unwrap();
+        assert_eq!(portable_dir_beside(&exe), Some(dir.path().join("Data")));
+        assert_eq!(portable_dir_beside(Path::new("tarn")), None, "only an absolute path names a folder");
     }
 
     fn downloads() -> Rc<dyn Fn(Event)> {
