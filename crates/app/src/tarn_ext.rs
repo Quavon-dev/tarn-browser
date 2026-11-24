@@ -555,12 +555,16 @@ impl Browser {
     }
 
     pub(crate) fn profile_views_keyed(&self, profile: Id) -> Vec<(TabKey, Rc<engine::WebView>)> {
+        if self.model.agent_profile.is_some() {
+            return Vec::new();
+        }
         self.views.iter().filter(|(k, _)| !k.private && self.profile_of(**k) == Some(profile)).map(|(k, v)| (*k, v.clone())).collect()
     }
 
     /// Gives this window's view of `key` the gate and the profile's Tarn extensions.
+    /// Never in an agent's window (S22).
     pub(crate) fn attach_tarn(&self, key: TabKey) {
-        let (Some(view), Some(profile)) = (self.views.get(&key), self.profile_of(key)) else { return };
+        let (Some(view), Some(profile)) = (self.views.get(&key).filter(|_| self.model.agent_profile.is_none()), self.profile_of(key)) else { return };
         let url = view.url().or_else(|| self.tab_url(key).and_then(|u| Url::parse(&u).ok()));
         let level = self.core.level(key.private, profile, url.as_ref()).unwrap_or(ShieldLevel::Lockdown);
         attach(&self.core, key, profile, view.as_ref(), level);

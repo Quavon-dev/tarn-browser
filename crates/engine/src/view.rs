@@ -35,8 +35,16 @@ macro_rules! webkit_only {
 }
 
 impl WebView {
-    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
-        WebView::WebKit(webview::WebView::new(host, data, level, filtered, inspectable, site_for, sink))
+    pub fn new(
+        host: &Host,
+        data: &DataStore,
+        level: ShieldLevel,
+        features: crate::Features,
+        inspectable: bool,
+        site_for: SiteFor,
+        sink: Rc<dyn Fn(Event)>,
+    ) -> Self {
+        WebView::WebKit(webview::WebView::new(host, data, level, features, inspectable, site_for, sink))
     }
 
     /// A Chromium view for the profile with this UUID, Chromium's data under `root`; `data` is the

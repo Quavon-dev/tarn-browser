@@ -208,19 +208,27 @@ impl Browser {
             Event::ShieldLevelChanged(url) => self.rebuild_view(key, &url, cx),
             Event::RebuildForLink(url) => self.rebuild_view_for_link(key, &url, cx),
             Event::PeekLink(url, from) => {
-                if self.model.active == Some(key) && self.model.agent_profile.is_none() {
+                if self.model.active == Some(key) && self.model.agent_profile.is_none() && crate::agent::gated(key, cx).is_none() {
                     self.open_link_peek(key, url, from, window, cx);
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
             Event::OpenTab { url, from, background, split } => {
                 let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown() && self.model.agent_profile.is_none()) else { return cx.notify() };
+                // A tab an agent used keeps its gate in the tabs it opens (S22).
+                let gate = crate::agent::gated(key, cx);
+                if gate.as_ref().is_some_and(|gate| !crate::agent::may_open(gate, &url, cx)) {
+                    return cx.notify();
+                }
                 let engine = opener.web_engine.or(self.saved.web_engine);
-                let routed = self.routed_space(&url);
+                let routed = if gate.is_some() { None } else { self.routed_space(&url) };
                 if let Some(ix) = routed {
                     self.switch_space(ix, window, cx);
                 }
                 if let Some(tab) = self.model.open_tab(&self.core, url.as_str(), engine, Opened::Link(key)) {
+                    if gate.is_some() {
+                        crate::agent::touch(tab, cx);
+                    }
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
                     if split && routed.is_none() {
@@ -341,7 +349,7 @@ impl Browser {
     }
 
     pub(super) fn record_visit(&mut self, key: TabKey, url: &Url, title: &str, typed: bool) {
-        if let Some(profile_id) = self.profile_of(key)
+        if let Some(profile_id) = self.profile_of(key).filter(|_| self.model.agent_profile.is_none())
             && matches!(url.scheme(), "http" | "https")
             && self.core.keeps_records(key.private, profile_id)
         {
@@ -708,8 +716,15 @@ impl Browser {
         if self.model.tab(opener).is_none() || self.model.burner_shown() || self.model.agent_profile.is_some() {
             return;
         }
+        // A pop-up of a tab an agent used keeps its gate and its space (S22).
+        let gate = crate::agent::gated(opener, cx);
+        if let Some(gate) = &gate
+            && !popup.url.as_ref().is_some_and(|url| crate::agent::may_open(gate, url, cx))
+        {
+            return;
+        }
         // A script's window.open keeps its opener, which sign-in and payment pop-ups need, so only links are routed.
-        if popup.link && popup.url.clone().is_some_and(|url| self.open_routed(&url, window, cx)) {
+        if gate.is_none() && popup.link && popup.url.clone().is_some_and(|url| self.open_routed(&url, window, cx)) {
             return;
         }
         let Some(space) = self.model.current_space() else { return };
@@ -719,6 +734,9 @@ impl Browser {
             return;
         };
         let key = TabKey { private, id: tab.id };
+        if gate.is_some() {
+            crate::agent::touch(key, cx);
+        }
         // On macOS only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
         if cfg!(target_os = "macos") {
             self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
@@ -731,6 +749,7 @@ impl Browser {
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
         self.view_prefs(&view);
+        crate::agent::gate_view(key, &view, cx);
         self.views.insert(key, Rc::new(view));
         self.link_loads.insert(key, None);
         self.attach_tarn(key);

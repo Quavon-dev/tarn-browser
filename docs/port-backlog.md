@@ -21,6 +21,24 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Agent control in the user's profile or tabs (2026-11-24)
+
+What it does: two more opt-in settings in Settings › AI let the user approve an agent to open its
+own tabs in their front window's profile (Use My Logins) or to work in their open tabs outside
+private spaces (Use My Tabs); per-site approval, no extensions, passkeys or history in the agent's
+window, a bar with Stop in every window (threat model S22, S31).
+Shared API: `browser_core::agent::{Mode, SETTING_PROFILE, SETTING_TABS, DETAIL_PROFILE,
+DETAIL_TABS, web_site}`, `control::Ctx::{profile, yours}`, `control::Effect::Switch`,
+`control::Choice::{Profile, Tabs}`, `tabs::Model::open_agent_in`, `engine::Features`.
+Reference: `crates/app/src/agent.rs`, `crates/app/src/settings/ai.rs`.
+
+- [ ] Linux — the two switches in Settings › AI, `Ctx::{profile, yours}` from the front window's
+  profile and the user's windows in `linux/src/ui/agent.rs`, `Effect::Switch` (today it ends the
+  session), a per-tab gate and the bar in every window, no extensions or history in the agent's
+  window.
+- [ ] iOS — after the Agent control entry below.
+- [ ] Android — after the Agent control entry below.
+
 ### Agent control (2026-11-24)
 
 What it does: an AI agent on the same device browses for the user in a throwaway window of its

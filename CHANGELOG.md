@@ -13,6 +13,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   You allow the agent (look only, or act), each site it uses and each click on a page holding a
   filled password or payment field; it never types passwords. Pause and Stop sit in the bar at the
   top of its window. On macOS, Windows and Linux.
+- Agent control in your profile or your tabs: two more switches in Settings › AI, both off by
+  default. With Let agents use your profile on, you may approve an agent with Use My Logins: it
+  opens its own tabs in your front window's profile, signed in, without extensions, passkeys or
+  history. With Let agents use your tabs on, Use My Tabs lets it work in your open tabs outside
+  private spaces, with a bar and Stop in every window. Each site still needs your approval, and in
+  both modes Tarn asks before the agent submits a form and hides from it what it did not type
+  itself, such as a login a password manager filled. On macOS and Windows.
 - Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
   Settings › AI deletes them all. An answer can be copied and retried and its question edited;
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude

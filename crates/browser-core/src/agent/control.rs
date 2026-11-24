@@ -8,13 +8,13 @@ use engine::agent_scripts::{Act, AgentScript};
 use url::Url;
 
 use super::mcp::Outcome;
-use super::{Entry, LOCKED, NO_ANSWER, PROMPT_TIMEOUT_MS, Scope, Session, Tool, Verdict};
+use super::{Entry, LOCKED, Mode, NO_ANSWER, PROMPT_TIMEOUT_MS, Scope, Session, Tool, Verdict};
 
 pub const ASK_USER_TIMEOUT_MS: i64 = 10 * 60 * 1000;
 pub const MAX_TEXT_CHARS: usize = 40_000;
 const BUSY_ASKING: &str = "Tarn is already asking the user something; try again shortly.";
 
-/// A tab of the agent's window as the shell sees it now.
+/// A tab the agent may use, as the shell sees it now.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Page<K> {
     pub key: K,
@@ -28,7 +28,16 @@ pub struct Ctx<'a, K> {
     /// Settings › Privacy › Open localhost links from other apps.
     pub localhost: bool,
     pub now: i64,
+    /// The tabs of the agent's own window.
     pub tabs: &'a [Page<K>],
+    /// Settings › AI › Let agents use your profile.
+    pub profile_on: bool,
+    /// The name of the profile `Mode::Profile` would use, when there is one to offer.
+    pub profile: Option<String>,
+    /// Settings › AI › Let agents use your tabs.
+    pub tabs_on: bool,
+    /// The user's tabs outside private spaces, while `tabs_on`.
+    pub yours: &'a [Page<K>],
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,6 +54,10 @@ pub enum Ask {
 pub enum Choice {
     Look,
     Act,
+    /// Act in its own tabs of the user's profile (`Mode::Profile`).
+    Profile,
+    /// Act in the user's tabs (`Mode::Tabs`).
+    Tabs,
     Allow,
     Deny,
     Pause,
@@ -87,6 +100,9 @@ pub enum Raw<K> {
 pub enum Effect<K, C> {
     Reply(C, Outcome),
     OpenWindow,
+    /// The user approved the agent in `Mode::Profile` or `Mode::Tabs`: close the throwaway window
+    /// and open one in the profile, or use the user's windows. The session goes on.
+    Switch(Mode),
     /// Close the agent's window, which wipes its profile.
     CloseWindow,
     /// Show the window and draw its bar again; `true` when a new question appeared, whose buttons
@@ -151,6 +167,9 @@ struct Running<K, C> {
 struct Active<K, C> {
     conn: u64,
     client: String,
+    /// What the connect question offers besides the throwaway window: the profile's name, and
+    /// the user's tabs.
+    offers: (Option<String>, bool),
     session: Option<Session<K>>,
     held: Option<Held<K, C>>,
     running: Option<Running<K, C>>,
@@ -181,6 +200,11 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         if !ctx.enabled {
             return vec![Effect::Reply(call.token, Outcome::Error(super::OFF.into()))];
         }
+        if self.mode_off(ctx) {
+            let mut out = self.stop(super::OFF, true, false);
+            out.insert(0, Effect::Reply(call.token, Outcome::Error(super::OFF.into())));
+            return out;
+        }
         if self.refused.contains(&conn) {
             return vec![Effect::Reply(call.token, Outcome::Error(super::DENIED.into()))];
         }
@@ -193,7 +217,8 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             Some(_) => self.run(call, None, true, ctx),
             None => {
                 let client = super::client_name(client.unwrap_or_default());
-                self.active = Some(Active { conn, client, session: None, held: None, running: None, paused: None });
+                let offers = (ctx.profile.clone().filter(|_| ctx.profile_on), ctx.tabs_on);
+                self.active = Some(Active { conn, client, offers, session: None, held: None, running: None, paused: None });
                 let mut out = vec![Effect::OpenWindow, Effect::Sites(Some(Vec::new()))];
                 out.extend(self.hold(Ask::Connect, Then::Call(call), None, ctx.now));
                 out
@@ -218,7 +243,17 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             return out;
         }
-        let Some(held) = active.held.take_if(|h| h.id == prompt) else { return Vec::new() };
+        let mode = match choice {
+            Choice::Profile => Mode::Profile,
+            Choice::Tabs => Mode::Tabs,
+            _ => Mode::Throwaway,
+        };
+        let offered = match mode {
+            Mode::Profile => active.offers.0.is_some() && ctx.profile_on,
+            Mode::Tabs => active.offers.1 && ctx.tabs_on,
+            Mode::Throwaway => true,
+        };
+        let Some(held) = active.held.take_if(|h| h.id == prompt && (offered || h.ask != Ask::Connect)) else { return Vec::new() };
         let allowed = choice != Choice::Deny;
         let mut out = vec![Effect::Show(false)];
         if let Ask::Site(site) | Ask::Held(site) = &held.ask
@@ -228,8 +263,11 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             out.push(Effect::Sites(Some(session.allowed_sites())));
         }
         if held.ask == Ask::Connect && allowed {
-            let scope = if choice == Choice::Act { Scope::Act } else { Scope::Look };
-            active.session = Some(Session::new(scope, active.client.clone(), ctx.now));
+            let scope = if choice == Choice::Look { Scope::Look } else { Scope::Act };
+            active.session = Some(Session::new(scope, mode, active.client.clone(), ctx.now));
+            if mode != Mode::Throwaway {
+                out.push(Effect::Switch(mode));
+            }
         }
         match (held.ask, held.then) {
             (Ask::Connect, Then::Call(call)) if allowed => out.extend(self.run(call, None, true, ctx)),
@@ -239,7 +277,10 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Ask::Site(_), Then::Call(call)) if allowed => out.extend(self.run(call, None, false, ctx)),
             (Ask::Site(site), Then::Call(call)) => {
-                out.extend(self.finish(call, None, Outcome::Error(format!("The user did not allow the agent on {site}.")), ctx.now))
+                let target = call.tool.target_url().and_then(|u| super::agent_url(u, true)).as_ref().and_then(super::site_of);
+                let theirs = active.session.as_ref().is_some_and(|s| s.mode == Mode::Tabs) && target.as_deref() != Some(site.as_str());
+                let why = if theirs { super::DENIED.into() } else { format!("The user did not allow the agent on {site}.") };
+                out.extend(self.finish(call, None, Outcome::Error(why), ctx.now))
             }
             (Ask::Site(_) | Ask::Held(_), Then::Load(key, url)) if allowed => out.push(Effect::Run { run: 0, tab: Some(key), op: Op::Load(url) }),
             (Ask::Sensitive(_), Then::Call(call)) if allowed => out.extend(self.run(call, held.page, false, ctx)),
@@ -265,10 +306,13 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
 
     /// What the shell's op `run` came back with.
     pub fn raw(&mut self, run: u64, raw: Raw<K>, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
+        let signed_in = self.mode().is_some_and(|m| m != Mode::Throwaway);
         let Some(active) = self.active.as_mut() else { return Vec::new() };
         let Some(running) = active.running.take_if(|r| r.run == run) else { return Vec::new() };
-        let page = running.tab.and_then(|k| page_of(ctx.tabs, k));
+        let tabs = pages(active.session.as_ref(), ctx);
+        let page = running.tab.and_then(|k| page_of(tabs, k));
         let outcome = match (&running.call.tool, raw) {
+            (Tool::TabOpen { .. }, Raw::Unavailable) => Outcome::Error("Tarn could not open the tab.".into()),
             (_, Raw::Unavailable) => Outcome::Error(LOCKED.into()),
             (Tool::Navigate { url, .. }, Raw::Done) => Outcome::Text(format!("Loading {url}. Use wait_for, then snapshot.")),
             (_, Raw::Done) => Outcome::Text("Done. Use wait_for, then snapshot.".into()),
@@ -277,7 +321,8 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Tool::TabOpen { url }, Raw::Opened(Some(key))) => {
                 let n = active.session.as_mut().map(|s| {
-                    s.sync_tabs(&ctx.tabs.iter().map(|p| p.key).chain([key]).collect::<Vec<_>>());
+                    s.sync_tabs(&tabs.iter().map(|p| p.key).chain([key]).collect::<Vec<_>>());
+                    s.opened(key);
                     s.id_of(key).unwrap_or_default()
                 });
                 Outcome::Text(format!("Opened tab {} at {url}. Use wait_for, then snapshot.", n.unwrap_or_default()))
@@ -308,11 +353,11 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Tool::Screenshot { .. }, Raw::Script(raw)) if !raw.starts_with("1:") => Outcome::Error(LOCKED.into()),
             (Tool::Screenshot { .. }, Raw::Script(_)) => {
-                Outcome::Error("Tarn takes no screenshot while a password, payment or one-time-code field on the page holds a value.".into())
+                Outcome::Error("Tarn takes no screenshot while a password, payment or one-time-code field on the page holds a value or, signed in as the user, while a field the agent did not fill holds one or the page holds a frame of another site.".into())
             }
             (Tool::Screenshot { .. }, Raw::Png(Some(png))) => {
                 let (run, tab) = (running.run, running.tab);
-                let op = Op::Script(bound(AgentScript::Sensitive.source(), &running.origin));
+                let op = Op::Script(bound(AgentScript::Sensitive { signed_in }.source(), &running.origin));
                 active.running = Some(Running { png: Some(png), deadline: ctx.now + PROMPT_TIMEOUT_MS, ..running });
                 return vec![Effect::Run { run, tab, op }];
             }
@@ -346,8 +391,16 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
     /// Called every `TICK` while `active`: times out questions and calls, ends an idle session
     /// and polls a wait.
     pub fn tick(&mut self, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
+        if self.mode_off(ctx) {
+            return self.stop(super::OFF, true, false);
+        }
         let Some(active) = self.active.as_mut() else { return Vec::new() };
         let t = ctx.now;
+        let offers = (active.offers.0.clone().filter(|_| ctx.profile_on), active.offers.1 && ctx.tabs_on);
+        if offers != active.offers {
+            active.offers = offers;
+            return vec![Effect::Show(false)];
+        }
         if let Some(held) = active.held.as_ref() {
             let limit = if matches!(held.ask, Ask::User(_)) { ASK_USER_TIMEOUT_MS } else { PROMPT_TIMEOUT_MS };
             if t - held.since < limit {
@@ -369,7 +422,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 return self.finish(running.call, None, Outcome::Error("The page did not answer in time.".into()), t);
             }
             if let Tool::WaitFor { text, .. } = &running.call.tool
-                && (text.is_none() || allowed_here(active.session.as_ref(), running.tab.and_then(|k| page_of(ctx.tabs, k)).as_ref()))
+                && (text.is_none() || allowed_here(active.session.as_ref(), running.tab.and_then(|k| page_of(pages(active.session.as_ref(), ctx), k)).as_ref()))
             {
                 let op = Op::Script(bound(AgentScript::Wait { text: text.as_deref() }.source(), &running.origin));
                 return vec![Effect::Run { run: running.run, tab: running.tab, op }];
@@ -408,13 +461,22 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         let client = &active.client;
         let stop = ("Stop", Choice::Stop, false);
         let (text, buttons, asking) = match active.held.as_ref().map(|h| &h.ask) {
-            Some(Ask::Connect) => (
-                format!("“{client}” (the name it gives) wants to control this window. It starts with no sites allowed."),
-                vec![("Allow Looking", Choice::Look, false), ("Allow Acting", Choice::Act, true), ("Deny", Choice::Deny, false)],
-                true,
-            ),
+            Some(Ask::Connect) => {
+                let mut text = format!("“{client}” (the name it gives) wants to control this window. It starts with no sites allowed.");
+                let mut buttons = vec![("Allow Looking", Choice::Look, false), ("Allow Acting", Choice::Act, true)];
+                if let Some(profile) = &active.offers.0 {
+                    text.push_str(&format!(" Use My Logins lets it act in its own tabs of “{profile}”, signed in."));
+                    buttons.push(("Use My Logins", Choice::Profile, false));
+                }
+                if active.offers.1 {
+                    text.push_str(" Use My Tabs lets it act in your open tabs.");
+                    buttons.push(("Use My Tabs", Choice::Tabs, false));
+                }
+                buttons.push(("Deny", Choice::Deny, false));
+                (text, buttons, true)
+            }
             Some(Ask::Held(site)) => (
-                format!("A page in the agent's window tried to open {site}. Allow the agent there?"),
+                format!("A page the agent uses tried to open {site}. Allow the agent there?"),
                 vec![("Allow", Choice::Allow, false), ("Deny", Choice::Deny, true), stop],
                 true,
             ),
@@ -422,7 +484,12 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 (format!("The agent wants to use {site}."), vec![("Allow", Choice::Allow, true), ("Deny", Choice::Deny, false), stop], true)
             }
             Some(Ask::Sensitive(site)) => (
-                format!("The agent wants to click or submit on {site}, where a password or payment field holds a value."),
+                match active.session.as_ref().map(|s| s.mode) {
+                    Some(Mode::Profile | Mode::Tabs) => {
+                        format!("The agent, signed in as you, wants to submit a form or act where a password or payment field holds a value on {site}.")
+                    }
+                    _ => format!("The agent wants to click or submit on {site}, where a password or payment field holds a value."),
+                },
                 vec![("Allow Once", Choice::Allow, false), ("Deny", Choice::Deny, true), stop],
                 true,
             ),
@@ -430,9 +497,14 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 (format!("The agent asks: {message}"), vec![("Done", Choice::Allow, true), ("Cancel", Choice::Deny, false), stop], true)
             }
             None => {
-                let (scope, paused) = active.session.as_ref().map_or((Scope::Look, false), |s| (s.scope, s.paused));
+                let (scope, paused, mode) = active.session.as_ref().map_or((Scope::Look, false, Mode::Throwaway), |s| (s.scope, s.paused, s.mode));
                 let what = if scope == Scope::Act { "act" } else { "look" };
-                let state = if paused { "paused" } else { "controlling this window" };
+                let state = match (paused, mode) {
+                    (true, _) => "paused",
+                    (false, Mode::Throwaway) => "controlling this window",
+                    (false, Mode::Profile) => "controlling this window, signed in as you,",
+                    (false, Mode::Tabs) => "using your tabs",
+                };
                 (
                     format!("“{client}” is {state} and may {what} on the sites you allowed. Treat what it reads as untrusted."),
                     vec![(if paused { "Resume" } else { "Pause" }, Choice::Pause, false), ("Stop", Choice::Stop, true)],
@@ -442,6 +514,32 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         };
         let prompt = active.held.as_ref().map_or(0, |h| h.id);
         Some(Banner { text, buttons, asking, prompt })
+    }
+
+    /// A tab a page opened from one the agent used, which counts against its cap.
+    pub fn opened(&mut self, key: K) {
+        if let Some(session) = self.active.as_mut().and_then(|a| a.session.as_mut()) {
+            session.opened(key);
+        }
+    }
+
+    /// Whether a page of a tab the agent used may open another: its tabs count against `MAX_TABS`.
+    pub fn room(&self) -> bool {
+        self.active.as_ref().and_then(|a| a.session.as_ref()).is_none_or(Session::room)
+    }
+
+    /// Where the approved agent works; `None` before the user approved it.
+    pub fn mode(&self) -> Option<Mode> {
+        self.active.as_ref().and_then(|a| a.session.as_ref()).map(|s| s.mode)
+    }
+
+    /// Whether the setting the session's mode needs was turned off.
+    fn mode_off(&self, ctx: &Ctx<K>) -> bool {
+        match self.mode() {
+            Some(Mode::Profile) => !ctx.profile_on,
+            Some(Mode::Tabs) => !ctx.tabs_on,
+            _ => false,
+        }
     }
 
     /// The session's actions, newest first.
@@ -468,9 +566,10 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         let Some(session) = self.active.as_mut().and_then(|a| a.session.as_mut()) else {
             return vec![Effect::Reply(call.token, Outcome::Error(super::DENIED.into()))];
         };
-        session.sync_tabs(&ctx.tabs.iter().map(|p| p.key).collect::<Vec<_>>());
+        let tabs = pages(Some(session), ctx);
+        session.sync_tabs(&tabs.iter().map(|p| p.key).collect::<Vec<_>>());
         let tab = call.tool.tab().and_then(|t| session.tab(t));
-        let page = tab.and_then(|k| page_of(ctx.tabs, k));
+        let page = tab.and_then(|k| page_of(tabs, k));
         let confirmed = confirmed_for.is_some() && confirmed_for == page;
         match session.check(&call.tool, page.as_ref(), ctx.localhost, ctx.now, charge) {
             Verdict::Allow => self.execute(call, tab, page, confirmed, ctx),
@@ -481,8 +580,9 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
 
     fn execute(&mut self, call: Call<C>, tab: Option<K>, page: Option<Url>, confirmed: bool, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
         let origin = guard(page.as_ref());
+        let submits = self.mode().is_some_and(|m| m != Mode::Throwaway);
         let script = |s: AgentScript| Op::Script(bound(s.source(), &origin));
-        let act = |target: u32, act: Act| script(AgentScript::Act { target, act, confirmed });
+        let act = |target: u32, act: Act| script(AgentScript::Act { target, act, confirmed, submits });
         let op = match &call.tool {
             Tool::AskUser { message } => {
                 let message = crate::text::bounded_title(message);
@@ -490,13 +590,16 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             Tool::TabsList => {
                 let Some(session) = self.active.as_ref().and_then(|a| a.session.as_ref()) else { return Vec::new() };
+                let theirs = session.mode == Mode::Tabs;
                 let lines: Vec<String> = session
                     .tabs()
                     .iter()
                     .filter_map(|(n, key)| {
-                        let page = ctx.tabs.iter().find(|p| p.key == *key)?;
-                        let site = page.url.as_ref().and_then(super::site_of);
+                        let page = pages(Some(session), ctx).iter().find(|p| p.key == *key)?;
+                        let site = page.url.as_ref().and_then(if theirs { super::web_site } else { super::site_of });
                         Some(match (&page.url, site) {
+                            (_, None) if theirs => format!("[{n}] a page the agent cannot use"),
+                            (_, Some(site)) if theirs && session.site_allowed(&site) != Some(true) => format!("[{n}] a page the agent may not use yet"),
                             (Some(url), Some(site)) if session.site_allowed(&site) != Some(true) => {
                                 format!("[{n}] a page on a site the agent may not use yet ({site})")
                             }
@@ -519,12 +622,12 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             Tool::Back { .. } => Op::Back,
             Tool::Forward { .. } => Op::Forward,
             Tool::Reload { .. } => Op::Reload,
-            Tool::Snapshot { .. } => script(AgentScript::Snapshot),
+            Tool::Snapshot { .. } => script(AgentScript::Snapshot { signed_in: submits }),
             Tool::ReadText { .. } => match &page {
                 Some(page) => Op::Text(page.clone()),
                 None => return self.finish(call, None, Outcome::Error(LOCKED.into()), ctx.now),
             },
-            Tool::Screenshot { .. } => script(AgentScript::Sensitive),
+            Tool::Screenshot { .. } => script(AgentScript::Sensitive { signed_in: submits }),
             Tool::WaitFor { text, .. } => script(AgentScript::Wait { text: text.as_deref() }),
             Tool::Click { target, .. } => act(*target, Act::Click),
             Tool::Type { target, .. } if call.submit_only => act(*target, Act::Submit),
@@ -578,6 +681,14 @@ fn bound(source: String, guard: &str) -> String {
     format!("if (!({guard})) return '';\n{source}")
 }
 
+/// The tabs the session works on: the agent's window, or in `Mode::Tabs` the user's.
+fn pages<'a, K>(session: Option<&Session<K>>, ctx: &Ctx<'a, K>) -> &'a [Page<K>] {
+    match session.map(|s| s.mode) {
+        Some(Mode::Tabs) => ctx.yours,
+        _ => ctx.tabs,
+    }
+}
+
 fn page_of<K: PartialEq>(tabs: &[Page<K>], key: K) -> Option<Url> {
     tabs.iter().find(|p| p.key == key).and_then(|p| p.url.clone())
 }
@@ -589,7 +700,7 @@ mod tests {
     type Ctl = Controller<u8, &'static str>;
 
     fn ctx(tabs: &[Page<u8>], now: i64) -> Ctx<'_, u8> {
-        Ctx { enabled: true, localhost: false, now, tabs }
+        Ctx { enabled: true, localhost: false, now, tabs, profile_on: false, profile: None, tabs_on: false, yours: &[] }
     }
 
     fn page(key: u8, url: &str) -> Page<u8> {
@@ -620,6 +731,132 @@ mod tests {
         c
     }
 
+    fn yours<'a>(tabs: &'a [Page<u8>], yours: &'a [Page<u8>], now: i64) -> Ctx<'a, u8> {
+        Ctx { yours, profile: Some("Work".into()), profile_on: true, tabs_on: true, ..ctx(tabs, now) }
+    }
+
+    #[test]
+    fn the_profile_and_tabs_modes_are_offered_only_while_their_settings_are_on() {
+        let mut c = Ctl::default();
+        c.call(1, None, Tool::TabsList, "a", &ctx(&[], 0));
+        let labels: Vec<_> = c.banner().unwrap().buttons.iter().map(|b| b.0).collect();
+        assert_eq!(labels, ["Allow Looking", "Allow Acting", "Deny"]);
+        assert!(ans(&mut c, Choice::Tabs, &yours(&[], &[], 1)).is_empty(), "a mode not offered at connect is ignored");
+        assert!(ans(&mut c, Choice::Profile, &yours(&[], &[], 1)).is_empty());
+        assert_eq!(c.mode(), None);
+
+        let mut c = Ctl::default();
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &[], 0));
+        let banner = c.banner().unwrap();
+        assert!(banner.text.contains("“Work”"), "{}", banner.text);
+        assert!(banner.buttons.iter().any(|b| b.1 == Choice::Profile) && banner.buttons.iter().any(|b| b.1 == Choice::Tabs));
+        assert!(ans(&mut c, Choice::Tabs, &ctx(&[], 1)).is_empty(), "a setting turned off since is not taken");
+        assert_eq!(c.tick(&Ctx { tabs_on: false, ..yours(&[], &[], 1) }), vec![Effect::Show(false)], "the bar drops its button");
+        assert!(!c.banner().unwrap().buttons.iter().any(|b| b.1 == Choice::Tabs));
+        let e = ans(&mut c, Choice::Profile, &yours(&[], &[], 2));
+        assert!(e.contains(&Effect::Switch(Mode::Profile)));
+        assert_eq!(c.mode(), Some(Mode::Profile));
+    }
+
+    #[test]
+    fn turning_a_mode_off_ends_its_session() {
+        let mut c = Ctl::default();
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &[], 0));
+        ans(&mut c, Choice::Tabs, &yours(&[], &[], 1));
+        assert!(c.tick(&yours(&[], &[], 2)).is_empty());
+        let e = c.tick(&Ctx { tabs_on: false, ..yours(&[], &[], 3) });
+        assert!(e.contains(&Effect::Sites(None)) && !c.active());
+        let mut c = Ctl::default();
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &[], 0));
+        ans(&mut c, Choice::Profile, &yours(&[], &[], 1));
+        let e = c.call(1, None, Tool::TabsList, "b", &Ctx { profile_on: false, ..yours(&[], &[], 2) });
+        assert_eq!(replies(&e)[0], ("b", Outcome::Error(super::super::OFF.into())));
+        assert!(e.contains(&Effect::CloseWindow) && !c.active());
+    }
+
+    #[test]
+    fn in_the_users_tabs_every_tool_needs_the_site_and_hidden_tabs_name_none() {
+        let mut c = Ctl::default();
+        let theirs = [page(3, "https://mail.private.test/inbox"), page(4, "file:///Users/me/notes.txt"), page(5, "https://shop.test/")];
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &theirs, 0));
+        let e = ans(&mut c, Choice::Tabs, &yours(&[], &theirs, 1));
+        assert!(e.contains(&Effect::Switch(Mode::Tabs)));
+        let Outcome::Text(text) = &replies(&e)[0].1 else { panic!("{e:?}") };
+        assert!(!text.contains("private.test") && !text.contains("notes") && !text.contains("shop.test") && !text.contains("t3"), "{text}");
+        assert!(text.contains("[1] a page the agent may not use yet") && text.contains("[2] a page the agent cannot use"), "{text}");
+
+        let e = c.call(1, None, Tool::Reload { tab: 2 }, "r", &yours(&[], &theirs, 2000));
+        assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("only web pages")), "{e:?}");
+        let e = c.call(1, None, Tool::TabClose { tab: 1 }, "c", &yours(&[], &theirs, 3000));
+        assert!(runs(&e).is_empty() && replies(&e).is_empty(), "closing a tab asks for its site first");
+        assert!(c.banner().unwrap().text.contains("private.test"));
+        let e = ans(&mut c, Choice::Deny, &yours(&[], &theirs, 3100));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::DENIED.into()), "the refusal does not name the tab's site");
+        let e = c.call(1, None, Tool::Navigate { tab: 1, url: "https://shop.test/".into() }, "n", &yours(&[], &theirs, 4000));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::DENIED.into()), "a denied tab is not led away either: {e:?}");
+        let e = c.call(1, None, Tool::Snapshot { tab: 1 }, "s", &yours(&[], &theirs, 4100));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::DENIED.into()));
+
+        let e = c.call(1, None, Tool::Snapshot { tab: 3 }, "s", &yours(&[], &theirs, 5000));
+        assert!(replies(&e).is_empty() && c.banner().unwrap().text.contains("shop.test"));
+        let e = ans(&mut c, Choice::Allow, &yours(&[], &theirs, 5100));
+        assert!(matches!(&runs(&e)[..], [(_, Some(5), Op::Script(_))]), "{e:?}");
+    }
+
+    #[test]
+    fn signed_in_modes_ask_before_any_submission_and_hide_what_the_agent_did_not_fill() {
+        let theirs = [page(5, "https://shop.test/")];
+        for (choice, submits) in [(Choice::Tabs, true), (Choice::Act, false)] {
+            let mut c = Ctl::default();
+            c.call(1, None, Tool::TabsList, "a", &yours(&theirs, &theirs, 0));
+            ans(&mut c, choice, &yours(&theirs, &theirs, 1));
+            c.call(1, None, Tool::Click { tab: 1, target: 2 }, "k", &yours(&theirs, &theirs, 2000));
+            let e = ans(&mut c, Choice::Allow, &yours(&theirs, &theirs, 2100));
+            let [(run, Some(5), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+            assert!(src.contains(&format!("submits = {submits}")), "{src}");
+            if submits {
+                c.raw(*run, Raw::Script("confirm".into()), &yours(&theirs, &theirs, 2200));
+                assert!(c.banner().unwrap().text.contains("signed in as you"));
+                ans(&mut c, Choice::Deny, &yours(&theirs, &theirs, 2300));
+            } else {
+                c.raw(*run, Raw::Script("ok".into()), &yours(&theirs, &theirs, 2200));
+            }
+            let e = c.call(1, None, Tool::Snapshot { tab: 1 }, "s", &yours(&theirs, &theirs, 2400));
+            let [(_, Some(5), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+            assert!(src.contains(&format!("signedIn = {submits};")), "{src}");
+        }
+    }
+
+    #[test]
+    fn denying_the_site_of_a_users_tab_before_a_navigation_names_it_to_no_one() {
+        let mut c = Ctl::default();
+        let theirs = [page(3, "https://mail.private.test/inbox")];
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &theirs, 0));
+        ans(&mut c, Choice::Tabs, &yours(&[], &theirs, 1));
+        let e = c.call(1, None, Tool::Navigate { tab: 1, url: "https://shop.test/".into() }, "n", &yours(&[], &theirs, 2000));
+        assert!(replies(&e).is_empty() && c.banner().unwrap().text.contains("private.test"));
+        let e = ans(&mut c, Choice::Deny, &yours(&[], &theirs, 2100));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::DENIED.into()));
+        c.call(1, None, Tool::TabOpen { url: "https://shop.test/".into() }, "o", &yours(&[], &theirs, 3000));
+        let e = ans(&mut c, Choice::Deny, &yours(&[], &theirs, 3100));
+        assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("shop.test")), "the agent's own address may be named: {e:?}");
+    }
+
+    #[test]
+    fn in_the_users_tabs_only_the_agents_own_tabs_count_against_the_cap() {
+        let mut c = Ctl::default();
+        let theirs: Vec<_> = (0..20).map(|k| page(k, "https://a.test/")).collect();
+        c.call(1, None, Tool::TabsList, "a", &yours(&[], &theirs, 0));
+        ans(&mut c, Choice::Tabs, &yours(&[], &theirs, 1));
+        c.call(1, None, Tool::TabOpen { url: "https://a.test/".into() }, "o", &yours(&[], &theirs, 2000));
+        let e = ans(&mut c, Choice::Allow, &yours(&[], &theirs, 2100));
+        let [(run, None, Op::Open(_))] = &runs(&e)[..] else { panic!("twenty open tabs of the user do not block the agent: {e:?}") };
+        let mut more = theirs.clone();
+        more.push(page(50, "https://a.test/"));
+        let e = c.raw(*run, Raw::Opened(Some(50)), &yours(&[], &more, 2200));
+        assert!(matches!(&replies(&e)[0].1, Outcome::Text(t) if t.starts_with("Opened tab 21")), "{e:?}");
+    }
+
     #[test]
     fn tabs_list_hides_pages_on_sites_without_a_grant() {
         let mut c = approved(Choice::Look);
@@ -632,7 +869,13 @@ mod tests {
     #[test]
     fn nothing_runs_while_agent_control_is_off() {
         let mut c = Ctl::default();
-        let e = c.call(1, None, Tool::TabsList, "a", &Ctx { enabled: false, localhost: false, now: 0, tabs: &[] });
+        let e = c.call(
+            1,
+            None,
+            Tool::TabsList,
+            "a",
+            &Ctx { enabled: false, localhost: false, now: 0, tabs: &[], profile_on: false, profile: None, tabs_on: false, yours: &[] },
+        );
         assert_eq!(replies(&e), vec![("a", Outcome::Error(super::super::OFF.into()))]);
         assert!(!c.active());
     }
@@ -714,7 +957,7 @@ mod tests {
         let mut c = approved(Choice::Act);
         let e = c.held_navigation(3, Url::parse("https://other.test/x").unwrap(), 2000);
         assert_eq!(e, vec![Effect::Show(true)]);
-        assert!(c.banner().unwrap().text.starts_with("A page in the agent's window"), "never worded as the agent's own request");
+        assert!(c.banner().unwrap().text.starts_with("A page the agent uses tried"), "never worded as the agent's own request");
         let e = ans(&mut c, Choice::Allow, &ctx(&[], 2100));
         assert!(runs(&e).iter().any(|(_, tab, op)| *tab == Some(3) && matches!(op, Op::Load(u) if u.as_str() == "https://other.test/x")));
     }

@@ -2801,6 +2801,10 @@ impl WebView {
         if tab.restored_step.borrow().is_some() || tab.loading.get() || left.as_str() == "about:blank" || self.browser_host().is_none() {
             return;
         }
+        // The step loads as the shell's, so the agent's gate is asked here.
+        if tab.agent_gate.borrow().as_ref().is_some_and(|gate| !gate(&target)) {
+            return emit(tab, Event::AgentHeld(target));
+        }
         *tab.restored_step.borrow_mut() = Some((back, target.clone(), left));
         *tab.shell_load.borrow_mut() = Some(target.clone());
         let weak = Rc::downgrade(tab);

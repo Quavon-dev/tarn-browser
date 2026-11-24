@@ -446,7 +446,10 @@ impl Browser {
     /// Lockdown pages get no extra requests.
     pub(super) fn request_favicon(&mut self, key: TabKey, url: &Url) {
         let lockdown = self.level_for_tab(key, url.as_str()) == ShieldLevel::Lockdown;
-        let (Some(profile_id), Some(host)) = (self.profile_of(key), favicon::icon_host(url, lockdown)) else { return };
+        // An agent's window in the user's profile leaves no trace in it (S22).
+        let (Some(profile_id), Some(host)) = (self.profile_of(key).filter(|_| self.model.agent_profile.is_none()), favicon::icon_host(url, lockdown)) else {
+            return;
+        };
         self.load_favicons(key.private, profile_id);
         let Some(view) = self.views.get(&key) else { return };
         let profile = (key.private, profile_id);

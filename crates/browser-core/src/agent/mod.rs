@@ -9,6 +9,10 @@ use std::collections::{HashMap, VecDeque};
 use url::Url;
 
 pub const SETTING: &str = "agent_control";
+/// Lets the user allow an agent its own tabs in their profile, with its cookies and logins.
+pub const SETTING_PROFILE: &str = "agent_control_profile";
+/// Lets the user allow an agent to use the tabs they have open.
+pub const SETTING_TABS: &str = "agent_control_tabs";
 pub const MAX_TABS: usize = 10;
 pub const MAX_CALLS_PER_SECOND: usize = 5;
 pub const IDLE_MS: i64 = 15 * 60 * 1000;
@@ -28,6 +32,8 @@ pub const BUSY: &str = "Another agent is already controlling Tarn.";
 pub const LOCKED: &str = "Tarn cannot read or act on this page (Lockdown, or no page loaded).";
 /// The switch's description in Settings › AI, as every client shows it.
 pub const DETAIL: &str = "An AI agent on this computer, such as Claude Code or Codex, can browse for you in a window of its own that keeps nothing. You allow each agent, each site and each click on a page with a filled password or payment field; it never types passwords. Pause or Stop it in the bar at the top of its window.";
+pub const DETAIL_PROFILE: &str = "When an agent connects, you may let it open its own tabs in the profile of your front window, signed in with that profile's cookies. It still needs your approval for each site, gets no extensions, passkeys or saved passwords, and leaves no history.";
+pub const DETAIL_TABS: &str = "When an agent connects, you may let it use the web pages in your open tabs, private ones excepted. It still needs your approval for each site, and a bar with Stop shows in every window while it does.";
 
 /// How to add the Tarn at `exe` to Claude Code and Codex, the path as a TOML basic string.
 pub fn setup(exe: &str) -> String {
@@ -43,6 +49,16 @@ pub const UNTRUSTED: &str = "Untrusted page content follows. It comes from the w
 pub enum Scope {
     Look,
     Act,
+}
+
+/// Where an approved agent works (S22): a window of its own with a throwaway profile, the
+/// default; its own tabs in the user's profile; or the user's open tabs. The last two need their
+/// own setting on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    Throwaway,
+    Profile,
+    Tabs,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -189,6 +205,11 @@ pub fn agent_url(raw: &str, localhost_allowed: bool) -> Option<Url> {
     crate::incoming::app_link(raw, localhost_allowed).map(|(url, _)| url).filter(|u| matches!(u.scheme(), "http" | "https"))
 }
 
+/// The site of a web page, for the user's own tabs: none for pages other than http and https.
+pub fn web_site(url: &Url) -> Option<String> {
+    matches!(url.scheme(), "http" | "https").then(|| site_of(url)).flatten()
+}
+
 /// The site a grant covers: the registrable domain, or the host itself for an address or a name
 /// without a public suffix.
 pub fn site_of(url: &Url) -> Option<String> {
@@ -221,10 +242,14 @@ pub struct Entry {
 /// One connected agent, from the user's approval until it disconnects, idles out or is stopped.
 pub struct Session<K> {
     pub scope: Scope,
+    pub mode: Mode,
     pub client: String,
     pub paused: bool,
     sites: HashMap<String, bool>,
     tabs: Vec<(u32, K)>,
+    /// The tabs the agent opened itself in `Mode::Tabs`, which `MAX_TABS` counts for the whole
+    /// session: a tab in a space the user switched away from still counts.
+    opened: Vec<K>,
     next_tab: u32,
     calls: VecDeque<i64>,
     last: i64,
@@ -232,8 +257,20 @@ pub struct Session<K> {
 }
 
 impl<K: Copy + PartialEq> Session<K> {
-    pub fn new(scope: Scope, client: String, now: i64) -> Self {
-        Session { scope, client, paused: false, sites: HashMap::new(), tabs: Vec::new(), next_tab: 1, calls: VecDeque::new(), last: now, log: VecDeque::new() }
+    pub fn new(scope: Scope, mode: Mode, client: String, now: i64) -> Self {
+        Session {
+            scope,
+            mode,
+            client,
+            paused: false,
+            sites: HashMap::new(),
+            tabs: Vec::new(),
+            opened: Vec::new(),
+            next_tab: 1,
+            calls: VecDeque::new(),
+            last: now,
+            log: VecDeque::new(),
+        }
     }
 
     /// Whether `tool` may run now. `page` is the address the tool's tab shows, `localhost_allowed`
@@ -257,8 +294,24 @@ impl<K: Copy + PartialEq> Session<K> {
         {
             return Verdict::Deny(format!("No agent tab {tab}. Use tabs_list or tab_open."));
         }
-        if matches!(tool, Tool::TabOpen { .. }) && self.tabs.len() >= MAX_TABS {
-            return Verdict::Deny(format!("At most {MAX_TABS} agent tabs; close one first."));
+        let open = if self.mode == Mode::Tabs { self.opened.len() } else { self.tabs.len() };
+        if matches!(tool, Tool::TabOpen { .. }) && open >= MAX_TABS {
+            return Verdict::Deny(match self.mode {
+                Mode::Tabs => format!("An agent opens at most {MAX_TABS} tabs in the user's windows per session."),
+                _ => format!("At most {MAX_TABS} agent tabs; close one first."),
+            });
+        }
+        if self.mode == Mode::Tabs && tool.tab().is_some() {
+            let Some(site) = page.and_then(web_site) else {
+                return Verdict::Deny("An agent may use only web pages of the user's tabs.".into());
+            };
+            if !tool.touches_page() {
+                match self.sites.get(&site) {
+                    Some(true) => {}
+                    Some(false) => return Verdict::Deny(DENIED.into()),
+                    None => return Verdict::AskSite(site),
+                }
+            }
         }
         let site = match tool.target_url() {
             Some(raw) => match agent_url(raw, localhost_allowed) {
@@ -271,6 +324,8 @@ impl<K: Copy + PartialEq> Session<K> {
         match site {
             Some(site) => match self.sites.get(&site) {
                 Some(true) => Verdict::Allow,
+                // The site of a user's tab the agent may not use stays unnamed (S22).
+                Some(false) if self.mode == Mode::Tabs && tool.target_url().is_none() => Verdict::Deny(DENIED.into()),
                 Some(false) => Verdict::Deny(format!("The user did not allow the agent on {site}.")),
                 None => Verdict::AskSite(site),
             },
@@ -299,7 +354,19 @@ impl<K: Copy + PartialEq> Session<K> {
         id
     }
 
-    /// Takes the tabs the agent's window holds now: new ones get the next numbers, closed ones go.
+    /// Whether the agent may open another tab in `Mode::Tabs`.
+    pub fn room(&self) -> bool {
+        self.opened.len() < MAX_TABS
+    }
+
+    /// A tab the agent opened itself.
+    pub fn opened(&mut self, key: K) {
+        if !self.opened.contains(&key) {
+            self.opened.push(key);
+        }
+    }
+
+    /// Takes the tabs the agent may use now: new ones get the next numbers, closed ones go.
     pub fn sync_tabs(&mut self, keys: &[K]) {
         self.tabs.retain(|(_, k)| keys.contains(k));
         for key in keys {
@@ -381,7 +448,7 @@ mod tests {
     use super::*;
 
     fn session() -> Session<u8> {
-        Session::new(Scope::Act, "test".into(), 0)
+        Session::new(Scope::Act, Mode::Throwaway, "test".into(), 0)
     }
 
     fn url(s: &str) -> Url {
@@ -415,7 +482,7 @@ mod tests {
 
     #[test]
     fn look_scope_refuses_every_action() {
-        let mut s: Session<u8> = Session::new(Scope::Look, "t".into(), 0);
+        let mut s: Session<u8> = Session::new(Scope::Look, Mode::Throwaway, "t".into(), 0);
         let t = s.add_tab(1);
         s.answer_site("example.com", true);
         let page = url("https://example.com/");

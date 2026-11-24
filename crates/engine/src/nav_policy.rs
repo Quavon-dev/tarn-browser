@@ -8,6 +8,15 @@ use url::Url;
 /// The shell's verdict for a URL, asked on each navigation so per-site choices and domain sets apply.
 pub type SiteFor = Rc<dyn Fn(&Url) -> Site>;
 
+/// What a new view takes from its profile besides the Shield level.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Features {
+    /// The rule set with ad, tracker and cookie-banner blocking, off for paused sites.
+    pub filtered: bool,
+    /// The profile's web extensions, never at Lockdown; off in an agent's window (S22).
+    pub extensions: bool,
+}
+
 /// What the shell decided about a site, asked on every navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Site {

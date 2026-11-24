@@ -146,7 +146,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let mut items: Vec<(Ghost, gpui::Div)> = Vec::new();
     let mut push = |id: &'static str, text: String, color: Rgba, card: gpui::Div| items.push(((id, text.into(), color), card));
     warning_banners(b, cx, &mut push);
-    crate::agent::banner(window, cx, &mut push);
+    crate::agent::banner(b, window, cx, &mut push);
     page_banners(b, page.notice, page.offer.as_ref(), error, cx, &mut push);
 
     if !b.overlay_open() {

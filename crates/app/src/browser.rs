@@ -453,7 +453,8 @@ pub(crate) enum WindowStart {
     Saved,
     Private,
     Burner,
-    Agent,
+    /// An agent's window: a throwaway profile, or a temporary space of this profile of the user's.
+    Agent(Option<Id>),
 }
 
 impl Browser {
@@ -703,10 +704,13 @@ impl Browser {
             WindowStart::Saved => Some(restore),
             WindowStart::Private => browser.model.private_space(&browser.core),
             WindowStart::Burner => browser.model.open_burner(&browser.core).inspect(|_| browser.burner_return = back),
-            WindowStart::Agent => {
+            WindowStart::Agent(profile) => {
                 browser.core.disk.delete_window(browser.saved.id).ok();
                 browser.saved.id = 0;
-                browser.model.open_agent(&browser.core)
+                match profile {
+                    Some(profile) => browser.model.open_agent_in(&browser.core, profile),
+                    None => browser.model.open_agent(&browser.core),
+                }
             }
         };
         window.focus(&browser.focus);
@@ -947,6 +951,7 @@ impl Browser {
         };
         let view = Rc::new(view.rehost(&host, self.sink(key)));
         self.view_prefs(&view);
+        crate::agent::gate_view(key, &view, cx);
         self.views.insert(key, view.clone());
         self.pages.insert(key, page);
         self.attach_tarn(key);

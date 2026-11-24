@@ -374,6 +374,12 @@ impl SettingsWindow {
             cx,
         )));
         if on {
+            let (profile, tabs) = (s.prefs.get(Pref::AgentProfile), s.prefs.get(Pref::AgentTabs));
+            out = out.child(
+                group()
+                    .child(self.pref_row(true, Pref::AgentProfile, "Let agents use your profile", browser_core::agent::DETAIL_PROFILE, profile, cx))
+                    .child(self.pref_row(false, Pref::AgentTabs, "Let agents use your tabs", browser_core::agent::DETAIL_TABS, tabs, cx)),
+            );
             out = out.child(note(browser_core::agent::setup(&exe)));
             let entries = crate::agent::log(cx);
             if !entries.is_empty() {

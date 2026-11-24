@@ -160,7 +160,9 @@ fn pages(b: &Browser) -> Vec<Page<TabKey>> {
 fn with_ctx(f: impl FnOnce(&mut Controller<TabKey, Reply>, &Ctx<TabKey>) -> Vec<Effect<TabKey, Reply>>) {
     let (enabled, localhost) = with(|a| (a.enabled, a.localhost));
     let tabs = with(|a| a.window).and_then(|ui| read(ui, pages)).unwrap_or_default();
-    let effects = with(|a| f(&mut a.ctl, &Ctx { enabled, localhost, now: browser_core::now(), tabs: &tabs }));
+    let effects = with(|a| {
+        f(&mut a.ctl, &Ctx { enabled, localhost, now: browser_core::now(), tabs: &tabs, profile_on: false, profile: None, tabs_on: false, yours: &[] })
+    });
     apply(effects);
 }
 
@@ -177,6 +179,10 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>) {
                     let effects = with(|a| a.ctl.stop("Tarn could not open a window for the agent.", false, false));
                     apply(effects);
                 }
+            }
+            Effect::Switch(_) => {
+                let effects = with(|a| a.ctl.stop(browser_core::agent::OFF, true, false));
+                apply(effects);
             }
             Effect::CloseWindow => {
                 with(|a| a.opening += 1);
