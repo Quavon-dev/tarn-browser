@@ -140,7 +140,7 @@ struct Running<K, C> {
     confirmed: bool,
     deadline: i64,
     /// The origin the script was checked for; it returns nothing in any other document.
-    origin: Option<String>,
+    origin: String,
     /// A screenshot taken, held back until the secret-field check after it passes too.
     png: Option<String>,
 }
@@ -302,7 +302,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Tool::Screenshot { .. }, Raw::Png(Some(png))) => {
                 let (run, tab) = (running.run, running.tab);
-                let op = Op::Script(bound(AgentScript::Sensitive.source(), running.origin.as_deref()));
+                let op = Op::Script(bound(AgentScript::Sensitive.source(), &running.origin));
                 active.running = Some(Running { png: Some(png), deadline: ctx.now + PROMPT_TIMEOUT_MS, ..running });
                 return vec![Effect::Run { run, tab, op }];
             }
@@ -361,7 +361,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             if let Tool::WaitFor { text, .. } = &running.call.tool
                 && (text.is_none() || allowed_here(active.session.as_ref(), running.tab.and_then(|k| page_of(ctx.tabs, k)).as_ref()))
             {
-                let op = Op::Script(bound(AgentScript::Wait { text: text.as_deref() }.source(), running.origin.as_deref()));
+                let op = Op::Script(bound(AgentScript::Wait { text: text.as_deref() }.source(), &running.origin));
                 return vec![Effect::Run { run: running.run, tab: running.tab, op }];
             }
             return Vec::new();
@@ -470,8 +470,8 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
     }
 
     fn execute(&mut self, call: Call<C>, tab: Option<K>, page: Option<Url>, confirmed: bool, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
-        let origin = page.as_ref().map(|p| p.origin().ascii_serialization()).filter(|o| o != "null");
-        let script = |s: AgentScript| Op::Script(bound(s.source(), origin.as_deref()));
+        let origin = page.as_ref().map_or_else(|| "null".to_owned(), |p| p.origin().ascii_serialization());
+        let script = |s: AgentScript| Op::Script(bound(s.source(), &origin));
         let act = |target: u32, act: Act| script(AgentScript::Act { target, act, confirmed });
         let op = match &call.tool {
             Tool::AskUser { message } => {
@@ -552,12 +552,10 @@ fn allowed_here<K: Copy + PartialEq>(session: Option<&Session<K>>, page: Option<
     page.and_then(super::site_of).is_none_or(|site| session.is_some_and(|s| s.site_allowed(&site) == Some(true)))
 }
 
-/// `source` that runs only in a document of `origin`, answering nothing elsewhere.
-fn bound(source: String, origin: Option<&str>) -> String {
-    match origin {
-        Some(origin) => format!("if (location.origin !== {}) return '';\n{source}", engine::handover::js_string(origin)),
-        None => source,
-    }
+/// `source` that runs only in a document of `origin` and answers nothing elsewhere; a page
+/// without an origin of its own gets "null", which matches only documents without a site.
+fn bound(source: String, origin: &str) -> String {
+    format!("if (location.origin !== {}) return '';\n{source}", engine::handover::js_string(origin))
 }
 
 fn page_of<K: PartialEq>(tabs: &[Page<K>], key: K) -> Option<Url> {
@@ -850,6 +848,16 @@ mod tests {
         let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 4100));
         let [(_, Some(3), Op::Text(url))] = &runs(&e)[..] else { panic!("{e:?}") };
         assert_eq!(url.as_str(), "https://a.test/doc");
+    }
+
+    #[test]
+    fn a_script_for_a_page_without_an_origin_runs_only_in_such_a_page() {
+        let mut c = approved(Choice::Look);
+        let tabs = [page(3, "about:blank")];
+        c.call(1, None, Tool::TabsList, "l", &ctx(&tabs, 2000));
+        let e = c.call(1, None, Tool::Snapshot { tab: 1 }, "s", &ctx(&tabs, 4000));
+        let [(_, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert!(src.starts_with("if (location.origin !== \"null\")"), "{src}");
     }
 
     #[test]
