@@ -11,12 +11,11 @@ use shield::ShieldLevel;
 use super::controls::icon;
 use super::sheets;
 use super::{
-    Screen, Ui, accent_pill, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row,
-    text_field,
+    Screen, Ui, caption, detail_row, framed, heading, icon_button, icons, label, pill, row, section, segmented, small, surface, switch_row, text_field,
 };
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
-use tarn_nsh_shared::controls::empty_state;
+use tarn_nsh_shared::controls::{Segment, described, empty, empty_state, list_row, row_action, section_with};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::panes::{self, Pane};
 
@@ -713,65 +712,111 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .collect(),
             ))
             .child(section("Downloads"))
-        .child(framed(group().child(switch_row("Sort downloads into folders", move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)), move || {
-            ui.act(|s| {
-                let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
-                s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
-            })
-        }))))
-        .child(section("About"))
-        .child(view().flex_row().flex_wrap().gap_2().child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL)).child(link_pill(ui, "Source code", browser_core::SOURCE_URL)).child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL)).child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL)).child(pill("Open-source licences", move || ui.show(Screen::Licences)))),
-        Pane::Appearance => body
-            .child(layout_choice(ui))
-        .child(super::appearance::pane(ui)),
+            .child(framed(group().child(described(
+                switch_row(
+                    "Sort downloads into folders",
+                    move || ui.read_data(|s| s.setting_on(crate::scripts::SORT_DOWNLOADS)),
+                    move || {
+                        ui.act(|s| {
+                            let on = s.setting_on(crate::scripts::SORT_DOWNLOADS);
+                            s.set_setting_on(crate::scripts::SORT_DOWNLOADS, !on)
+                        })
+                    },
+                ),
+                "Images, Videos, Audio, Documents, Archives and Installers inside Downloads.",
+            ))))
+            .child(section("About"))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(link_pill(ui, browser_core::LICENCE, browser_core::LICENCE_URL))
+                    .child(link_pill(ui, "Source code", browser_core::SOURCE_URL))
+                    .child(link_pill(ui, "Privacy notice", browser_core::PRIVACY_URL))
+                    .child(link_pill(ui, "Imprint", browser_core::IMPRINT_URL))
+                    .child(pill("Open-source licences", move || ui.show(Screen::Licences))),
+            ),
+        Pane::Appearance => body.child(layout_choice(ui)).child(super::appearance::pane(ui)),
         Pane::Search => body
             .child(section("Search engine"))
-        .child(segmented(
-            ENGINES
-                .iter()
-                .enumerate()
-                .map(|(ix, engine)| {
-                    (
-                        engine.name.to_owned(),
-                        Box::new(move || ui.read_data(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
-                        Box::new(move || ui.act(|s| {
-                            s.set_search_engine(ix);
-                            Vec::new()
-                        })) as Box<dyn Fn()>,
-                    )
-                })
-                .collect(),
-        ))
-        .child(section("History"))
-        .child(framed(group().child(switch_row("Search the text of visited pages", move || ui.read_data(|s| s.setting_on(crate::scripts::HISTORY_TEXT)), move || {
-            ui.act(|s| {
-                let on = s.setting_on(crate::scripts::HISTORY_TEXT);
-                s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
-            })
-        }))))
-        .child(caption("Keeps up to 4 KB of each visited page's text on this device so History search finds it. Never in a private space. Turning it off deletes the kept text.").number_of_lines(0).px_1())
-        .child(section("Shortcuts"))
-        .child(framed(group().child(switch_row("Search shortcuts", move || ui.read_data(|s| s.search_shortcuts()), move || {
-            ui.act(|s| {
-                let on = s.search_shortcuts();
-                s.set_setting_on(SEARCH_SHORTCUTS, !on)
-            })
-        }))))
-        .child(caption(SEARCH_SHORTCUTS_NOTE).number_of_lines(0).px_1()),
+            .child(segmented(
+                ENGINES
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, engine)| {
+                        (
+                            engine.name.to_owned(),
+                            Box::new(move || ui.read_data(|s| s.search_engine()) == ix) as Box<dyn Fn() -> bool>,
+                            Box::new(move || {
+                                ui.act(|s| {
+                                    s.set_search_engine(ix);
+                                    Vec::new()
+                                })
+                            }) as Box<dyn Fn()>,
+                        )
+                    })
+                    .collect(),
+            ))
+            .child(section("History"))
+            .child(framed(group().child(described(
+                switch_row(
+                    "Search the text of visited pages",
+                    move || ui.read_data(|s| s.setting_on(crate::scripts::HISTORY_TEXT)),
+                    move || {
+                        ui.act(|s| {
+                            let on = s.setting_on(crate::scripts::HISTORY_TEXT);
+                            s.set_setting_on(crate::scripts::HISTORY_TEXT, !on)
+                        })
+                    },
+                ),
+                "Keeps up to 4 KB of each page's text on this device for History search. Never in a private space; turning it off deletes it.",
+            ))))
+            .child(section("Shortcuts"))
+            .child(framed(group().child(described(
+                switch_row(
+                    "Search shortcuts",
+                    move || ui.read_data(|s| s.search_shortcuts()),
+                    move || {
+                        ui.act(|s| {
+                            let on = s.search_shortcuts();
+                            s.set_setting_on(SEARCH_SHORTCUTS, !on)
+                        })
+                    },
+                ),
+                SEARCH_SHORTCUTS_NOTE,
+            )))),
         Pane::Privacy => body
-            .child(section("Filter lists"))
-        .child(framed(group().child(FILTER_SWITCHES.iter().map(|(key, name, _)| {
-            switch_row(*name, move || ui.read_data(|s| s.filter_switch(key)), move || {
-                ui.act(|s| {
-                    s.set_filter_switch(key, !s.filter_switch(key));
-                    Vec::new()
-                })
-            })
-            .border_b_1()
-            .border_color(Theme::separator)
-        }).collect::<Vec<_>>())))
-        .child(caption("No filter lists are installed yet; Shield's built-in rules always apply. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed; nothing is accepted or refused for you.").number_of_lines(0).px_1()),
-        Pane::Permissions => body.child(permissions(ui)),
+            .child(section_with("Filter lists", "Shield's built-in rules always apply. Nothing is accepted or refused for you."))
+            .child(framed(
+                group().child(
+                    FILTER_SWITCHES
+                        .iter()
+                        .map(|(key, name, _)| {
+                            switch_row(
+                                *name,
+                                move || ui.read_data(|s| s.filter_switch(key)),
+                                move || {
+                                    ui.act(|s| {
+                                        s.set_filter_switch(key, !s.filter_switch(key));
+                                        Vec::new()
+                                    })
+                                },
+                            )
+                            .border_b_1()
+                            .border_color(Theme::separator)
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            ))
+            .child(
+                caption("No filter lists are installed yet. Cookie banners uses EasyList Cookie and uBlock Cookie Notices once installed.")
+                    .number_of_lines(0)
+                    .px_1(),
+            ),
+        Pane::Permissions => {
+            body.child(section_with("Site answers", "A site you forget asks again next time; Lockdown sites never ask.")).child(permissions(ui))
+        }
         Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
         Pane::Notes => body.child(tarn_nsh_shared::notes::pane(Notes(ui))),
         Pane::Ai if !tarn_nsh_shared::assistant::offered(super::assistant::Host(ui)) => return None,
@@ -801,7 +846,7 @@ fn permissions(ui: Ui) -> impl IntoElement {
     dynamic(move || {
         let rows = ui.read_data(|s| s.permissions());
         if rows.is_empty() {
-            return empty_state("No site has asked yet. A camera, microphone or location answer you remember shows here.").into_element();
+            return framed(group().child(empty(glyphs::CAMERA, "No site has asked yet. Answers you remember show here.", None))).into_element();
         }
         let set = move |origin: String, kind: String, allow: Option<bool>| {
             move || {
@@ -815,29 +860,22 @@ fn permissions(ui: Ui) -> impl IntoElement {
         };
         let items: Vec<AnyElement> = rows
             .into_iter()
-            .map(|p| {
-                let choice = |on: bool, name: &str, allow: bool| {
-                    let press = set(p.origin.clone(), p.kind.clone(), Some(allow));
-                    if on { accent_pill(name, press).into_element() } else { pill(name, press).into_element() }
-                };
-                view()
-                    .gap_1()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(Theme::separator)
-                    .child(label(format!("{} · {}", p.site, p.label)).number_of_lines(1))
-                    .child(
-                        view()
-                            .flex_row()
-                            .gap_2()
-                            .child(choice(p.allowed, "Allow", true))
-                            .child(choice(!p.allowed, "Block", false))
-                            .child(pill("Forget", set(p.origin.clone(), p.kind.clone(), None))),
+            .enumerate()
+            .map(|(ix, p)| {
+                let choice = |name: &str, allow: bool| -> Segment {
+                    (
+                        name.to_owned(),
+                        Box::new(move || p.allowed == allow) as Box<dyn Fn() -> bool>,
+                        Box::new(set(p.origin.clone(), p.kind.clone(), Some(allow))) as Box<dyn Fn()>,
                     )
+                };
+                list_row(ix, p.site.clone(), p.label.clone())
+                    .child(segmented(vec![choice("Allow", true), choice("Block", false)]))
+                    .child(row_action(glyphs::TRASH, format!("Forget {} for {}", p.label, p.site), set(p.origin.clone(), p.kind.clone(), None)))
                     .into_element()
             })
             .collect();
-        framed(group().px_3().child(items)).into_element()
+        framed(group().child(items)).into_element()
     })
 }
 

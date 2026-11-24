@@ -30,6 +30,10 @@ impl assistant::Host for Host {
         untracked(|| self.0.read(|s| s.model.profile().and_then(|(private, id)| s.core.level(private, id, Some(url))))).unwrap_or(ShieldLevel::Lockdown)
     }
 
+    fn level_in(self, profile: store::Id, url: &Url) -> ShieldLevel {
+        untracked(|| self.0.read(|s| s.core.level(false, profile, Some(url)))).unwrap_or(ShieldLevel::Lockdown)
+    }
+
     fn read_page(self) {
         self.0.act_on_screen(|s| s.read_page_for_assistant());
     }

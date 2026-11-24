@@ -170,6 +170,8 @@ pub struct Turn {
     pub interrupted: bool,
     /// The model that gave an answer.
     pub by: Option<String>,
+    /// A question a command sent, which a local model answers where it can; a retry goes the same way.
+    pub command: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -223,8 +225,6 @@ pub struct Session {
     profile: Id,
     /// The saved chat this session continues; none until its first answer is saved.
     chat: Option<Id>,
-    /// Whether the last send ran a command, which a local model answers where it can.
-    commanded: bool,
     pills: Vec<Attached>,
     added: [usize; 4],
     history: Vec<Turn>,
@@ -242,7 +242,6 @@ impl Session {
         (ai_enabled && allowed(origin)).then_some(Self {
             profile: origin.profile,
             chat: None,
-            commanded: false,
             pills: Vec::new(),
             added: [0; 4],
             history: Vec::new(),
@@ -269,16 +268,30 @@ impl Session {
         session.history = saved
             .turns
             .iter()
-            .map(|t| Turn { role: if t.you { Role::You } else { Role::Assistant }, text: t.text.clone(), interrupted: t.interrupted, by: t.by.clone() })
+            .map(|t| Turn {
+                role: if t.you { Role::You } else { Role::Assistant },
+                text: t.text.clone(),
+                interrupted: t.interrupted,
+                by: t.by.clone(),
+                command: t.command,
+            })
             .collect();
         let len = session.history.len();
         session.removed = saved.sources.iter().map(|(url, since)| (url.clone(), (*since).min(len))).collect();
-        let locked = |u: &str| url::Url::parse(u).map_or(true, |u| level_of(&u) == ShieldLevel::Lockdown);
-        if let Some(since) = session.removed.iter().filter(|(u, _)| locked(u)).map(|(_, s)| *s).min() {
-            session.removed.retain(|(u, _)| !locked(u));
-            session.forget_since(since);
-        }
+        session.forget_locked(&level_of);
         Some(session)
+    }
+
+    /// Drops attached content whose site is in Lockdown now (`level_of`) and forgets what it, or
+    /// a removed source now in Lockdown, gave the chat; true when anything was forgotten.
+    fn forget_locked(&mut self, level_of: &impl Fn(&url::Url) -> ShieldLevel) -> bool {
+        let locked = |u: &str| url::Url::parse(u).map_or(true, |u| level_of(&u) == ShieldLevel::Lockdown);
+        let attached = self.pills.iter().filter(|a| a.pill.source().is_some_and(locked)).map(|a| a.since);
+        let Some(since) = attached.chain(self.removed.iter().filter(|(u, _)| locked(u)).map(|(_, s)| *s)).min() else { return false };
+        self.pills.retain(|a| !a.pill.source().is_some_and(locked));
+        self.removed.retain(|(u, _)| !locked(u));
+        self.forget_since(since);
+        true
     }
 
     /// The saved chat this session continues.
@@ -287,30 +300,35 @@ impl Session {
     }
 
     /// Saves the chat in `store` once no answer is streaming and it holds a turn; the saved id.
-    /// The title is the first question's first line. Notes are never sources: they stay in the profile.
-    /// A chat whose every turn was taken back is deleted.
-    pub fn save(&mut self, store: &store::Store) -> Option<Id> {
+    /// What a site in Lockdown now (`level_of`) gave the chat is forgotten first, so it is never
+    /// written. The title is the first question's first line. Notes are never sources: they stay
+    /// in the profile. A chat whose every turn was taken back is deleted.
+    pub fn save_with(&mut self, store: &store::Store, level_of: impl Fn(&url::Url) -> ShieldLevel) -> Option<Id> {
         if self.streaming.is_some() {
             return None;
         }
+        self.forget_locked(&level_of);
         if self.history.is_empty() {
-            if let Some(id) = self.chat.take() {
-                store.delete_chat(self.profile, id).ok();
+            if let Some(id) = self.chat {
+                match store.delete_chat(self.profile, id) {
+                    Ok(()) => self.chat = None,
+                    Err(_) => self.notice = Some(NOT_SAVED.to_owned()),
+                }
             }
             return None;
         }
         let turns: Vec<store::ChatTurn> = self
             .history
             .iter()
-            .map(|t| store::ChatTurn { you: t.role == Role::You, text: t.text.clone(), by: t.by.clone(), interrupted: t.interrupted })
+            .map(|t| store::ChatTurn { you: t.role == Role::You, text: t.text.clone(), by: t.by.clone(), interrupted: t.interrupted, command: t.command })
             .collect();
         let mut sources = self.removed.clone();
         let asked = self.history.len();
         for a in self.pills.iter().filter(|a| a.since < asked) {
-            if let Some(url) = a.pill.source() {
-                match sources.iter_mut().find(|(u, _)| u == url) {
+            if let Some(url) = a.pill.source().map(strip_url) {
+                match sources.iter_mut().find(|(u, _)| *u == url) {
                     Some((_, since)) => *since = (*since).min(a.since),
-                    None => sources.push((url.to_owned(), a.since)),
+                    None => sources.push((url, a.since)),
                 }
             }
         }
@@ -328,9 +346,9 @@ impl Session {
         }
     }
 
-    /// Whether the last send ran a command, so a retry goes where the command went.
+    /// Whether the last question came from a command, so a retry goes where the command went.
     pub fn last_was_command(&self) -> bool {
-        self.commanded
+        self.history.iter().rev().find(|t| t.role == Role::You).is_some_and(|t| t.command)
     }
 
     /// The last answer's text, for Copy and Insert; none while it streams or when there is none.
@@ -366,11 +384,11 @@ impl Session {
         }
         let question = self.history[at].text.clone();
         let before = self.history.len();
-        let commanded = self.commanded;
+        let command = self.history[at].command;
         self.history[at..].iter_mut().for_each(|t| t.interrupted = true);
         let effects = self.send(&question, ASK, at_ms, origin, ai_enabled, level_of);
         if effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
-            self.commanded = commanded;
+            self.history[before].command = command;
             self.history.drain(at..before);
             self.pills.iter_mut().for_each(|a| a.since = a.since.min(at));
             self.removed.iter_mut().for_each(|(_, since)| *since = (*since).min(at));
@@ -388,6 +406,7 @@ impl Session {
         self.pills.iter_mut().for_each(|a| a.since = a.since.min(at));
         self.removed.iter_mut().for_each(|(_, since)| *since = (*since).min(at));
         self.notice = None;
+        self.refreshed(vec![Effect::Render]);
     }
 
     /// Whether `pill` is attached, so a command over it may be sent.
@@ -464,11 +483,10 @@ impl Session {
         let id = self.next_id;
         self.next_id += 1;
         self.last_sent = Some(at_ms);
-        self.commanded = template != ASK;
         self.streaming = Some(id);
         self.notice = None;
-        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false, by: None });
-        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false, by: None });
+        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false, by: None, command: template != ASK });
+        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false, by: None, command: false });
         vec![Effect::Start { id, request }, Effect::Render]
     }
 
@@ -487,10 +505,10 @@ impl Session {
             Event::RemovePill(ix) => {
                 if ix < self.pills.len() {
                     let gone = self.pills.remove(ix);
-                    if let Some(url) = gone.pill.source().filter(|_| gone.since < self.history.len()) {
-                        match self.removed.iter_mut().find(|(u, _)| u == url) {
+                    if let Some(url) = gone.pill.source().filter(|_| gone.since < self.history.len()).map(strip_url) {
+                        match self.removed.iter_mut().find(|(u, _)| *u == url) {
                             Some((_, since)) => *since = (*since).min(gone.since),
-                            None => self.removed.push((url.to_owned(), gone.since)),
+                            None => self.removed.push((url, gone.since)),
                         }
                     }
                 }
@@ -729,18 +747,35 @@ pub mod commands {
         let typed = input.trim_start().strip_prefix('/')?;
         all.iter()
             .enumerate()
-            .filter(|(_, (name, _))| {
-                typed.get(..name.len()).is_some_and(|head| head.eq_ignore_ascii_case(name))
-                    && typed[name.len()..].chars().next().is_none_or(char::is_whitespace)
+            .filter_map(|(ix, (name, _))| {
+                let end = name_end(typed, name)?;
+                typed[end..].chars().next().is_none_or(char::is_whitespace).then_some((ix, name.chars().count(), end))
             })
-            .max_by_key(|(_, (name, _))| name.len())
-            .map(|(ix, (name, _))| (ix, typed[name.len()..].trim()))
+            .max_by_key(|(_, chars, _)| *chars)
+            .map(|(ix, _, end)| (ix, typed[end..].trim()))
     }
 
     /// The commands the `/` menu offers while `input` is a `/` and the start of their name.
     pub fn slash_menu(input: &str, all: &[(String, String)]) -> Vec<usize> {
-        let Some(typed) = input.trim_start().strip_prefix('/').map(str::to_lowercase) else { return Vec::new() };
-        all.iter().enumerate().filter(|(_, (name, _))| name.to_lowercase().starts_with(&typed)).map(|(ix, _)| ix).collect()
+        let Some(typed) = input.trim_start().strip_prefix('/') else { return Vec::new() };
+        all.iter().enumerate().filter(|(_, (name, _))| name_end(name, typed).is_some()).map(|(ix, _)| ix).collect()
+    }
+
+    /// Where `name` ends in `text` when `text` starts with it, comparing characters without case:
+    /// the one rule for the menu, a send and a duplicate name.
+    fn name_end(text: &str, name: &str) -> Option<usize> {
+        let mut chars = text.char_indices();
+        for n in name.chars() {
+            let (_, t) = chars.next()?;
+            if !t.to_lowercase().eq(n.to_lowercase()) {
+                return None;
+            }
+        }
+        Some(chars.next().map_or(text.len(), |(at, _)| at))
+    }
+
+    fn same_name(a: &str, b: &str) -> bool {
+        name_end(a, b) == Some(a.len())
     }
 
     /// Why the profile's command `editing` (none for a new one) cannot be saved as `name` and
@@ -759,8 +794,7 @@ pub mod commands {
         if template.len() > store::MAX_AI_TEMPLATE {
             return Err(format!("A command's text holds up to {} bytes.", store::MAX_AI_TEMPLATE));
         }
-        let taken = BUILT_IN.iter().any(|(n, _)| n.eq_ignore_ascii_case(name))
-            || custom.iter().any(|c| Some(c.id) != editing && c.name.trim().eq_ignore_ascii_case(name));
+        let taken = BUILT_IN.iter().any(|(n, _)| same_name(n, name)) || custom.iter().any(|c| Some(c.id) != editing && same_name(c.name.trim(), name));
         if taken {
             return Err(format!("A command named {name} already exists."));
         }
@@ -1376,6 +1410,10 @@ mod tests {
         assert_eq!(compose(&session(), ASK, "why?").user_message(), "why?");
     }
 
+    fn saved(s: &mut Session, store: &store::Store) -> Option<Id> {
+        s.save_with(store, |_| ShieldLevel::Standard)
+    }
+
     fn answered(s: &mut Session, question: &str, answer: &str, at_ms: i64) {
         let me = Origin { profile: s.profile(), ..ME };
         let (id, _) = started(&s.send(question, ASK, at_ms, me, true, |_| ShieldLevel::Standard));
@@ -1390,11 +1428,11 @@ mod tests {
         let store = &core.disk;
         let me = Origin { profile: store.create_profile("P", "u9", false).unwrap().id, ..ME };
         let mut s = Session::new(me, true).unwrap();
-        assert!(s.save(store).is_none(), "an empty chat is not kept");
+        assert!(saved(&mut s, store).is_none(), "an empty chat is not kept");
         s.apply(Event::AddPill(me, page("body")));
         answered(&mut s, "What is\nit?", "A page.", 0);
-        let id = s.save(store).unwrap();
-        assert_eq!(s.save(store), Some(id), "saving again replaces it");
+        let id = saved(&mut s, store).unwrap();
+        assert_eq!(saved(&mut s, store), Some(id), "saving again replaces it");
         let saved = store.chat(me.profile, id).unwrap().unwrap();
         assert_eq!(saved.title, "What is");
         assert_eq!(saved.sources, [("https://a.test/p".to_owned(), 0)]);
@@ -1447,7 +1485,7 @@ mod tests {
         s.apply(Event::AddPill(me, page("secret page")));
         answered(&mut s, "What?", "The secret is 42.", 0);
         s.send("More?", ASK, MIN_SEND_INTERVAL_MS, me, true, |_| ShieldLevel::Lockdown);
-        let id = s.save(store).unwrap();
+        let id = saved(&mut s, store).unwrap();
         let saved = store.chat(me.profile, id).unwrap().unwrap();
         assert_eq!(saved.turns.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(), ["What?", FORGOTTEN]);
         assert!(saved.turns.iter().all(|t| t.interrupted));
@@ -1470,15 +1508,20 @@ mod tests {
         s.apply(Event::Done { id });
         answered(&mut s, "Plain?", "Yes.", 2 * MIN_SEND_INTERVAL_MS);
         assert!(!s.last_was_command());
-        let chat = s.save(store).unwrap();
+        let chat = saved(&mut s, store).unwrap();
         store.delete_chat(me.profile, chat).unwrap();
-        assert_eq!(s.save(store), None);
+        assert_eq!(saved(&mut s, store), None);
         assert_eq!(view(&s).notice.as_deref(), Some(NOT_SAVED));
+        let fresh = Session::new(me, true).map(|mut f| {
+            answered(&mut f, "New?", "Yes.", 0);
+            saved(&mut f, store).unwrap()
+        });
+        assert_ne!(fresh, Some(chat), "a deleted chat's id is never given again");
         let mut one = Session::new(me, true).unwrap();
         answered(&mut one, "Only?", "Yes.", 0);
-        let only = one.save(store).unwrap();
+        let only = saved(&mut one, store).unwrap();
         one.edit_last();
-        assert_eq!(one.save(store), None);
+        assert_eq!(saved(&mut one, store), None);
         assert!(store.chat(me.profile, only).unwrap().is_none(), "a chat whose every turn was taken back is deleted");
     }
 
@@ -1497,6 +1540,38 @@ mod tests {
         assert_eq!(slash_menu("/TRANS", &all), [1, 2]);
         assert!(slash_menu("/translate x", &all).is_empty());
         assert!(slash_menu("why", &all).is_empty());
+        let mine = [("Écrire".to_owned(), "e".to_owned())];
+        assert_eq!(slash_menu("/éc", &mine), [0], "case without ASCII");
+        assert_eq!(slash("/écrire vite", &mine), Some((0, "vite")), "the menu's match also runs");
+        let custom = [store::AiCommand { id: 1, profile_id: 1, name: "Écrire".into(), template: "x".into() }];
+        assert!(commands::check("écrire", "y", &custom, None).is_err(), "the same name in another case");
+    }
+
+    #[test]
+    fn a_restored_command_retries_on_its_route_and_a_save_forgets_lockdown_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        let me = Origin { profile: store.create_profile("P", "u6", false).unwrap().id, ..ME };
+        let open = |_: &url::Url| ShieldLevel::Standard;
+        let mut s = Session::new(me, true).unwrap();
+        s.apply(Event::AddPill(me, sel("text")));
+        let (id, _) = started(&s.send("", "Explain {selection}. {question}", 0, me, true, open));
+        s.apply(Event::Chunk { id, text: "It means x.".into() });
+        s.apply(Event::Done { id });
+        answered(&mut s, "Plain?", "Yes.", MIN_SEND_INTERVAL_MS);
+        let chat = s.save_with(store, open).unwrap();
+        let mut back = Session::restore(me, true, &store.chat(me.profile, chat).unwrap().unwrap(), open).unwrap();
+        assert!(!back.last_was_command());
+        back.edit_last();
+        assert!(back.last_was_command(), "the command before keeps its route");
+        let preview: Vec<String> = view(&back).will_send.into_iter().map(|(label, _)| label).collect();
+        assert_eq!(preview, ["Question 1", "Answer 1"], "the preview follows the cut");
+        let mut live = Session::new(me, true).unwrap();
+        live.apply(Event::AddPill(me, page("secret page")));
+        answered(&mut live, "What?", "The secret is 42.", 0);
+        let id = live.save_with(store, |_| ShieldLevel::Lockdown).unwrap();
+        assert_eq!(store.chat(me.profile, id).unwrap().unwrap().turns[1].text, FORGOTTEN, "a save forgets what a site now in Lockdown gave");
     }
 
     #[test]

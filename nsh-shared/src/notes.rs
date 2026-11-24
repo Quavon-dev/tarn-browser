@@ -2,7 +2,10 @@ use browser_core::notes::{Draft, EMPTY, INTRO, NO_MATCH, PRIVATE, Sort, markdown
 use nsh_core::prelude::*;
 use store::{Id, Note, Store};
 
-use crate::controls::{Segment, accent_pill, confirm, empty_state, field, group, hint, list_row, pill, section, segmented, signal_field};
+use crate::controls::{
+    Segment, add_button, confirm, editor, editor_actions, empty, field, group, hint, open_row, row_action, section_with, segmented, signal_field,
+};
+use crate::icons;
 use crate::theme::Theme;
 
 /// What the Notes pane edits: the current profile's notes in the disk store.
@@ -25,15 +28,16 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
     let draft: Signal<Option<Draft>> = signal(None);
     let error: Signal<Option<String>> = signal(None);
     let editing = computed(move || draft.with(Option::is_some));
+    let heading = computed(move || draft.with(|d| d.as_ref().map(|d| if d.id.is_none() { "New Note" } else { "Edit Note" })));
     let edit = move |next: Option<Draft>| {
         error.set(None);
         draft.set(next);
     };
+    let add = move || add_button("New Note", move || edit(Some(Draft::default())));
     dynamic(move || {
         rev.get();
-        let intro = hint(INTRO);
         let Some(profile) = host.profile() else {
-            return Some(view().gap_2().child(intro).child(empty_state(PRIVATE)));
+            return Some(view().gap_2().child(section_with("Notes", INTRO)).child(group().child(empty(icons::LOCK, PRIVATE, None))));
         };
         let saved = host.with_store(|s| s.notes(profile).unwrap_or_default());
         let sort = host.with_store(Sort::load);
@@ -47,12 +51,14 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                 (choice.name().to_owned(), Box::new(move || choice == sort) as Box<dyn Fn() -> bool>, Box::new(pick) as Box<dyn Fn()>)
             })
             .collect();
-        let all = markdown(&saved);
         let has_notes = !saved.is_empty();
         let list = dynamic(move || {
+            if saved.is_empty() {
+                return Some(group().child(empty(icons::PENCIL, EMPTY, (!editing.get()).then(add))));
+            }
             let shown = sorted(&saved, &query.get(), sort);
             if shown.is_empty() {
-                return Some(view().child(empty_state(if saved.is_empty() { EMPTY } else { NO_MATCH })));
+                return Some(group().child(empty(icons::SEARCH, NO_MATCH, None)));
             }
             let rows: Vec<AnyElement> = shown
                 .into_iter()
@@ -61,40 +67,35 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                     let (id, title) = (r.id, r.title.clone());
                     let note = saved.iter().find(|n| n.id == id).cloned();
                     let open = note.as_ref().map(Draft::of);
-                    let (gone, named, asked) = (title.clone(), title.clone(), title.clone());
-                    list_row(ix, r.title, r.preview)
-                        .children(note.map(|n| pill("Ask", move || host.ask(&n)).accessibility_label(format!("Ask the assistant about {asked}"))))
-                        .child(pill("Edit", move || edit(open.clone())).accessibility_label(format!("Edit {title}")))
-                        .child(
-                            pill("Delete", move || {
-                                confirm(format!("Delete {gone}?"), "The note is removed from this profile.", "Delete", move || {
-                                    host.with_store(|s| s.delete_note(profile, id).ok());
-                                    rev.update(|r| *r += 1);
-                                })
+                    let gone = title.clone();
+                    open_row(ix, r.title, r.preview, format!("Edit {title}"), move || edit(open.clone()))
+                        .children(note.map(|n| row_action(icons::SPARKLES, format!("Ask the assistant about {title}"), move || host.ask(&n))))
+                        .child(row_action(icons::TRASH, format!("Delete {gone}"), move || {
+                            confirm(format!("Delete {gone}?"), "The note is removed from this profile.", "Delete", move || {
+                                host.with_store(|s| s.delete_note(profile, id).ok());
+                                rev.update(|r| *r += 1);
                             })
-                            .accessibility_label(format!("Delete {named}")),
-                        )
+                        }))
                         .into_element()
                 })
                 .collect();
             Some(group().children(rows))
         });
         let editor = dynamic(move || {
-            editing.get().then(|| {
-                let save = move || {
-                    let Some(d) = draft.get_untracked() else { return };
-                    match host.with_store(|s| d.save(s, profile)) {
-                        Ok(_) => {
-                            edit(None);
-                            rev.update(|r| *r += 1);
-                        }
-                        Err(message) => error.set(Some(message)),
+            let title = heading.get()?;
+            let save = move || {
+                let Some(d) = draft.get_untracked() else { return };
+                match host.with_store(|s| d.save(s, profile)) {
+                    Ok(_) => {
+                        edit(None);
+                        rev.update(|r| *r += 1);
                     }
-                };
-                let set = move |f: &dyn Fn(&mut Draft)| draft.update(|d| d.iter_mut().for_each(f));
-                group()
-                    .p_3()
-                    .gap_2()
+                    Err(message) => error.set(Some(message)),
+                }
+            };
+            let set = move |f: &dyn Fn(&mut Draft)| draft.update(|d| d.iter_mut().for_each(f));
+            Some(
+                editor(title)
                     .child(field(
                         "Title",
                         move || draft.with(|d| d.as_ref().map(|d| d.title.clone()).unwrap_or_default()),
@@ -106,28 +107,21 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                             .min_h(px(120.)),
                     )
                     .child(dynamic(move || error.get().map(|e| hint(e).text_color(Theme::accent_text))))
-                    .child(view().flex_row().gap_2().child(accent_pill("Save", save)).child(pill("Cancel", move || edit(None))))
-            })
+                    .child(editor_actions(save, move || edit(None))),
+            )
+        });
+        let top = view().flex_row().items_end().gap_2().child(section_with("Notes", INTRO).flex_1()).when(has_notes, |v| {
+            v.child(row_action(icons::FILE_DOWN, "Export Notes as Markdown", move || {
+                host.export(markdown(&host.with_store(|s| s.notes(profile).unwrap_or_default())))
+            }))
         });
         Some(
             view()
                 .gap_2()
-                .child(intro)
-                .child(section("Notes"))
-                .child(signal_field("Search notes", query))
-                .when(has_notes, |v| v.child(segmented(sorts)))
+                .child(top)
+                .when(has_notes, |v| v.child(signal_field("Search notes", query)).child(segmented(sorts)))
                 .child(list)
-                .child(dynamic(move || {
-                    (!editing.get()).then(|| {
-                        let all = all.clone();
-                        view()
-                            .flex_row()
-                            .flex_wrap()
-                            .gap_2()
-                            .child(pill("New Note", move || edit(Some(Draft::default()))))
-                            .when(has_notes, |v| v.child(pill("Export", move || host.export(all.clone())).accessibility_label("Export Notes as Markdown")))
-                    })
-                }))
+                .child(dynamic(move || (has_notes && !editing.get()).then(|| view().flex_row().child(add()))))
                 .child(editor),
         )
     })

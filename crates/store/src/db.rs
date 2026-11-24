@@ -229,7 +229,7 @@ const MIGRATIONS: &[&str] = &[
          updated INTEGER NOT NULL
      );",
     "CREATE TABLE chats (
-         id INTEGER PRIMARY KEY,
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
          profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
          title TEXT NOT NULL,
          turns TEXT NOT NULL,
@@ -240,7 +240,7 @@ const MIGRATIONS: &[&str] = &[
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
-const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
+const PROFILE_NEUTRAL: [&str; 4] = ["settings", "themes", "windows", "sqlite_sequence"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
 const PROFILE_TABLES: [(&str, &str); 31] = [
     ("profiles", "id = ?1"),
@@ -1265,7 +1265,7 @@ impl Store {
         use serde_json::json;
         let title = title.map(|t| visible(t).split_whitespace().collect::<Vec<_>>().join(" "));
         let turns_json = serde_json::Value::Array(
-            turns.iter().map(|t| json!({ "you": t.you, "text": visible(&t.text), "by": t.by.as_deref().map(visible), "interrupted": t.interrupted })).collect(),
+            turns.iter().map(|t| json!({ "you": t.you, "text": visible(&t.text), "by": t.by.as_deref().map(visible), "interrupted": t.interrupted, "command": t.command })).collect(),
         )
         .to_string();
         let sources_json = serde_json::Value::Array(sources.iter().map(|(url, since)| json!([visible(url), since])).collect()).to_string();
@@ -1303,8 +1303,10 @@ impl Store {
         if title.is_empty() || title.chars().count() > MAX_NOTE_TITLE {
             return Err(Error::Invalid("chat"));
         }
-        self.conn.execute("UPDATE chats SET title = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, title])?;
-        Ok(())
+        match self.conn.execute("UPDATE chats SET title = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, title])? {
+            0 => Err(Error::Invalid("chat")),
+            _ => Ok(()),
+        }
     }
 
     pub fn delete_chat(&self, profile_id: Id, id: Id) -> Result<()> {
@@ -2179,6 +2181,7 @@ fn chat_turns(json: &str) -> Option<Vec<ChatTurn>> {
                 text: t.get("text")?.as_str()?.to_owned(),
                 by: t.get("by").and_then(|b| b.as_str()).map(str::to_owned),
                 interrupted: t.get("interrupted")?.as_bool()?,
+                command: t.get("command").and_then(serde_json::Value::as_bool).unwrap_or(true),
             })
         })
         .collect()
@@ -2668,7 +2671,7 @@ mod tests {
         store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
         store.migrate().unwrap();
         let private = store.create_profile("Private", "u3", true).unwrap().id;
-        let turn = |you: bool, text: &str| ChatTurn { you, text: text.into(), by: (!you).then(|| "M".into()), interrupted: false };
+        let turn = |you: bool, text: &str| ChatTurn { you, text: text.into(), by: (!you).then(|| "M".into()), interrupted: false, command: you };
         let turns = [turn(true, "Why\u{202e}?"), turn(false, "Because\u{7}.")];
         let sources = [("https://a.test/p".to_owned(), 0)];
         let id = store.save_chat(1, None, Some(" Why\n sky "), &turns, &sources).unwrap();
@@ -2687,7 +2690,7 @@ mod tests {
         assert!(store.save_chat(1, None, Some(" "), &turns, &[]).is_err());
         assert!(store.save_chat(1, None, Some("x"), &[turn(true, &"x".repeat(MAX_CHAT))], &[]).is_err());
         store.rename_chat(1, id, "Sky").unwrap();
-        store.rename_chat(2, id, "Not mine").unwrap();
+        assert!(store.rename_chat(2, id, "Not mine").is_err(), "another profile's chat is not renamed");
         assert_eq!(store.chat_titles(1).unwrap().iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Sky"]);
         assert!(store.rename_chat(1, id, "\u{200b}").is_err());
         store.delete_chat(2, id).unwrap();

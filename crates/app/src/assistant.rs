@@ -12,18 +12,19 @@ use browser_core::assistant::links::{self, LinkAction};
 use browser_core::assistant::settings::{self as ai_settings, CLAUDE_MODELS, Provider as Choice};
 use browser_core::assistant::{self as core, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, commands};
 use browser_core::tabs::TabKey;
+use gpui::ScrollHandle;
 use gpui::{
     AnyElement, AppContext, ClipboardItem, Context, Entity, Focusable, FontStyle, FontWeight, HighlightStyle, InteractiveElement, InteractiveText, IntoElement,
     ParentElement, PromptLevel, StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, Subscription, Task, UnderlineStyle, Window, actions, div,
     prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
-use ui::controls::{button, field, icon_button, note, segment, segmented, tab_stop, tooltip};
+use ui::controls::{button, caption, field, icon_button, icon_frame, note, row_action, segment, segmented, shown_on_hover, tab_stop, text_lines, tooltip};
 use ui::icon::{Icon, icon};
 use ui::motion::{FADE, SLIDE, progress};
 use ui::text::OneLine;
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::{TEXT_SMALL, TEXT_TITLE, Theme};
+use ui::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 use url::Url;
 
 use crate::browser::{Browser, Msg};
@@ -88,6 +89,14 @@ pub(crate) struct Assistant {
     models: bool,
     /// The question starts with `/`, so the column lists commands.
     slash: bool,
+    /// The command the `/` menu has selected, by its place in the menu.
+    slash_ix: usize,
+    /// The chat's rows, kept at the newest while an answer streams.
+    scroll: ScrollHandle,
+    menu_scroll: ScrollHandle,
+    rows_seen: Cell<usize>,
+    /// The saved chat's title as last read, for the header.
+    title: RefCell<Option<(store::Id, String)>>,
     /// The provider and Claude model, read again only when a setting changed.
     choice: Cell<Option<(u64, Choice, usize)>>,
     _inputs: [Subscription; 3],
@@ -109,10 +118,28 @@ impl Assistant {
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Browser>) -> Self {
         let input = cx.new(|cx| TextInput::new("Ask about the pills above, or anything", cx));
         let submit = cx.subscribe_in(&input, window, |b: &mut Browser, input, event, window, cx| match event {
-            TextInputEvent::Submit => b.send_question(cx),
+            TextInputEvent::Submit => {
+                let typed = input.read(cx).text().to_owned();
+                if commands::slash(&typed, &b.chat_commands()).is_some() || !b.pick_command(false, cx) {
+                    b.send_question(cx);
+                }
+            }
+            TextInputEvent::Cancel if !b.slash_menu(cx).is_empty() => {
+                b.assistant.slash = false;
+                cx.notify();
+            }
             TextInputEvent::Cancel => b.toggle_assistant(false, window, cx),
+            TextInputEvent::Up | TextInputEvent::Down => {
+                let shown = b.slash_menu(cx).len();
+                if shown > 0 {
+                    let at = b.assistant.slash_ix.min(shown - 1);
+                    b.assistant.slash_ix = if matches!(event, TextInputEvent::Up) { at.saturating_sub(1) } else { (at + 1).min(shown - 1) };
+                    cx.notify();
+                }
+            }
             TextInputEvent::Changed => {
                 let slash = input.read(cx).text().trim_start().starts_with('/');
+                b.assistant.slash_ix = 0;
                 if slash || b.assistant.slash {
                     b.assistant.slash = slash;
                     cx.notify();
@@ -152,6 +179,11 @@ impl Assistant {
             renaming: None,
             models: false,
             slash: false,
+            slash_ix: 0,
+            scroll: ScrollHandle::new(),
+            menu_scroll: ScrollHandle::new(),
+            rows_seen: Cell::new(0),
+            title: RefCell::default(),
             choice: Cell::default(),
             _inputs: [submit, search, renamed],
         }
@@ -236,6 +268,7 @@ impl Browser {
         if keep {
             return;
         }
+        self.save_chat();
         self.end_run();
         self.assistant.session = origin.and_then(|(o, on)| Session::new(o, on));
     }
@@ -416,6 +449,32 @@ impl Browser {
         commands::all(&custom)
     }
 
+    /// The commands the `/` menu lists for the question field now, by their index in `chat_commands`.
+    fn slash_menu(&self, cx: &Context<Self>) -> Vec<usize> {
+        if !self.assistant.slash || self.assistant.session.as_ref().is_none_or(|s| !core::view(s).can_send) {
+            return Vec::new();
+        }
+        commands::slash_menu(self.assistant.input.read(cx).text(), &self.chat_commands())
+    }
+
+    /// Runs the command the `/` menu has selected, or with `run` false writes its name into the
+    /// field to add a question; false while the menu is closed.
+    fn pick_command(&mut self, run: bool, cx: &mut Context<Self>) -> bool {
+        let shown = self.slash_menu(cx);
+        let Some(&ix) = shown.get(self.assistant.slash_ix.min(shown.len().saturating_sub(1))) else { return false };
+        if run {
+            self.run_command(ix, cx);
+        } else if let Some((name, _)) = self.chat_commands().get(ix) {
+            let typed = format!("/{name} ");
+            self.assistant.input.update(cx, |i, cx| {
+                i.set_text(typed, cx);
+                i.append_selected("", cx);
+            });
+        }
+        cx.notify();
+        true
+    }
+
     fn run_command(&mut self, ix: usize, cx: &mut Context<Self>) {
         if let Some((_, template)) = self.chat_commands().get(ix) {
             self.send(String::new(), &template.clone(), true, cx);
@@ -439,6 +498,7 @@ impl Browser {
             self.assistant.input.update(cx, |i, cx| i.set_text("", cx));
         }
         self.run_effects(effects, Some((answer, core::on_device_task(template))), cx);
+        self.save_chat();
     }
 
     /// Asks the last question again in place of its answer.
@@ -477,8 +537,10 @@ impl Browser {
 
     /// Keeps the chat in the profile once no answer streams; the store refuses a private profile.
     fn save_chat(&mut self) {
+        let shell = &self.core;
         if let Some(session) = self.assistant.session.as_mut() {
-            session.save(&self.core.disk);
+            let profile = session.profile();
+            session.save_with(&shell.disk, |url| shell.level(false, profile, Some(url)).unwrap_or(ShieldLevel::Lockdown));
         }
     }
 
@@ -494,14 +556,18 @@ impl Browser {
 
     /// Continues a saved chat of the current profile, under the rules of a new one.
     fn open_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((origin, on)) = self.assistant_origin() else { return };
+        let Some((origin, on)) = self.page_origin() else { return };
+        if self.assistant.session.as_ref().and_then(Session::chat) == Some(id) {
+            self.assistant.chats = false;
+            return cx.notify();
+        }
+        self.cancel_answer(cx);
         let saved = self.core.disk.chat(origin.profile, id).ok().flatten();
         let shell = &self.core;
         let level_of = |url: &Url| shell.level(false, origin.profile, Some(url)).unwrap_or(ShieldLevel::Lockdown);
         let Some(session) = saved.and_then(|c| Session::restore(origin, on, &c, level_of)) else {
             return self.show_toast_as(browser_core::toast::Tone::Warning, "This chat could not be opened.", None, cx);
         };
-        self.cancel_answer(cx);
         self.end_run();
         self.assistant.session = Some(session);
         self.save_chat();
@@ -533,6 +599,7 @@ impl Browser {
     fn rename_chat(&mut self, cx: &mut Context<Self>) {
         let (Some(id), Some(profile)) = (self.assistant.renaming.take(), self.assistant.session.as_ref().map(Session::profile)) else { return };
         let title = self.assistant.rename.read(cx).text().to_owned();
+        self.assistant.title.take();
         if self.core.disk.rename_chat(profile, id, &title).is_err() {
             self.show_toast_as(browser_core::toast::Tone::Warning, "That title cannot be used.", None, cx);
         }
@@ -551,6 +618,9 @@ impl Browser {
 
     /// Types the last answer into the page's focused field, as Insert Snippet does.
     fn insert_last_answer(&mut self, cx: &mut Context<Self>) {
+        if !self.chat_profile_shown() || !self.assistant_allowed() {
+            return;
+        }
         if let Some(text) = self.assistant.session.as_ref().and_then(|s| s.last_answer().map(str::to_owned)) {
             self.insert_answer(&text, cx);
         }
@@ -838,11 +908,43 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
         None => unavailable(b, cx),
     };
     let saved = b.assistant.session.as_ref().is_some();
+    let title = match b.assistant.session.as_ref() {
+        None => "Assistant".to_owned(),
+        Some(_) if b.assistant.chats => "Chats".to_owned(),
+        Some(session) => chat_title(b, session),
+    };
     let (provider, model) = b.chosen_model();
     let model_name = match provider {
         Choice::ClaudeApi => CLAUDE_MODELS[model].1,
         Choice::Ollama => "Ollama",
     };
+    let models = b.assistant.models;
+    let chip = tab_stop(
+        div()
+            .id("assistant-model")
+            .flex_none()
+            .h(px(24.))
+            .pl_2p5()
+            .pr_1p5()
+            .flex()
+            .items_center()
+            .gap_1()
+            .rounded_full()
+            .border_1()
+            .border_color(Theme::hairline())
+            .bg(if models { Theme::selected() } else { Theme::control() })
+            .text_size(px(TEXT_SMALL))
+            .cursor_pointer()
+            .hover(|s| s.bg(Theme::hover()))
+            .active(|s| s.bg(Theme::pressed()))
+            .child(model_name)
+            .child(icon(if models { Icon::ChevronUp } else { Icon::ChevronDown }, 10., Theme::muted())),
+    )
+    .tooltip(tooltip("Choose the provider and model", None))
+    .on_click(cx.listener(|b, _, _, cx| {
+        b.assistant.models = !b.assistant.models;
+        cx.notify();
+    }));
     let column = div()
         .id("assistant")
         .flex_none()
@@ -854,50 +956,47 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
         .border_l_1()
         .border_color(Theme::separator())
         // The window's Tab stops at text fields, which would trap the keyboard in the question field.
-        .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {
+        .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| {
             let m = e.keystroke.modifiers;
             if e.keystroke.key == "tab" && !(m.control || m.platform || m.alt || m.function) {
-                if m.shift {
-                    w.focus_prev()
-                } else {
-                    w.focus_next()
+                let completed = !m.shift && b.assistant.input.focus_handle(cx).is_focused(w) && b.pick_command(false, cx);
+                match (completed, m.shift) {
+                    (true, _) => {}
+                    (false, true) => w.focus_prev(),
+                    (false, false) => w.focus_next(),
                 }
                 cx.stop_propagation();
             }
-        })
+        }))
         .child(
             div()
                 .h(px(ui::theme::TOOLBAR_HEIGHT))
                 .flex_none()
-                .px_3()
+                .pl_4()
+                .pr_2()
                 .flex()
                 .items_center()
-                .gap_2()
-                .child(icon(Icon::Sparkles, ui::icon::ICON, Theme::muted()))
-                .child(div().flex_1().min_w_0().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).one_line("Assistant"))
+                .gap_1()
+                .border_b_1()
+                .border_color(Theme::separator())
+                .child(div().flex_1().min_w_0().pr_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).one_line(title))
                 .when(saved, |d| {
-                    d.child(
-                        tab_stop(button("assistant-model", model_name, b.assistant.models)).tooltip(tooltip("Choose the provider and model", None)).on_click(
-                            cx.listener(|b, _, _, cx| {
-                                b.assistant.models = !b.assistant.models;
-                                cx.notify();
-                            }),
-                        ),
-                    )
-                    .child(
-                        tab_stop(icon_button("assistant-chats", Icon::History, true))
-                            .tooltip(tooltip(if b.assistant.chats { "Back to the Chat" } else { "Saved Chats" }, None))
-                            .on_click(cx.listener(|b, _, _, cx| {
-                                b.assistant.chats = !b.assistant.chats;
-                                b.assistant.renaming = None;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        tab_stop(icon_button("assistant-new", Icon::Plus, true))
-                            .tooltip(tooltip("New Chat", None))
-                            .on_click(cx.listener(|b, _, w, cx| b.new_chat(w, cx))),
-                    )
+                    d.child(chip)
+                        .child(
+                            tab_stop(icon_button("assistant-chats", Icon::History, true))
+                                .when(b.assistant.chats, |d| d.bg(Theme::selected()))
+                                .tooltip(tooltip(if b.assistant.chats { "Back to the Chat" } else { "Saved Chats" }, None))
+                                .on_click(cx.listener(|b, _, _, cx| {
+                                    b.assistant.chats = !b.assistant.chats;
+                                    b.assistant.renaming = None;
+                                    cx.notify();
+                                })),
+                        )
+                        .child(
+                            tab_stop(icon_button("assistant-new", Icon::Plus, true))
+                                .tooltip(tooltip("New Chat", None))
+                                .on_click(cx.listener(|b, _, w, cx| b.new_chat(w, cx))),
+                        )
                 })
                 .child(
                     tab_stop(icon_button("assistant-close", Icon::Close, true))
@@ -905,24 +1004,55 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
                         .on_click(cx.listener(|b, _, w, cx| b.toggle_assistant(false, w, cx))),
                 ),
         )
-        .when(saved && b.assistant.models, |d| d.child(model_picker(provider, model, cx)))
+        .when(saved && models, |d| d.child(model_picker(provider, model, cx)))
         .child(body);
     let outer = div().flex_none().h_full().overflow_hidden();
     Some(if reduce { outer.w(px(WIDTH)).opacity(shown).child(column).into_any_element() } else { outer.w(px(WIDTH * shown)).child(column).into_any_element() })
 }
 
+/// The saved chat's title, read again only when the chat changes or is renamed; "New Chat" until
+/// it is saved.
+fn chat_title(b: &Browser, session: &Session) -> String {
+    let Some(id) = session.chat() else { return "New Chat".to_owned() };
+    let mut cached = b.assistant.title.borrow_mut();
+    if let Some((seen, title)) = cached.as_ref()
+        && *seen == id
+    {
+        return title.clone();
+    }
+    let title = b.core.disk.chat_titles(session.profile()).ok().and_then(|all| all.into_iter().find(|c| c.id == id)).map(|c| c.title);
+    let title = title.unwrap_or_else(|| "New Chat".to_owned());
+    *cached = Some((id, title.clone()));
+    title
+}
+
+/// A centred glyph, a line and what follows it, for a column with nothing to list yet.
+fn centered(glyph: Icon, line: &'static str) -> gpui::Div {
+    div()
+        .flex_1()
+        .min_h_0()
+        .px_6()
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .gap_3()
+        .child(div().w(px(40.)).h(px(40.)).flex().items_center().justify_center().rounded_full().bg(Theme::accent_soft()).child(icon(
+            glyph,
+            ui::icon::ICON_LARGE,
+            Theme::accent_text(),
+        )))
+        .child(div().text_center().font_weight(FontWeight::SEMIBOLD).child(line))
+}
+
 fn unavailable(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
-    let (text, settings) = match b.assistant_origin() {
+    let (text, settings) = match b.page_origin() {
         Some((o, _)) if !core::allowed(o) => (core::NOT_HERE, false),
         Some(_) => ("The assistant is off for this profile. Turn it on in Settings › AI; nothing is sent until you press Send.", true),
         None => ("No profile is open.", false),
     };
-    div()
-        .p_3()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(note(text).pt_0())
+    centered(Icon::Sparkles, "Assistant")
+        .child(div().max_w(px(260.)).text_center().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(text))
         .when(settings, |d| d.child(open_settings_button("assistant-settings", cx)))
         .into_any_element()
 }
@@ -945,16 +1075,18 @@ fn model_picker(provider: Choice, model: usize, cx: &mut Context<Browser>) -> An
     });
     div()
         .flex_none()
-        .px_3()
-        .pb_2()
+        .px_4()
+        .py_3()
         .flex()
         .flex_col()
         .gap_2()
         .text_size(px(TEXT_SMALL))
+        .bg(Theme::panel_row())
         .border_b_1()
         .border_color(Theme::separator())
+        .child(caption("Provider"))
         .child(providers)
-        .children(models)
+        .when_some(models, |d, models| d.child(caption("Model")).child(models))
         .into_any_element()
 }
 
@@ -963,95 +1095,109 @@ fn chat_list(profile: store::Id, open: Option<store::Id>, b: &Browser, window: &
     let shown = core::find_chats(&all, b.assistant.chat_search.read(cx).text());
     let search_focused = b.assistant.chat_search.focus_handle(cx).is_focused(window);
     let rename_focused = b.assistant.rename.focus_handle(cx).is_focused(window);
-    let empty = if all.is_empty() {
-        Some("No saved chats yet. A chat is kept once it has an answer.")
-    } else if shown.is_empty() {
-        Some("No chats match.")
-    } else {
-        None
-    };
-    let rows = shown.into_iter().enumerate().map(|(ix, chat)| {
+    if all.is_empty() {
+        return centered(Icon::History, "No saved chats yet")
+            .child(div().max_w(px(240.)).text_center().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child("A chat is kept once it has an answer."))
+            .into_any_element();
+    }
+    let now = browser_core::now();
+    let rows = shown.iter().enumerate().map(|(ix, chat)| {
         let id = chat.id;
         if b.assistant.renaming == Some(id) {
-            return div().px_1().child(field(rename_focused).child(b.assistant.rename.clone())).into_any_element();
+            return div().py_0p5().child(field(rename_focused).child(b.assistant.rename.clone())).into_any_element();
         }
         let title = chat.title.clone();
+        let reveal = |control| shown_on_hover(control, "assistant-chat-row");
         div()
+            .group("assistant-chat-row")
             .flex()
             .items_center()
-            .gap_1()
+            .gap_0p5()
+            .pr_1()
+            .rounded(px(Theme::radius_row()))
+            .when(open == Some(id), |d| d.bg(Theme::selected()))
+            .when(open != Some(id), |d| d.hover(|s| s.bg(Theme::hover())))
             .child(
                 tab_stop(
                     div()
                         .id(("assistant-chat", ix))
                         .flex_1()
                         .min_w_0()
-                        .px_2()
-                        .h(px(28.))
-                        .flex()
-                        .items_center()
-                        .rounded(px(Theme::radius_small()))
+                        .px_2p5()
+                        .py_1p5()
                         .cursor_pointer()
-                        .hover(|s| s.bg(Theme::control()))
-                        .when(open == Some(id), |d| d.bg(Theme::accent_soft()))
-                        .child(div().min_w_0().one_line(chat.title.clone())),
+                        .child(text_lines(chat.title.clone(), browser_core::library::ago(&b.core.disk, chat.updated, now))),
                 )
                 .on_click(cx.listener(move |b, _, w, cx| b.open_chat(id, w, cx))),
             )
             .child(
-                tab_stop(icon_button(("assistant-chat-rename", ix), Icon::Pencil, true))
-                    .tooltip(tooltip("Rename", None))
+                reveal(row_action(("assistant-chat-rename", ix), Icon::Pencil, "Rename"))
                     .on_click(cx.listener(move |b, _, w, cx| b.start_rename(id, title.clone(), w, cx))),
             )
-            .child(
-                tab_stop(icon_button(("assistant-chat-delete", ix), Icon::Trash, true))
-                    .tooltip(tooltip("Delete", None))
-                    .on_click(cx.listener(move |b, _, w, cx| b.delete_chat(id, w, cx))),
-            )
+            .child(reveal(row_action(("assistant-chat-delete", ix), Icon::Trash, "Delete")).on_click(cx.listener(move |b, _, w, cx| b.delete_chat(id, w, cx))))
             .into_any_element()
     });
     div()
-        .id("assistant-chat-list")
         .flex_1()
         .min_h_0()
-        .overflow_y_scroll()
-        .p_3()
         .flex()
         .flex_col()
-        .gap_1()
-        .child(field(search_focused).child(b.assistant.chat_search.clone()))
-        .children(empty.map(|e| note(e).pt_1()))
-        .children(rows)
+        .child(div().flex_none().px_3().pt_3().pb_2().child(field(search_focused).py_0p5().child(b.assistant.chat_search.clone())))
+        .child(
+            div()
+                .id("assistant-chat-list")
+                .flex_1()
+                .min_h_0()
+                .overflow_y_scroll()
+                .px_2()
+                .pb_3()
+                .flex()
+                .flex_col()
+                .gap_0p5()
+                .when(shown.is_empty(), |d| d.child(note("No chats match.").px_2()))
+                .children(rows),
+        )
         .into_any_element()
 }
 
 fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     let me = cx.entity().downgrade();
     let last = view.rows.len().checked_sub(1);
+    let scroll = &b.assistant.scroll;
+    let streaming = view.rows.last().is_some_and(|r| r.streaming);
+    let at_end = scroll.max_offset().height + scroll.offset().y <= px(48.);
+    if b.assistant.rows_seen.replace(view.rows.len()) != view.rows.len() || (streaming && at_end) {
+        scroll.scroll_to_bottom();
+    }
     let rows = view
         .rows
         .iter()
         .enumerate()
         .map(|(ix, row)| {
-            let actions = (!row.streaming && !view.can_cancel).then(|| turn_actions(ix, row, Some(ix) == last, cx));
+            let is_last = Some(ix) == last;
+            let actions = (!row.streaming && !view.can_cancel).then(|| turn_actions(ix, row, is_last, cx)).flatten();
+            let turn = div().group("assistant-turn").flex().flex_col();
             match row.role {
-                Role::You => div()
-                    .flex()
-                    .flex_col()
+                Role::You => turn
                     .items_end()
                     .gap_1()
-                    .child(div().max_w(px(WIDTH - 48.)).px_3().py_2().rounded(px(Theme::radius_row())).bg(Theme::accent_soft()).child(row.text.clone()))
+                    .child(div().max_w(px(WIDTH * 0.82)).px_3().py_2().rounded(px(Theme::radius_group())).bg(Theme::accent_soft()).child(row.text.clone()))
                     .children(actions)
                     .into_any_element(),
                 Role::Assistant => {
                     let blocks = b.assistant.blocks(ix, &row.text);
-                    let mut answer = div().flex().flex_col().gap_2().children(markdown(&blocks, ix, &me));
+                    let mut answer = turn.gap_2().children(markdown(&blocks, ix, &me));
                     if row.streaming {
                         answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
                     } else {
                         answer = answer.children(link_list(&blocks, ix, cx));
                     }
-                    answer.children(row.by.clone().map(|by| note(by).pt_0())).children(actions).into_any_element()
+                    let by = row.by.clone().map(|by| div().flex_1().min_w_0().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).one_line(by));
+                    answer
+                        .when(by.is_some() || actions.is_some(), |d| {
+                            d.child(div().flex().items_center().gap_1().children(actions).child(div().flex_1()).children(by.map(|by| by.flex_initial())))
+                        })
+                        .into_any_element()
                 }
             }
         })
@@ -1059,23 +1205,56 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
     let typed = b.assistant.input.read(cx).text().to_owned();
     let commands = if b.assistant.slash { b.chat_commands() } else { Vec::new() };
     let menu = commands::slash_menu(&typed, &commands);
+    let selected = b.assistant.slash_ix.min(menu.len().saturating_sub(1));
+    b.assistant.menu_scroll.scroll_to_item(selected);
     let menu = (!menu.is_empty()).then(|| {
-        div().id("assistant-commands").max_h(px(180.)).overflow_y_scroll().flex().flex_col().gap_1().children(menu.into_iter().map(|ix| {
-            tab_stop(
-                div()
-                    .id(("assistant-command", ix))
-                    .px_2()
-                    .h(px(26.))
-                    .flex()
-                    .items_center()
-                    .rounded(px(Theme::radius_small()))
-                    .text_size(px(TEXT_SMALL))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(Theme::control()))
-                    .child(div().min_w_0().one_line(format!("/{}", commands[ix].0))),
+        let enter = if cfg!(windows) { "Enter" } else { "Return" };
+        popover_card()
+            .absolute()
+            .bottom_full()
+            .left_3()
+            .right_3()
+            .mb_1()
+            .p_1()
+            .flex()
+            .flex_col()
+            .child(
+                div().id("assistant-commands").track_scroll(&b.assistant.menu_scroll).max_h(px(280.)).overflow_y_scroll().flex().flex_col().gap_0p5().children(
+                    menu.into_iter().enumerate().map(|(at, ix)| {
+                        let (name, template) = &commands[ix];
+                        tab_stop(
+                            div()
+                                .id(("assistant-command", ix))
+                                .px_2()
+                                .py_1p5()
+                                .flex()
+                                .flex_col()
+                                .rounded(px(Theme::radius_small()))
+                                .cursor_pointer()
+                                .when(at == selected, |d| d.bg(Theme::selected()))
+                                .when(at != selected, |d| d.hover(|s| s.bg(Theme::hover())))
+                                .child(div().font_weight(FontWeight::MEDIUM).one_line(format!("/{name}")))
+                                .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(template.clone())),
+                        )
+                        .on_click(cx.listener(move |b, _, _, cx| {
+                            b.assistant.slash_ix = at;
+                            b.pick_command(false, cx);
+                        }))
+                    }),
+                ),
             )
-            .on_click(cx.listener(move |b, _, _, cx| b.run_command(ix, cx)))
-        }))
+            .child(
+                div()
+                    .px_2()
+                    .pt_1p5()
+                    .pb_1()
+                    .mt_1()
+                    .border_t_1()
+                    .border_color(Theme::separator())
+                    .text_size(px(ui::theme::TEXT_TINY))
+                    .text_color(Theme::muted())
+                    .child(format!("{enter} runs · Tab completes · Esc closes")),
+            )
     });
     let picker = b.assistant.picking.then(|| tab_picker(b, cx));
     let chips = view
@@ -1088,15 +1267,20 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .items_center()
                 .gap_1()
                 .pl_2()
-                .pr_1()
-                .h_6()
+                .h(px(26.))
                 .max_w(px(WIDTH - 32.))
-                .rounded(px(Theme::radius_small()))
+                .rounded(px(Theme::radius_row()))
+                .border_1()
+                .border_color(Theme::hairline())
                 .bg(Theme::control())
                 .text_size(px(TEXT_SMALL))
+                .child(icon(Icon::File, ui::icon::ICON_SMALL, Theme::muted()))
                 .child(div().min_w_0().one_line(chip.clone()))
                 .child(
-                    tab_stop(icon_button(("assistant-remove", ix), Icon::Close, true))
+                    icon_frame(("assistant-remove", ix), true)
+                        .w(px(22.))
+                        .h(px(22.))
+                        .child(icon(Icon::Close, ui::icon::ICON_SMALL, Theme::muted()))
                         .tooltip(tooltip(format!("Remove {chip}"), None))
                         .on_click(cx.listener(move |b, _, _, cx| b.remove_pill(ix, cx))),
                 )
@@ -1110,76 +1294,127 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
     };
     let focused = b.assistant.input.focus_handle(cx).is_focused(window);
     let send = if view.can_cancel {
-        tab_stop(button("assistant-cancel", "Cancel", false)).on_click(cx.listener(|b, _, _, cx| b.cancel_answer(cx)))
+        tab_stop(button("assistant-cancel", "Stop", true)).on_click(cx.listener(|b, _, _, cx| b.cancel_answer(cx)))
     } else {
         tab_stop(button("assistant-send", "Send", true)).on_click(cx.listener(|b, _, _, cx| b.send_question(cx)))
     };
+    let composer = field(focused)
+        .px_2()
+        .pt_2()
+        .pb_1p5()
+        .flex()
+        .flex_col()
+        .gap_1p5()
+        .rounded(px(Theme::radius_group()))
+        .child(div().px_1().child(b.assistant.input.clone()))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_0p5()
+                .child(
+                    tab_stop(icon_button("assistant-add-page", Icon::File, true))
+                        .tooltip(tooltip("Add This Page", None))
+                        .on_click(cx.listener(|b, _, w, cx| b.ask_page(w, cx))),
+                )
+                .child(
+                    tab_stop(icon_button("assistant-add-tab", Icon::AppWindow, true))
+                        .when(b.assistant.picking, |d| d.bg(Theme::selected()))
+                        .tooltip(tooltip("Add Tab…", None))
+                        .on_click(cx.listener(|b, _, _, cx| {
+                            b.assistant.picking = !b.assistant.picking;
+                            cx.notify();
+                        })),
+                )
+                .child(div().flex_1())
+                .child(send),
+        );
     div()
         .flex_1()
         .min_h_0()
         .flex()
         .flex_col()
+        .map(|d| {
+            if view.rows.is_empty() {
+                d.child(empty_chat(cx))
+            } else {
+                d.child(
+                    div()
+                        .id("assistant-rows")
+                        .track_scroll(scroll)
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .px_4()
+                        .pt_4()
+                        .pb_6()
+                        .flex()
+                        .flex_col()
+                        .gap_5()
+                        .children(rows),
+                )
+            }
+        })
         .child(
             div()
-                .id("assistant-rows")
-                .flex_1()
-                .min_h_0()
-                .overflow_y_scroll()
-                .px_3()
-                .py_2()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .when(view.rows.is_empty(), |d| d.child(empty_chat(cx)))
-                .children(rows),
-        )
-        .child(
-            div()
+                .relative()
                 .flex_none()
-                .p_3()
+                .px_3()
+                .pt_2()
+                .pb_3()
                 .flex()
                 .flex_col()
                 .gap_2()
-                .border_t_1()
-                .border_color(Theme::separator())
                 .children(view.notice.clone().map(|n| note(n).pt_0().text_color(Theme::warning())))
                 .when(b.assistant.connect, |d| {
                     d.child(note("Connect the Claude API, or choose Ollama on this computer, in Settings › AI to send.").pt_0())
                         .child(open_settings_button("assistant-connect", cx))
                 })
-                .child(div().flex().flex_wrap().gap_1().children(chips))
-                .child(note(will_send).pt_0())
                 .children(picker)
-                .children(menu)
-                .child(field(focused).child(b.assistant.input.clone()))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(tab_stop(button("assistant-add-page", "Add This Page", false)).on_click(cx.listener(|b, _, w, cx| b.ask_page(w, cx))))
-                        .child(tab_stop(button("assistant-add-tab", "Add Tab…", b.assistant.picking)).on_click(cx.listener(|b, _, _, cx| {
-                            b.assistant.picking = !b.assistant.picking;
-                            cx.notify();
-                        })))
-                        .child(div().flex_1())
-                        .child(send),
-                ),
+                .when(!chips.is_empty(), |d| d.child(div().flex().flex_wrap().gap_1().children(chips)))
+                .child(composer)
+                .child(note(will_send).pt_0().px_1())
+                .children(menu),
         )
         .into_any_element()
+}
+
+/// The card the `/` menu floats on, above the question field.
+fn popover_card() -> gpui::Div {
+    ui::controls::surface(Theme::radius_row()).occlude().shadow(ui::theme::Elevation::Popover.shadow())
 }
 
 /// What an empty chat shows: how sending works, and commands to start from. A suggestion only
 /// fills the question field; nothing is sent until Send.
 fn empty_chat(cx: &mut Context<Browser>) -> AnyElement {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(note("Ask a question, or add this page with the button below. Nothing leaves this computer until you press Send.").pt_0())
-        .child(note("Type / for commands, or start with one:").pt_0())
-        .child(div().flex().flex_wrap().gap_1().children(commands::BUILT_IN.iter().enumerate().map(|(ix, (name, _))| {
-            tab_stop(button(("assistant-suggest", ix), *name, false)).on_click(cx.listener(move |b, _, w, cx| {
+    centered(Icon::Sparkles, "Ask about this page, or anything")
+        .child(
+            div()
+                .max_w(px(260.))
+                .text_center()
+                .text_size(px(TEXT_SMALL))
+                .text_color(Theme::muted())
+                .child("Nothing leaves this computer until you press Send. Type / for commands, or start with one:"),
+        )
+        .child(div().pt_1().flex().flex_wrap().justify_center().gap_1p5().children(commands::BUILT_IN.iter().enumerate().map(|(ix, (name, _))| {
+            tab_stop(
+                div()
+                    .id(("assistant-suggest", ix))
+                    .h(px(26.))
+                    .px_3()
+                    .flex()
+                    .items_center()
+                    .rounded_full()
+                    .border_1()
+                    .border_color(Theme::hairline())
+                    .bg(Theme::control())
+                    .text_size(px(TEXT_SMALL))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(Theme::hover()))
+                    .active(|s| s.bg(Theme::pressed()))
+                    .child(*name),
+            )
+            .on_click(cx.listener(move |b, _, w, cx| {
                 b.assistant.input.update(cx, |i, cx| {
                     i.set_text(format!("/{name} "), cx);
                     i.append_selected("", cx);
@@ -1192,24 +1427,32 @@ fn empty_chat(cx: &mut Context<Browser>) -> AnyElement {
 }
 
 /// Copy on every answer; on the last turn also Retry and Edit Question, and Insert into Page for
-/// an answer.
-fn turn_actions(ix: usize, row: &core::Row, last: bool, cx: &mut Context<Browser>) -> gpui::Div {
+/// an answer. Earlier turns show theirs while the pointer is over the turn.
+fn turn_actions(ix: usize, row: &core::Row, last: bool, cx: &mut Context<Browser>) -> Option<gpui::Div> {
     let answer = row.role == Role::Assistant && !row.text.is_empty() && row.text != core::FORGOTTEN;
+    if !answer && !last {
+        return None;
+    }
     let text = row.text.clone();
-    let action = |id: &'static str, glyph: Icon, tip: &'static str| tab_stop(icon_button((id, ix), glyph, true)).tooltip(tooltip(tip, None));
-    div()
-        .flex()
-        .gap_1()
-        .when(answer, |d| {
-            d.child(action("assistant-copy", Icon::Copy, "Copy").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))))
-        })
-        .when(last, |d| {
-            d.child(action("assistant-retry", Icon::Reload, "Retry").on_click(cx.listener(|b, _, _, cx| b.retry_answer(cx))))
-                .child(action("assistant-edit", Icon::Pencil, "Edit Question").on_click(cx.listener(|b, _, w, cx| b.edit_question(w, cx))))
-        })
-        .when(last && answer, |d| {
-            d.child(action("assistant-insert", Icon::FileDown, "Insert into Page").on_click(cx.listener(|b, _, _, cx| b.insert_last_answer(cx))))
-        })
+    let action = |id: &'static str, glyph: Icon, tip: &'static str| {
+        let button = row_action((id, ix), glyph, tip);
+        if last { button } else { shown_on_hover(button, "assistant-turn") }
+    };
+    Some(
+        div()
+            .flex()
+            .gap_0p5()
+            .when(answer, |d| {
+                d.child(action("assistant-copy", Icon::Copy, "Copy").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))))
+            })
+            .when(last, |d| {
+                d.child(action("assistant-retry", Icon::Reload, "Retry").on_click(cx.listener(|b, _, _, cx| b.retry_answer(cx))))
+                    .child(action("assistant-edit", Icon::Pencil, "Edit Question").on_click(cx.listener(|b, _, w, cx| b.edit_question(w, cx))))
+            })
+            .when(last && answer, |d| {
+                d.child(action("assistant-insert", Icon::FileDown, "Insert into Page").on_click(cx.listener(|b, _, _, cx| b.insert_last_answer(cx))))
+            }),
+    )
 }
 
 /// The current space's other tabs the assistant may read; a sleeping one is shown but cannot be
@@ -1300,14 +1543,14 @@ fn markdown(blocks: &[Block], row: usize, me: &gpui::WeakEntity<Browser>) -> Vec
                     div().pl_2().border_l_2().border_color(Theme::separator()).text_color(Theme::muted()).child(spans_text(id, spans, me)).into_any_element()
                 }
                 Block::Code { code, .. } => {
-                    let copied = code.trim_end().to_owned();
+                    let copied = code.clone();
                     div()
                         .flex()
                         .gap_1()
                         .p_2()
                         .rounded(px(Theme::radius_small()))
                         .bg(Theme::control())
-                        .child(div().flex_1().min_w_0().font_family(ui::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(copied.clone()))
+                        .child(div().flex_1().min_w_0().font_family(ui::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(copied.trim_end().to_owned()))
                         .child(
                             tab_stop(icon_button(("assistant-code-copy", row * 10_000 + ix), Icon::Copy, true))
                                 .tooltip(tooltip("Copy Code", None))

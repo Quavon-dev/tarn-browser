@@ -13,6 +13,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude
   model. On macOS and Windows, Insert into Page types an answer into the page's focused field, as
   Insert Snippet does. Never in a private space, a burner tab or under Lockdown.
+- Settings and the assistant are redesigned on every client: each pane has a short summary,
+  row actions are icon buttons with tooltips, editors open from an Add button, and empty lists say
+  what to do. The assistant's header names the chat and its model, the composer holds attachments
+  and Send or Stop, and `/` opens a command menu you can move through with the arrow keys on macOS
+  and Windows.
 - Settings › AI: choose the Claude model (Opus 5.5, Sonnet 5.5, Haiku 5.5) and write your own
   commands with `{page}`, `{selection}` and `{question}`.
 - Settings › Snippets: search, and a switch for `;name` expansion in the address and command bar.

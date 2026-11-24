@@ -1,11 +1,12 @@
 use super::*;
+use ui::controls::{empty_state, leading_icon, row_action};
 
 const OFF: &str = "Extension downloads are off in Privacy settings.";
 
 impl SettingsWindow {
     pub(super) fn extensions(&self, s: Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         if !s.extensions_allowed {
-            return div().child(section("Extensions")).child(note("Extensions are off in private and Lockdown profiles.")).into_any_element();
+            return div().pt_6().child(empty_state(Icon::Lock, "Extensions are off in private and Lockdown profiles.")).into_any_element();
         }
         let mut page = div();
         if cfg!(windows) {
@@ -175,7 +176,7 @@ impl SettingsWindow {
 
     fn installed_extensions(&self, extensions: Vec<crate::extensions::Row>, cx: &mut Context<Self>) -> Div {
         if extensions.is_empty() {
-            note("No extensions yet. Apps with a Safari web extension, such as Bitwarden from the Mac App Store, appear here.")
+            empty_state(Icon::Braces, "No extensions yet. Apps with a Safari web extension, such as Bitwarden from the Mac App Store, appear here.")
         } else {
             let mut list = group();
             for (ix, e) in extensions.into_iter().enumerate() {
@@ -199,21 +200,24 @@ impl SettingsWindow {
                     );
                 }
                 if let Some(id) = e.install_id.clone() {
-                    actions = actions.child(button(("extension-forget", ix), "Forget Site Answers", false).on_click(cx.listener(move |this, _, _, cx| {
-                        let id = id.clone();
-                        this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
-                    })));
+                    actions =
+                        actions.child(row_action(("extension-forget", ix), Icon::Undo, "Forget Site Answers").on_click(cx.listener(move |this, _, _, cx| {
+                            let id = id.clone();
+                            this.with_browser(cx, move |b, w, cx| b.forget_extension_answers(&id, w, cx))
+                        })));
                 }
                 if let Some(id) = e.install_id {
                     let question = format!("Remove the extension \u{201C}{}\u{201D}?", bounded_title(&e.name));
-                    actions = actions.child(button(("extension-remove", ix), "Remove\u{2026}", false).on_click(cx.listener(move |this, _, window, cx| {
-                        let id = id.clone();
-                        this.ask(&question, Some("Its files and the data it stored are deleted."), &["Remove"], window, cx, move |this, _, cx| {
-                            this.with_browser(cx, move |b, _, cx| b.remove_extension(&id, cx))
-                        });
-                    })));
+                    actions =
+                        actions.child(row_action(("extension-remove", ix), Icon::Trash, "Remove\u{2026}").on_click(cx.listener(move |this, _, window, cx| {
+                            let id = id.clone();
+                            this.ask(&question, Some("Its files and the data it stored are deleted."), &["Remove"], window, cx, move |this, _, cx| {
+                                this.with_browser(cx, move |b, _, cx| b.remove_extension(&id, cx))
+                            });
+                        })));
                 }
                 let r = row(ix == 0)
+                    .child(leading_icon(Icon::Braces))
                     .child(
                         div()
                             .flex_1()
@@ -242,13 +246,13 @@ impl SettingsWindow {
         let input = self.repo_input.clone();
         let focused = input.focus_handle(cx).is_focused(window);
         group()
-            .child(row(true).child(field(focused).flex_1().py_0p5().child(input)).child(available(
+            .child(row(true).child(leading_icon(Icon::Code)).child(field(focused).flex_1().py_0p5().child(input)).child(available(
                 button("install-github", "Install", false).when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.install_from_github(cx)))),
                 downloads,
                 OFF,
             )))
-            .child(row(false).child(label("A .zip or .crx file")).child(button("install-file", "Choose File\u{2026}", false).on_click(cx.listener(
-                |this, _, _, cx| {
+            .child(row(false).child(leading_icon(Icon::FileArchive)).child(label("A .zip or .crx file")).child(
+                button("install-file", "Choose File\u{2026}", false).on_click(cx.listener(|this, _, _, cx| {
                     let paths = cx.prompt_for_paths(gpui::PathPromptOptions { files: true, directories: false, multiple: false, prompt: None });
                     let main = this.main;
                     cx.spawn(async move |_, cx| {
@@ -265,10 +269,10 @@ impl SettingsWindow {
                         .ok();
                     })
                     .detach();
-                },
-            ))))
+                })),
+            ))
             .child(
-                row(false).child(label("Installed from GitHub or the catalog")).child(available(
+                row(false).child(leading_icon(Icon::Reload)).child(label("Installed from GitHub or the catalog")).child(available(
                     button("extension-updates", "Check for Updates", false)
                         .when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.check_extension_updates(cx))))),
                     downloads,
@@ -280,7 +284,7 @@ impl SettingsWindow {
     fn official_extensions(&self, mut page: Div, catalog: (Vec<crate::extensions::CatalogRow>, bool), downloads: bool, cx: &mut Context<Self>) -> Div {
         let (rows, old) = catalog;
         let mut official = group().child(
-            row(true).child(label("Reviewed and signed by Tarn")).child(available(
+            row(true).child(leading_icon(Icon::ShieldCheck)).child(label("Reviewed and signed by Tarn")).child(available(
                 button("catalog", "Show Official Extensions", false)
                     .when(downloads, |d| d.on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.fetch_catalog(cx))))),
                 downloads,
@@ -331,13 +335,13 @@ impl SettingsWindow {
             .child(value(shield_badge(p.shield_level)))
             .when(!p.is_private, |d| {
                 d.child(
-                    button(("edit-profile", ix), "Edit…", false)
+                    row_action(("edit-profile", ix), Icon::Pencil, "Edit…")
                         .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(Some(id), w, cx)))),
                 )
             })
             .when(!p.is_private && deletable, |d| {
                 let question = format!("Delete the profile \u{201C}{}\u{201D}?", bounded_title(&p.name));
-                d.child(button(("delete-profile", ix), "Delete…", false).on_click(cx.listener(move |this, _, window, cx| {
+                d.child(row_action(("delete-profile", ix), Icon::Trash, "Delete…").on_click(cx.listener(move |this, _, window, cx| {
                     let detail = "Its spaces, tabs, history and website data are deleted. Website data another profile shares stays for that profile.";
                     this.ask(&question, Some(detail), &["Delete Profile"], window, cx, move |this, _, cx| {
                         this.with_browser(cx, |b, w, cx| b.delete_profile(id, w, cx))
@@ -350,13 +354,13 @@ impl SettingsWindow {
         let deletable = s.profiles.iter().filter(|p| !p.is_private).count() > 1;
         let list = s.profiles.iter().enumerate().fold(group(), |list, (ix, p)| list.child(self.profile_row(s, ix, p, deletable, cx)));
         let rules = if s.space_rules.is_empty() {
-            note("No rules. \u{201c}Always open in\u{201d} in a site's settings opens its new tabs in the space you pick.")
+            empty_state(Icon::Folder, "No rules. \u{201c}Always open in\u{201d} in a site's settings opens its new tabs in the space you pick.")
         } else {
             let mut list = group();
             for (ix, (id, pattern, space)) in s.space_rules.iter().cloned().enumerate() {
                 list = list.child(
                     row(ix == 0).child(label(bounded_title(&pattern))).child(value(space)).child(
-                        button(("delete-space-rule", ix), "Remove", false)
+                        row_action(("delete-space-rule", ix), Icon::Trash, "Remove")
                             .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.delete_space_rule(id, cx)))),
                     ),
                 );
@@ -366,7 +370,7 @@ impl SettingsWindow {
         div()
             .child(heading(
                 "Profiles",
-                button("new-profile", "New Profile…", true)
+                icon_text_button("new-profile", Icon::Plus, "New Profile…")
                     .on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_profile_editor(None, w, cx)))),
             ))
             .child(list)

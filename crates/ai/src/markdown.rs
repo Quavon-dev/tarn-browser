@@ -3,6 +3,11 @@
 
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
+/// The most blocks an answer draws, so output steered into thousands of tiny items cannot stall
+/// the window that lays them out.
+pub const MAX_BLOCKS: usize = 2_000;
+const CUT: &str = "The rest of this answer is not shown.";
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Style {
     pub bold: bool,
@@ -156,11 +161,24 @@ pub fn parse(markdown: &str) -> Vec<Block> {
         }
     }
     b.flush();
+    if b.blocks.len() > MAX_BLOCKS {
+        b.blocks.truncate(MAX_BLOCKS);
+        b.blocks.push(Block::Paragraph(vec![Span { text: CUT.to_owned(), style: Style::default(), link: None }]));
+    }
     b.blocks
 }
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_long_answer_draws_its_first_blocks_and_says_the_rest_is_cut() {
+        let blocks = parse(&"- x\n".repeat(MAX_BLOCKS * 2));
+        assert_eq!(blocks.len(), MAX_BLOCKS + 1);
+        assert!(matches!(&blocks[MAX_BLOCKS], Block::Paragraph(spans) if spans[0].text == CUT));
+        assert_eq!(parse("a\n\nb").len(), 2);
+    }
+
     use super::*;
 
     fn all_spans(blocks: &[Block]) -> Vec<Span> {

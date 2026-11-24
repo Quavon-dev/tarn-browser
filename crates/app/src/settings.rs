@@ -60,36 +60,81 @@ pub enum SettingsPane {
     Ai,
 }
 
-const PANES: [(SettingsPane, Icon, &str, &str); 14] = [
-    (SettingsPane::Profile, Icon::Shield, "Protection", "shield level standard strict lockdown card filter lists site overrides connections default browser"),
-    (SettingsPane::Profiles, Icon::Person, "Profiles", "profile new edit delete space rules"),
-    (SettingsPane::General, Icon::Gear, "General", "updates nightly web engine chromium webkit downloads import about version licence source privacy imprint"),
+const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
+    (
+        SettingsPane::Profile,
+        Icon::Shield,
+        "Protection",
+        "Shield level, what it blocked and the default browser.",
+        "shield level standard strict lockdown card filter lists site overrides connections default browser",
+    ),
+    (SettingsPane::Profiles, Icon::Person, "Profiles", "Your profiles and the rules that open sites in a space.", "profile new edit delete space rules"),
+    (
+        SettingsPane::General,
+        Icon::Gear,
+        "General",
+        "Updates, web engine, downloads, import and this version.",
+        "updates nightly web engine chromium webkit downloads import about version licence source privacy imprint",
+    ),
     (
         SettingsPane::Appearance,
         Icon::Palette,
         "Appearance",
+        "Theme, accent colour, motion and layout.",
         "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips",
     ),
     (
         SettingsPane::Tabs,
         Icon::AppWindow,
         "Tabs",
+        "When tabs sleep, close and open.",
         "awake sleep memory new tab start page close archive gestures swipe trackpad touchpad drag tear off temporary full window",
     ),
-    (SettingsPane::Search, Icon::Search, "Search", "search engine suggestions history text shortcuts bangs"),
+    (SettingsPane::Search, Icon::Search, "Search", "Search engine and suggestions.", "search engine suggestions history text shortcuts bangs"),
     (
         SettingsPane::Privacy,
         Icon::Hand,
         "Privacy",
+        "Blocking, what sites keep and your data.",
         "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost passkeys security keys sign-in",
     ),
-    (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
-    (SettingsPane::Ai, Icon::Sparkles, "AI", "assistant chat chats claude api key ollama model connect disconnect ask commands prompts"),
-    (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
-    (SettingsPane::Extensions, Icon::Braces, "Extensions", "install github file bitwarden every site official catalog store updates"),
-    (SettingsPane::Snippets, Icon::FileText, "Snippets", "text expansion expand insert templates signature"),
-    (SettingsPane::Notes, Icon::Pencil, "Notes", "notes write search sort export markdown ideas assistant"),
-    (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts", "keyboard keys"),
+    (
+        SettingsPane::Permissions,
+        Icon::Camera,
+        "Permissions",
+        "Your answers to sites that asked for a device or pop-ups.",
+        "camera microphone location pop-ups site answers allow block",
+    ),
+    (
+        SettingsPane::Ai,
+        Icon::Sparkles,
+        "AI",
+        "The assistant, where questions go, commands and chats.",
+        "assistant chat chats claude api key ollama model connect disconnect ask commands prompts",
+    ),
+    (
+        SettingsPane::Developer,
+        Icon::Code,
+        "Developer",
+        "Web Inspector, the developer profile and local servers.",
+        "web inspector developer tools profile local servers localhost",
+    ),
+    (
+        SettingsPane::Extensions,
+        Icon::Braces,
+        "Extensions",
+        "Installed extensions, their access and new ones.",
+        "install github file bitwarden every site official catalog store updates",
+    ),
+    (SettingsPane::Snippets, Icon::FileText, "Snippets", "Short names that expand into longer text.", "text expansion expand insert templates signature"),
+    (
+        SettingsPane::Notes,
+        Icon::Pencil,
+        "Notes",
+        "Your notes, to search, sort, export and ask about.",
+        "notes write search sort export markdown ideas assistant",
+    ),
+    (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts", "Keyboard shortcuts, and keys you set yourself.", "keyboard keys"),
 ];
 
 fn pane_matches(query: &str, name: &str, words: &str) -> bool {
@@ -135,20 +180,30 @@ fn warning(text: impl Into<SharedString>) -> Div {
 }
 
 fn search_field(input: &gpui::Entity<TextInput>, focused: bool) -> Div {
-    div().pt_2().child(field(focused).w(px(320.)).py_0p5().child(input.clone()))
+    div().child(field(focused).w(px(320.)).py_0p5().child(input.clone()))
 }
 
 type Click = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
 
-/// A list editor's buttons: Cancel while an item is edited, then Save or Add.
+/// A list editor's buttons: Cancel, then Save while an item is edited or Add.
 fn editor_actions(id: &'static str, editing: bool, cancel: Click, save: Click) -> Div {
     div()
         .pt_2()
         .flex()
         .justify_end()
         .gap_2()
-        .when(editing, |d| d.child(tab_stop(button((id, 0usize), "Cancel", false)).on_click(cancel)))
+        .child(tab_stop(button((id, 0usize), "Cancel", false)).on_click(cancel))
         .child(tab_stop(button((id, 1usize), if editing { "Save" } else { "Add" }, true)).on_click(save))
+}
+
+/// One labelled field of a list editor.
+fn editor_row(first: bool, name: &'static str, input: &gpui::Entity<TextInput>, focused: bool) -> Div {
+    row(first).child(div().w(px(64.)).flex_none().text_color(Theme::muted()).child(name)).child(field(focused).flex_1().min_w_0().py_0p5().child(input.clone()))
+}
+
+/// A list's title with its Add button, which opens the list's editor.
+fn list_heading(title: &'static str, add: Option<Stateful<Div>>) -> Div {
+    heading(title, div().h(px(26.)).children(add))
 }
 
 fn licenses() -> Option<std::path::PathBuf> {
@@ -499,7 +554,7 @@ impl SettingsWindow {
 
     fn found_panes(&self, cx: &App) -> Vec<SettingsPane> {
         let query = self.search.read(cx).text();
-        PANES.iter().filter(|(_, _, name, words)| pane_matches(query, name, words)).map(|(pane, ..)| *pane).collect()
+        PANES.iter().filter(|(_, _, name, _, words)| pane_matches(query, name, words)).map(|(pane, ..)| *pane).collect()
     }
 
     fn on_search(&mut self, event: &TextInputEvent, cx: &mut Context<Self>) {
@@ -645,7 +700,7 @@ impl Render for SettingsWindow {
             .window_control_area(gpui::WindowControlArea::Drag)
             .child(field(search_focused).mb_1().occlude().py_0p5().child(self.search.clone()))
             .when(found.is_empty(), |d| d.child(note("No settings match.").px_2()))
-            .children(PANES.iter().enumerate().filter(|(_, (pane, ..))| found.contains(pane)).flat_map(|(ix, &(pane, glyph, text, _))| {
+            .children(PANES.iter().enumerate().filter(|(_, (pane, ..))| found.contains(pane)).flat_map(|(ix, &(pane, glyph, text, ..))| {
                 let selected = pane == current;
                 let group = match ix {
                     _ if searching => None,
@@ -705,7 +760,7 @@ impl Render for SettingsWindow {
             (SettingsPane::Shortcuts, Some(_)) => self.shortcuts(cx),
             (SettingsPane::Ai, Some(s)) => self.ai(&s, window, cx),
         };
-        let name = PANES.iter().find(|(p, ..)| *p == current).map_or("", |(_, _, t, _)| *t);
+        let (name, subtitle) = PANES.iter().find(|(p, ..)| *p == current).map_or(("", ""), |(_, _, t, sub, _)| (*t, *sub));
 
         let content = div()
             .flex_1()
@@ -715,16 +770,23 @@ impl Render for SettingsWindow {
             .flex_col()
             .child(
                 div()
-                    .h(px(HEADER_HEIGHT))
+                    .h(px(PANE_HEADER_HEIGHT))
                     .flex_none()
                     .px_8()
                     .flex()
                     .items_center()
                     .border_b_1()
                     .border_color(Theme::separator())
-                    .text_size(px(TEXT_TITLE))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(div().flex_1().one_line(name))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .gap_0p5()
+                            .child(div().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).one_line(name))
+                            .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(subtitle)),
+                    )
                     .when(cfg!(windows), |d| {
                         d.pr_2().window_control_area(gpui::WindowControlArea::Drag).child(div().flex_1()).children(ui::controls::window_controls())
                     }),
@@ -735,7 +797,7 @@ impl Render for SettingsWindow {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .child(div().w_full().max_w(px(CONTENT_WIDTH)).mx_auto().px_8().pt_1().pb_8().child(body)),
+                    .child(div().w_full().max_w(px(CONTENT_WIDTH)).mx_auto().px_8().pb_10().child(body)),
                 name,
                 reduce,
             ));
@@ -805,6 +867,7 @@ fn default_browser() -> Option<bool> {
 const SIDEBAR_WIDTH: f32 = 196.;
 /// Tall enough to clear the traffic lights, which sit 18 pt from the top.
 const HEADER_HEIGHT: f32 = 52.;
+const PANE_HEADER_HEIGHT: f32 = 64.;
 const CONTENT_WIDTH: f32 = 760.;
 
 impl SettingsWindow {
@@ -897,11 +960,13 @@ impl SettingsWindow {
     }
 
     fn link_row(&self, id: &'static str, title: &'static str, detail: &'static str, url: &'static str, cx: &mut Context<Self>) -> Div {
-        row(false).child(text_block(title, detail)).child(button(id, "Open", false).on_click(cx.listener(move |this, _, _, cx| {
-            if let Ok(url) = url::Url::parse(url) {
-                this.with_browser(cx, |b, w, cx| b.new_tab(&url, w, cx));
-            }
-        })))
+        row(false).child(text_block(title, detail)).child(ui::controls::row_action(id, Icon::ExternalLink, "Open").on_click(cx.listener(
+            move |this, _, _, cx| {
+                if let Ok(url) = url::Url::parse(url) {
+                    this.with_browser(cx, |b, w, cx| b.new_tab(&url, w, cx));
+                }
+            },
+        )))
     }
 
     fn web_engine_row(&self, s: &Snapshot, cx: &mut Context<Self>) -> Div {
@@ -1112,8 +1177,9 @@ mod tests {
 
     #[test]
     fn search_finds_panes_by_word_starts() {
-        let found =
-            |q: &str| super::PANES.iter().filter(|(_, _, name, words)| super::pane_matches(q, name, words)).map(|(_, _, name, _)| *name).collect::<Vec<_>>();
+        let found = |q: &str| {
+            super::PANES.iter().filter(|(_, _, name, _, words)| super::pane_matches(q, name, words)).map(|(_, _, name, ..)| *name).collect::<Vec<_>>()
+        };
         assert_eq!(found("lockd"), ["Protection"]);
         assert_eq!(found("COOKIE ban"), ["Privacy"]);
         assert_eq!(found("density"), ["Appearance"]);

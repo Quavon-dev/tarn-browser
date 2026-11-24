@@ -1,9 +1,13 @@
 use super::*;
+use ui::controls::{empty_state, row_action};
 
 impl SettingsWindow {
     pub(super) fn permissions(&self, s: Snapshot, cx: &mut Context<Self>) -> AnyElement {
         let body = if s.permissions.is_empty() {
-            note("No site has asked yet. When a site asks for the camera, microphone, location or pop-ups and you choose Remember, the answer shows here.")
+            empty_state(
+                Icon::Camera,
+                "No site has asked yet. When a site asks for the camera, microphone, location or pop-ups and you choose Remember, the answer shows here.",
+            )
         } else {
             let mut list = group();
             for (ix, p) in s.permissions.into_iter().enumerate() {
@@ -16,19 +20,20 @@ impl SettingsWindow {
                 list = list.child(
                     row(ix == 0)
                         .child(text_block(bounded_title(&p.site), p.label.clone()))
-                        .child(button(("allow", ix), "Allow", p.allowed).on_click(set(Some(true), p.origin.clone(), p.kind.clone())))
-                        .child(button(("block", ix), "Block", !p.allowed).on_click(set(Some(false), p.origin.clone(), p.kind.clone())))
-                        .child(button(("forget", ix), "Forget", false).on_click(set(None, p.origin, p.kind))),
+                        .child(
+                            segmented()
+                                .child(segment(("allow", ix), "Allow", p.allowed).on_click(set(Some(true), p.origin.clone(), p.kind.clone())))
+                                .child(segment(("block", ix), "Block", !p.allowed).on_click(set(Some(false), p.origin.clone(), p.kind.clone()))),
+                        )
+                        .child(row_action(("forget", ix), Icon::Trash, "Forget").on_click(set(None, p.origin, p.kind))),
                 );
             }
             list
         };
         div()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
+            .child(section("Sites"))
             .child(body)
+            .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
             .into_any_element()
     }
 
@@ -58,13 +63,13 @@ impl SettingsWindow {
         let profile_name = s.profile.as_ref().map(|p| bounded_title(&p.name)).unwrap_or_default();
 
         let sites = if s.overrides.is_empty() {
-            note("No site overrides. Use the Shield button in the address bar to set one for a site.")
+            empty_state(Icon::Shield, "No site overrides. Use the Shield button in the address bar to set one for a site.")
         } else {
             let mut list = group();
             for (ix, (host, l)) in s.overrides.into_iter().enumerate() {
                 list = list.child(
                     row(ix == 0).child(label(bounded_title(&host))).child(value(shield_badge(l))).child(
-                        button(("remove-override", ix), "Remove", false)
+                        row_action(("remove-override", ix), Icon::Trash, "Remove")
                             .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.remove_site_override(&host, w, cx)))),
                     ),
                 );
@@ -81,17 +86,20 @@ impl SettingsWindow {
             }))
         });
         let zooms = if s.zooms.is_empty() {
-            note(format!(
-                "No saved zoom levels. {} and {} remember the zoom for the site; {} forgets it.",
-                crate::shortcuts::shown(&crate::ZoomIn, cx),
-                crate::shortcuts::shown(&crate::ZoomOut, cx),
-                crate::shortcuts::shown(&crate::ZoomReset, cx)
-            ))
+            empty_state(
+                Icon::ZoomIn,
+                format!(
+                    "No saved zoom levels. {} and {} remember the zoom for the site; {} forgets it.",
+                    crate::shortcuts::shown(&crate::ZoomIn, cx),
+                    crate::shortcuts::shown(&crate::ZoomOut, cx),
+                    crate::shortcuts::shown(&crate::ZoomReset, cx)
+                ),
+            )
         } else {
             let mut list = group();
             for (ix, (host, zoom)) in s.zooms.into_iter().enumerate() {
                 list = list.child(row(ix == 0).child(label(bounded_title(&host))).child(value(format!("{:.0} %", zoom * 100.))).child(
-                    button(("remove-zoom", ix), "Remove", false).on_click(cx.listener(move |this, _, _, cx| {
+                    row_action(("remove-zoom", ix), Icon::Trash, "Remove").on_click(cx.listener(move |this, _, _, cx| {
                         let Some((private, id)) = target else { return };
                         this.with_browser(cx, |b, _, cx| b.remove_site_zoom(private, id, Some(&host), cx));
                     })),
@@ -101,14 +109,14 @@ impl SettingsWindow {
         };
 
         let zapped = if s.private {
-            note("A private space keeps no hidden elements.")
+            empty_state(Icon::Lock, "A private space keeps no hidden elements.")
         } else if s.zapped.is_empty() {
-            note("No hidden elements. Zap Element in the command bar hides an element on a site in this profile.")
+            empty_state(Icon::Zap, "No hidden elements. Zap Element in the command bar hides an element on a site in this profile.")
         } else {
             let mut list = group();
             for (ix, (host, selector)) in s.zapped.into_iter().enumerate() {
                 list = list.child(row(ix == 0).child(label(bounded_title(&format!("{host} — {selector}")))).child(
-                    button(("unzap", ix), "Show Again", false).on_click(cx.listener(move |this, _, _, cx| {
+                    row_action(("unzap", ix), Icon::Undo, "Show Again").on_click(cx.listener(move |this, _, _, cx| {
                         let (host, selector) = (host.clone(), selector.clone());
                         this.with_browser(cx, move |b, _, cx| b.unzap(&host, Some(&selector), cx));
                     })),
@@ -118,19 +126,19 @@ impl SettingsWindow {
         };
 
         let muted = if s.muted.is_empty() {
-            note("No muted sites. Mute Site in the Tabs menu or a tab's menu silences a site in this profile.")
+            empty_state(Icon::VolumeX, "No muted sites. Mute Site in the Tabs menu or a tab's menu silences a site in this profile.")
         } else {
             let mut list = group();
             for (ix, host) in s.muted.into_iter().enumerate() {
-                list = list.child(row(ix == 0).child(label(bounded_title(&host))).child(button(("unmute", ix), "Unmute", false).on_click(cx.listener(
-                    move |this, _, _, cx| {
+                list = list.child(row(ix == 0).child(label(bounded_title(&host))).child(row_action(("unmute", ix), Icon::Volume, "Unmute").on_click(
+                    cx.listener(move |this, _, _, cx| {
                         let Some((private, id)) = target else { return };
                         this.with_browser(cx, |b, _, cx| {
                             b.set_site_muted(private, id, Some(&host), false, true);
                             cx.notify();
                         });
-                    },
-                ))));
+                    }),
+                )));
             }
             list
         };
@@ -150,13 +158,13 @@ impl SettingsWindow {
             .child(self.pref_row(false, Pref::BlockMalware, "Block dangerous sites", format!("Malware, phishing and scam lists{}.{}", if cfg!(windows) { "" } else { ", plus WebKit's fraudulent-website check, which asks Apple's Safe Browsing service about hashed addresses" }, count("malware", "domains")), on(Pref::BlockMalware), cx))
             .child(self.pref_row(false, Pref::BlockAdult, "Block adult content", format!("Pornographic and other adult websites, with no way past the warning page.{}", count("adult", "domains")), on(Pref::BlockAdult), cx));
         let paused = if s.paused.is_empty() {
-            note("Blocking runs on every site. Turn it off for one site with the Shield button in the address bar.")
+            empty_state(Icon::ShieldCheck, "Blocking runs on every site. Turn it off for one site with the Shield button in the address bar.")
         } else {
             let mut list = group();
             for (ix, host) in s.paused.into_iter().enumerate() {
                 list = list.child(
                     row(ix == 0).child(label(bounded_title(&host))).child(
-                        button(("resume-blocking", ix), "Turn On", false)
+                        row_action(("resume-blocking", ix), Icon::ShieldCheck, "Turn Blocking On")
                             .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.set_site_paused(&host, false, w, cx)))),
                     ),
                 );
@@ -197,7 +205,7 @@ impl SettingsWindow {
             .when(cfg!(feature = "translation"), |d| {
                 d.child(connection(false, "Translation", "None. Pages are translated on this Mac with the language packs installed in System Settings; Tarn never downloads them.".into()))
             })
-            .child(connection(false, "AI requests", format!("Not built yet; no page content leaves {}.", ui::controls::THIS_DEVICE)));
+            .child(connection(false, "AI requests", "Anthropic, or Ollama on this computer, only when you press Send, Retry or a command in a profile whose assistant is on in Settings › AI; never from a private space, a burner tab or a Lockdown page.".into()));
 
         let mut data = group();
         if !s.private {
@@ -277,14 +285,14 @@ impl SettingsWindow {
         let on = s.developer;
         let dev_profile = s.profiles.iter().find(|p| p.is_dev).map(|p| bounded_title(&p.name));
         let servers = match &s.local_servers {
-            None => note("Not checked yet."),
-            Some(ports) if ports.is_empty() => note("Nothing is listening on the common dev ports (3000, 5173, 8080 and others)."),
+            None => empty_state(Icon::Code, "Not checked yet."),
+            Some(ports) if ports.is_empty() => empty_state(Icon::Code, "Nothing is listening on the common dev ports (3000, 5173, 8080 and others)."),
             Some(ports) => {
                 let mut list = group();
                 for (ix, port) in ports.iter().copied().enumerate() {
                     list = list.child(
                         row(ix == 0).child(label(format!("localhost:{port}"))).child(
-                            button(("open-server", ix), "Open", false)
+                            row_action(("open-server", ix), Icon::ExternalLink, "Open")
                                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, w, cx| b.open_local_server(port, w, cx)))),
                         ),
                     );
@@ -310,7 +318,7 @@ impl SettingsWindow {
             .child(note("Web Inspector and the developer tools are always on there; caches are cleared after every page load and Reload bypasses the cache."))
             .child(heading(
                 "Local servers",
-                button("refresh-servers", "Refresh", false).on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx)))),
+                icon_text_button("refresh-servers", Icon::Reload, "Refresh").on_click(cx.listener(|this, _, _, cx| this.with_browser(cx, |b, _, cx| b.refresh_local_servers(cx)))),
             ))
             .child(servers)
             .into_any_element()

@@ -373,7 +373,55 @@ pub fn section(name: impl IntoReactive<SharedString>) -> Text {
     }
 }
 
-/// The line a list or panel shows in place of rows it does not have yet.
+/// A settings section's heading with one short line on what it holds.
+pub fn section_with(name: impl Into<String>, description: impl Into<String>) -> View {
+    let description: String = description.into();
+    view().gap(px(2.)).child(section(name.into())).when(!description.is_empty(), |v| v.child(hint(description)))
+}
+
+/// `control` inside a group with its short explanation right under it.
+pub fn described(control: impl IntoElement, note: impl IntoReactive<SharedString>) -> View {
+    view().child(control).child(hint(note).px_3().pb_2())
+}
+
+/// A compact icon button for a row's action; `name` is what assistive technology and the
+/// tooltip say.
+pub fn row_action(glyph: &str, name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
+    let name: String = name.into();
+    let mut icon = view().size_full().items_center().justify_center().child(icons::icon(glyph, icon_size()));
+    if density() == Density::Desktop {
+        icon = icon.tooltip(tip(&name, Placement::Top));
+    }
+    icon_button(icon, name, press).flex_none()
+}
+
+/// The button that opens a list's editor for a new entry.
+pub fn add_button(name: impl Into<String>, press: impl Fn() + 'static) -> ButtonElement {
+    icon_pill(icons::PLUS, name, press)
+}
+
+/// The card an "Add …" or edit button reveals: its title, then the fields given to it.
+pub fn editor(title: impl Into<String>) -> View {
+    group().p_3().gap_2().child(label(title.into()).font_weight(FontWeight::SEMIBOLD))
+}
+
+/// Save and Cancel under an editor.
+pub fn editor_actions(save: impl Fn() + 'static, cancel: impl Fn() + 'static) -> View {
+    view().flex_row().justify_end().gap_2().child(pill("Cancel", cancel)).child(accent_pill("Save", save))
+}
+
+/// What a list shows while it has no rows: an icon, one line and the action that fills it.
+pub fn empty(glyph: &str, line: impl IntoReactive<SharedString>, action: Option<ButtonElement>) -> View {
+    view()
+        .items_center()
+        .gap_2()
+        .px_4()
+        .py_5()
+        .child(view().text_color(Theme::faint).child(icons::icon(glyph, 22.)))
+        .child(label(line).text_color(Theme::muted).text_center())
+        .children(action)
+}
+
 /// Asks before a destructive action in the platform's alert; `then` runs only on `action`.
 pub fn confirm(title: impl Into<SharedString>, description: impl Into<SharedString>, action: impl Into<SharedString>, then: impl FnOnce() + 'static) {
     let answer =
@@ -419,14 +467,33 @@ pub fn signal_field(name: &'static str, value: Signal<String>) -> Input {
 /// A row of a pane's list: its title and a line of detail; the actions it is given wrap under
 /// the title where the width is too narrow for both.
 pub fn list_row(ix: usize, title: impl Into<String>, detail: impl Into<String>) -> View {
-    let detail: String = detail.into();
-    view().flex_row().flex_wrap().items_center().gap_2().px_3().py_2().when(ix > 0, |v| v.border_t_1().border_color(Theme::separator)).child(
-        view()
-            .flex_1()
-            .min_w(px(160.))
-            .child(label(title.into()).font_weight(FontWeight::MEDIUM).number_of_lines(1_u32))
-            .when(!detail.is_empty(), |v| v.child(hint(detail).number_of_lines(1_u32))),
+    row_frame(ix).child(row_text(title.into(), detail.into()).flex_1().min_w(px(120.)))
+}
+
+/// A `list_row` whose title and detail open it when pressed.
+pub fn open_row(ix: usize, title: impl Into<String>, detail: impl Into<String>, name: impl Into<String>, open: impl Fn() + 'static) -> View {
+    row_frame(ix).pl_1().child(
+        pressable(name.into(), open).flex_1().min_w(px(120.)).px_2().py_1().rounded(px(Theme::radius_row())).child(row_text(title.into(), detail.into())),
     )
+}
+
+fn row_frame(ix: usize) -> View {
+    view()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_1()
+        .px_3()
+        .py_1()
+        .min_h(px(metrics().switch_row))
+        .when(ix > 0, |v| v.border_t_1().border_color(Theme::separator))
+}
+
+fn row_text(title: String, detail: String) -> View {
+    view()
+        .py_1()
+        .child(label(title).font_weight(FontWeight::MEDIUM).number_of_lines(1_u32))
+        .when(!detail.is_empty(), |v| v.child(hint(detail).px_0().number_of_lines(1_u32)))
 }
 
 pub fn group() -> View {

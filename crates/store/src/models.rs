@@ -230,6 +230,8 @@ pub struct ChatTurn {
     pub text: String,
     pub by: Option<String>,
     pub interrupted: bool,
+    /// A question a command sent; unknown counts as one, so a retry stays on the device where it can.
+    pub command: bool,
 }
 
 /// A saved assistant chat. `sources` are the addresses of content attached to it, each with the
