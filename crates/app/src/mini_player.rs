@@ -94,10 +94,7 @@ impl Browser {
     /// Asks the engine first whether the page plays (on WebKit its own playback state), so a page
     /// that plays nothing gets no script, and with it no gesture, when its tab leaves the screen.
     fn leave_for_pip(&mut self, key: TabKey, cx: &mut Context<Self>) {
-        if !self.pref(crate::prefs::Pref::AutoPictureInPicture) {
-            return;
-        }
-        let Some(view) = self.views.get(&key) else { return };
+        let Some(view) = self.views.get(&key).filter(|v| self.may_pip(key, v)) else { return };
         let (weak, (tx, mut rx)) = (Rc::downgrade(view), mpsc::unbounded());
         view.media_playing(move |playing| drop(tx.unbounded_send(playing)));
         cx.spawn(async move |this, cx| {
@@ -105,7 +102,7 @@ impl Browser {
                 return;
             }
             this.update(cx, |b, cx| {
-                let Some(view) = weak.upgrade().filter(|_| b.same_view(key, &weak) && !b.screen_tabs().contains(&key)) else { return };
+                let Some(view) = weak.upgrade().filter(|v| b.same_view(key, &weak) && !b.screen_tabs().contains(&key) && b.may_pip(key, v)) else { return };
                 let (tx, mut rx) = mpsc::unbounded();
                 view.picture_in_picture(PipMode::Enter, move |result| drop(tx.unbounded_send(result)));
                 cx.spawn(async move |this, cx| {
@@ -127,6 +124,12 @@ impl Browser {
             .ok();
         })
         .detach();
+    }
+
+    /// The switch is on, the tab is not muted in Tarn, and no script of Tarn's may run under Lockdown.
+    fn may_pip(&self, key: TabKey, view: &engine::WebView) -> bool {
+        let url = view.url().map(|u| u.to_string()).unwrap_or_default();
+        self.pref(crate::prefs::Pref::AutoPictureInPicture) && !view.is_muted() && self.level_for_tab(key, &url) != shield::ShieldLevel::Lockdown
     }
 
     fn exit_pip(&self, key: TabKey) {

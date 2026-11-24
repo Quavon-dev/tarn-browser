@@ -431,7 +431,7 @@ pub enum PipMode {
     Exit,
 }
 
-const PIP_ENTER_PICK: &str = "videos.some(shown) ? 'open' : videos.find(v => !v.paused && !v.ended && !v.muted && v.volume > 0 && v.videoWidth > 0 && v.clientWidth >= 200 && v.clientHeight >= 200)";
+const PIP_ENTER_PICK: &str = "document.pictureInPictureElement || videos.some(shown) ? 'open' : videos.find(v => !v.paused && !v.ended && !v.muted && v.volume > 0 && v.videoWidth > 0 && v.clientWidth >= 200 && v.clientHeight >= 200)";
 const PIP_ENTER: &str = r"try { await video.requestPictureInPicture(); return 'pip'; } catch (e) {}
             if (!video.disablePictureInPicture && video.webkitSupportsPresentationMode && video.webkitSupportsPresentationMode('picture-in-picture')) {
                 video.webkitSetPresentationMode('picture-in-picture');
@@ -675,7 +675,7 @@ mod tests {
         assert!(!enter.contains("return await leave(video)"), "entering never takes a video out");
         assert!(!exit.contains("requestPictureInPicture") && !exit.contains("webkitSetPresentationMode('picture-in-picture')"));
         let ready = picture_in_picture_ready_script();
-        assert!(ready.contains("videos.some(shown) ? 'open'") && ready.contains("return 'ready'"));
+        assert!(ready.contains("document.pictureInPictureElement || videos.some(shown) ? 'open'") && ready.contains("return 'ready'"));
         assert!(!ready.contains("requestPictureInPicture") && !ready.contains("webkitSetPresentationMode('picture-in-picture')"));
     }
 
