@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
 mod address;
+mod agent;
 mod assistant;
 mod blocking;
 mod browser;
@@ -613,6 +614,16 @@ fn record_panics(dir: std::path::PathBuf) {
 
 /// Runs Tarn: a Chromium child process when CEF started this process as one, else the browser.
 pub fn run() {
+    if std::env::args().nth(1).as_deref() == Some("--mcp") {
+        let relayed = engine::agent_socket::relay(&browser::data_dir(), browser_core::agent::NOT_RUNNING);
+        std::process::exit(relayed.map_or_else(
+            |e| {
+                eprintln!("tarn: {e}");
+                1
+            },
+            |()| 0,
+        ));
+    }
     #[cfg(windows)]
     if let Some(code) = engine::chromium::subprocess() {
         std::process::exit(code);
@@ -651,6 +662,7 @@ pub fn run() {
             cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
         }
         if shared::start(cx) {
+            agent::init(cx);
             cx.on_action(|_: &NewWindow, cx| shared::new_window(crate::browser::WindowStart::Saved, cx));
             cx.on_action(|_: &NewPrivateWindow, cx| shared::new_window(crate::browser::WindowStart::Private, cx));
             cx.on_action(|_: &NewBurnerWindow, cx| shared::new_window(crate::browser::WindowStart::Burner, cx));

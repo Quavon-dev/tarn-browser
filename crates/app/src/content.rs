@@ -122,7 +122,7 @@ pub(crate) fn held_width(held: &RefCell<HeldWidths>, view: &Rc<WebView>, width: 
 /// page's width is its own width less this.
 const GUTTER_SHIFT: f32 = 2.;
 
-fn banner(text: impl Into<SharedString>) -> gpui::Div {
+pub(crate) fn banner(text: impl Into<SharedString>) -> gpui::Div {
     floating()
         .min_h(px(BANNER_HEIGHT))
         .pl_3p5()
@@ -146,6 +146,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     let mut items: Vec<(Ghost, gpui::Div)> = Vec::new();
     let mut push = |id: &'static str, text: String, color: Rgba, card: gpui::Div| items.push(((id, text.into(), color), card));
     warning_banners(b, cx, &mut push);
+    crate::agent::banner(b, window, cx, &mut push);
     page_banners(b, page.notice, page.offer.as_ref(), error, cx, &mut push);
 
     if !b.overlay_open() {

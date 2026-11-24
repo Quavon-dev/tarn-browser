@@ -8,6 +8,12 @@ use url::Url;
 /// The shell's verdict for a URL, asked on each navigation so per-site choices and domain sets apply.
 pub type SiteFor = Rc<dyn Fn(&Url) -> Site>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Features {
+    pub filtered: bool,
+    pub extensions: bool,
+}
+
 /// What the shell decided about a site, asked on every navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Site {

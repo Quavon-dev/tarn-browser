@@ -27,8 +27,7 @@ thread_local! {
 /// The window class and mutex that name the running Tarn of `data_dir`: FNV-1a of its
 /// lowercased path, which every build computes the same.
 fn class(data_dir: &str) -> Vec<u16> {
-    let hash = data_dir.to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
-    wide(&format!("Tarn.Instance.{hash:016x}"))
+    wide(&format!("Tarn.Instance.{:016x}", crate::agent_socket::data_dir_hash(data_dir)))
 }
 
 /// The process behind `window` when it runs this very executable, so another program that made a
@@ -37,10 +36,15 @@ fn tarn_process(window: HWND) -> Option<u32> {
     let mut pid = 0;
     // SAFETY: `pid` is a valid out-parameter.
     unsafe { GetWindowThreadProcessId(window, &mut pid) };
+    runs_this_exe(pid).then_some(pid)
+}
+
+/// Whether process `pid` runs this very executable.
+pub(crate) fn runs_this_exe(pid: u32) -> bool {
     // SAFETY: query-only access; the handle is closed below.
     let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if process.is_null() {
-        return None;
+        return false;
     }
     let mut path = [0u16; 1024];
     let mut len = path.len() as u32;
@@ -49,8 +53,8 @@ fn tarn_process(window: HWND) -> Option<u32> {
     // SAFETY: closes the handle opened above.
     unsafe { CloseHandle(process) };
     let theirs = std::path::PathBuf::from(String::from_utf16_lossy(&path[..len as usize]));
-    let ours = std::env::current_exe().ok()?;
-    (read && theirs.canonicalize().ok()? == ours.canonicalize().ok()?).then_some(pid)
+    let same = |ours: std::path::PathBuf| Some(theirs.canonicalize().ok()? == ours.canonicalize().ok()?);
+    read && std::env::current_exe().ok().and_then(same).unwrap_or(false)
 }
 
 /// True when this launch is the Tarn of `data_dir`. Otherwise `links` went to the running one,

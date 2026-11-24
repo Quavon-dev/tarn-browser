@@ -161,6 +161,7 @@ pub(crate) struct DelegateState {
     pub shell_load: RefCell<Option<(Url, bool)>>,
     /// Files this view showed through `load_file`; only they get Open File's credit (S6).
     pub opened_files: RefCell<std::collections::HashSet<Url>>,
+    pub agent_gate: RefCell<Option<crate::agent_scripts::Gate>>,
     /// Whether the main-frame navigation in flight was started by the main frame or the shell;
     /// a download response for one started by an iframe is cancelled.
     pub main_initiated: Cell<bool>,
@@ -218,6 +219,7 @@ impl DelegateState {
             downloads,
             shell_load: RefCell::default(),
             opened_files: RefCell::default(),
+            agent_gate: RefCell::default(),
             main_initiated: Cell::new(true),
             user_navigation: Cell::new(false),
             history_step: RefCell::default(),
@@ -508,6 +510,11 @@ define_class!(
                 && let Some(id) = crate::tarn_ext::store_install(&url)
             {
                 self.emit(Event::StoreInstall(id));
+                handler.call((WKNavigationActionPolicy::Cancel, prefs));
+                return;
+            }
+            if (!from_shell || link) && state.agent_gate.borrow().as_ref().is_some_and(|gate| !gate(&url)) {
+                self.emit(Event::AgentHeld(url));
                 handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 return;
             }
@@ -902,6 +909,7 @@ define_class!(
                 web_origin: RefCell::new(state.web_origin.borrow().clone()),
                 // Until its first commit a popup shows the opener-writable blank document, whatever it was asked to load (S5).
                 committed_url: RefCell::new(Url::parse("about:blank").ok()),
+                agent_gate: RefCell::new(state.agent_gate.borrow().clone()),
                 ..DelegateState::new(Rc::new(|_| {}), state.site_for.clone(), state.level, state.filtered, state.downloads.clone(), true)
             };
             // SAFETY: main thread; WebKit requires the returned view to use this configuration.

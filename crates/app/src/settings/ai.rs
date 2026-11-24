@@ -12,6 +12,8 @@ use ui::text::bounded_title;
 use ui::text_input::{TextInput, TextInputEvent};
 use ui::theme::{TEXT_SMALL, Theme};
 
+use crate::prefs::Pref;
+
 use super::{SettingsWindow, Snapshot, editor_actions, editor_row, label, list_heading, value, warning};
 
 pub(super) struct Pane {
@@ -254,12 +256,20 @@ impl SettingsWindow {
     }
 
     pub(super) fn ai(&mut self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
-        let Some(profile) = s.profile.clone() else { return div().pt_6().child(empty_state(Icon::Person, "No profile is open.")).into_any_element() };
+        let agent = self.agent_control(s, cx);
+        let Some(profile) = s.profile.clone() else {
+            return div().pt_6().child(empty_state(Icon::Person, "No profile is open.")).child(agent).into_any_element();
+        };
         if s.private || s.burner {
-            return div().pt_6().child(empty_state(Icon::Lock, browser_core::assistant::NOT_HERE)).into_any_element();
+            return div().pt_6().child(empty_state(Icon::Lock, browser_core::assistant::NOT_HERE)).child(agent).into_any_element();
         }
         if profile.shield_level == ShieldLevel::Lockdown {
-            return div().pt_6().child(empty_state(Icon::Lock, browser_core::assistant::NOT_HERE)).child(self.chats(s, profile.id, cx)).into_any_element();
+            return div()
+                .pt_6()
+                .child(empty_state(Icon::Lock, browser_core::assistant::NOT_HERE))
+                .child(self.chats(s, profile.id, cx))
+                .child(agent)
+                .into_any_element();
         }
         let provider = s.ai_provider;
         let on = profile.ai_enabled;
@@ -283,7 +293,7 @@ impl SettingsWindow {
                 )
                 .child(note(browser_core::assistant::SENT));
         if !on {
-            return page.child(self.chats(s, id, cx)).into_any_element();
+            return page.child(self.chats(s, id, cx)).child(agent).into_any_element();
         }
         let providers = wide_row(
             true,
@@ -348,7 +358,41 @@ impl SettingsWindow {
             }
         };
         page = page.children(self.ai.message.clone().map(warning));
-        page.child(self.commands(s, id, window, cx)).child(self.chats(s, id, cx)).into_any_element()
+        page.child(self.commands(s, id, window, cx)).child(self.chats(s, id, cx)).child(agent).into_any_element()
+    }
+
+    /// Agent control (S31), for every profile: the switch, how to connect an agent and what it did.
+    fn agent_control(&self, s: &Snapshot, cx: &mut Context<Self>) -> gpui::Div {
+        let on = s.prefs.get(Pref::AgentControl);
+        let exe = std::env::current_exe().map(|p| p.display().to_string()).unwrap_or_else(|_| "tarn".into());
+        let mut out = div().child(section("Agent control")).child(group().child(self.pref_row(
+            true,
+            Pref::AgentControl,
+            "Let AI agents control Tarn",
+            browser_core::agent::DETAIL,
+            on,
+            cx,
+        )));
+        if on && crate::agent::SIGNED_IN {
+            let (profile, tabs) = (s.prefs.get(Pref::AgentProfile), s.prefs.get(Pref::AgentTabs));
+            out = out.child(
+                group()
+                    .child(self.pref_row(true, Pref::AgentProfile, "Let agents use your profile", browser_core::agent::DETAIL_PROFILE, profile, cx))
+                    .child(self.pref_row(false, Pref::AgentTabs, "Let agents use your tabs", browser_core::agent::DETAIL_TABS, tabs, cx)),
+            );
+        }
+        if on {
+            out = out.child(note(browser_core::agent::setup(&exe)));
+            let entries = crate::agent::log(cx);
+            if !entries.is_empty() {
+                let rows = entries.into_iter().take(20).enumerate().map(|(ix, e)| {
+                    let site = e.site.map(|s| format!(" · {}", ui::text::bounded_origin(&s))).unwrap_or_default();
+                    row(ix == 0).child(label(format!("{}{site}", e.tool))).child(value(e.outcome))
+                });
+                out = out.child(section("This session")).child(group().children(rows));
+            }
+        }
+        out
     }
 
     /// The profile's saved chats, which can be deleted whether or not the assistant is on.

@@ -85,6 +85,16 @@ never Apple's cloud models) or Ollama on `127.0.0.1` with a model Ollama runs on
 Tarn asks Ollama about the model first and refuses one that runs in Ollama's cloud (a `-cloud` or
 `:cloud` name, or a remote host). A local choice is answered on your device or not at all.
 
+## Agent control
+
+Off by default. When you turn on Settings › AI › Let AI agents control Tarn, an AI agent on your
+computer, such as Claude Code or Codex, can browse in a window of its own after you allow it there.
+Tarn makes no connection for this: it listens on a local socket that only your user account can
+open, and only while the switch is on. The agent's window uses a new profile that keeps nothing and
+is wiped when the session ends. What the agent reads from the pages you allow goes to that agent;
+where it sends it is up to the agent and its provider. Tarn keeps a list of the session's actions
+in memory and drops it when the session ends.
+
 ## Chromium tabs
 
 On Windows every tab uses Chromium, and its data lives in `%LOCALAPPDATA%\Tarn\Chromium`. On macOS

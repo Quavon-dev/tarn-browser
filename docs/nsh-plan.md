@@ -441,6 +441,23 @@ These figures were measured with particles drawn as solid dots; since 2026-11-21
 glow (a radial gradient here, a blurred shadow on macOS and Windows), and Glow runs at 24 fps with
 a light running around the card instead of a ring pulsing at 8 fps; not yet measured again.
 
+### Agent control on Linux
+
+`linux/src/ui/agent.rs` runs `browser_core::agent::control` over `engine::agent_socket::Server` (threat
+model S31), with the same switch, bar, throwaway window and setup text as macOS; `tarn --mcp` is handled in
+`main` before NSH starts (in the Flatpak, `flatpak run --command=tarn de.quavon.tarn --mcp`). The component
+takes `agent {seq, body}` and the `agentSites` prop and reports `agentAnswer` and `agentHeld`; page text is
+read through `agent` (the `readText` command stops at the history limit). Gap: WebKitGTK does not say which
+frame a navigation targets, so only one the existing gate counts as the main frame's (a click WebKit reports
+as a user gesture, the agent's included, or a redirect of the tab's load) is held and asked about; any other
+page-started navigation to a site without a grant (a frame's load, a script's navigation) is cancelled
+without asking, so allowing it cannot load a frame's target into the whole tab. A gesture click on a link
+inside a frame still counts as the main frame's, as it does for the existing gate. Screenshots are the 752 px `snapshot`, matched to the agent's request by
+its seq. Checked by display tests (an agent script answers; a refused navigation does not load; only a known
+main-frame one is reported) and by `browser::tests` (the agent window refuses pop-ups, Ctrl-click tabs,
+peeks, tear-off and permission prompts, and burns its profile on close); the window, bar and switch are not
+run against an agent.
+
 ## 7. Testing
 
 - **Shared tests:**
