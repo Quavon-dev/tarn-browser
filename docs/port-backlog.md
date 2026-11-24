@@ -13,7 +13,7 @@ Shared API: <crate::module::fn / type the clients call>.
 Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 - [ ] macOS — <only if it started on another client>
-- [ ] Windows — <what is missing, e.g. WebView2 hook for X>
+- [ ] Windows — <what is missing, e.g. CEF hook for X>
 - [ ] Linux — <linux/src/... to change>
 - [ ] iOS — <mobile/app/... or mobile/ios/...>
 - [ ] Android — <mobile/app/... or mobile/android/...>

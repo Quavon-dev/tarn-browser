@@ -13,8 +13,28 @@ default: if you do it differently, say so in the pull request and a maintainer d
 - For a feature or a large change, open an issue first so you learn whether it is wanted before
   you spend the work.
 - Build the clients you can. A change that reaches one client is welcome with a
-  `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports").
+  `docs/port-backlog.md` entry for the others (`AGENTS.md`, "Partial ports"); a client that
+  cannot support it gets the gap and its reason in its plan doc.
+- Privacy comes first: anything that sends data off the device or keeps more about the user is
+  off until the user turns it on, and protections are on by default (`AGENTS.md`, rule 9).
 - You do not need every toolchain below: set up the clients you work on, CI runs the rest.
+
+## Ways to help
+
+Code is one way; these help as much and need less setup:
+
+- **Pick a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).**
+- **Port a feature.** Every entry in [`docs/port-backlog.md`](docs/port-backlog.md) names the
+  shared API to call, the client that already has it and what each remaining client needs. The
+  logic is in the shared crates, so a port is wiring.
+- **Test an open pull request** on a client its author could not build, and comment with what you
+  saw.
+- **Confirm or narrow a bug.** Say which client and version you reproduced it on, or that it no
+  longer happens on the latest release.
+- **Point out duplicates** with a link to the original issue or pull request.
+
+Search the open issues and pull requests before you start. Testing or reviewing an existing pull
+request helps more than opening a second one for the same problem.
 
 ## Prerequisites
 
@@ -40,7 +60,9 @@ cargo test --locked         # root workspace tests
 ```
 
 `linux/`, `mobile/` and `nsh-shared/` are separate Cargo workspaces; run their checks in their own
-directory.
+directory. The commands for every client, the test environment variables and the code conventions
+are in [`AGENTS.md`](AGENTS.md) ("Running Tarn", "Conventions"); where each crate fits is in
+"Where code lives".
 
 ## Checks
 
@@ -161,6 +183,12 @@ Reactions do not trigger workflows, so votes are counted every five minutes and 
 issue. Run the **Issues** workflow by hand to count right away.
 
 ## Pull requests
+
+Solve one problem per pull request and include everything that fix needs across the shared crates,
+the clients, tests and docs; cleanup, refactors and a second fix go in their own. Say how you
+checked the change and what you observed: "tests pass" alone is not evidence. A UI change comes
+with before and after screenshots, motion or timing with a short recording, attached to the pull
+request.
 
 Every pull request to `main` needs every CI check green, every review conversation resolved
 (CodeRabbit's included) and the approval of a Code Owner who did not author it:
