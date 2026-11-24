@@ -70,23 +70,24 @@ impl Browser {
         }
     }
 
-    /// The tabs on screen: the active tab, or every pane of its split.
-    pub(crate) fn screen_tabs(&self) -> Vec<TabKey> {
+    /// The tabs on screen: the active tab, or every pane of its split, and a tab still fading out.
+    fn screen_tabs(&self) -> Vec<TabKey> {
         let active = self.model.active;
-        active.and_then(|k| self.splits.of(k)).map_or_else(|| active.into_iter().collect(), |s| s.panes().to_vec())
+        let mut tabs = active.and_then(|k| self.splits.of(k)).map_or_else(|| active.into_iter().collect(), |s| s.panes().to_vec());
+        let fading = self.page_fade.as_ref().and_then(|(view, _)| self.views.iter().find(|(_, v)| Rc::ptr_eq(v, view)));
+        tabs.extend(fading.map(|(k, _)| *k).filter(|k| !tabs.contains(k)));
+        tabs
     }
 
-    /// After the tabs on screen changed from `before`: a playing video of a tab that left moves
-    /// into Picture in Picture, and one Tarn moved there comes back once its tab returns.
-    pub(crate) fn screen_changed(&mut self, before: Vec<TabKey>, cx: &mut Context<Self>) {
-        let now = self.screen_tabs();
-        for gone in before.into_iter().filter(|k| !now.contains(k)) {
-            self.leave_for_pip(gone, cx);
+    /// Called on every render, after whatever changed the tabs on screen: a playing video of a tab
+    /// that left moves into Picture in Picture, and one Tarn moved there comes back with its tab.
+    pub(crate) fn settle_screen(&mut self, cx: &mut Context<Self>) {
+        let (left, back) = self.mini_player.auto_pip.screen(self.screen_tabs());
+        for key in left {
+            self.leave_for_pip(key, cx);
         }
-        for back in now {
-            if self.mini_player.auto_pip.take(back) {
-                self.exit_pip(back);
-            }
+        for key in back {
+            self.exit_pip(key);
         }
     }
 
@@ -110,7 +111,12 @@ impl Browser {
                 cx.spawn(async move |this, cx| {
                     let Some(result) = rx.next().await else { return };
                     this.update(cx, |b, _| {
-                        if b.same_view(key, &weak) && b.mini_player.auto_pip.answered(key, &result, b.screen_tabs().contains(&key)) {
+                        if !b.same_view(key, &weak) {
+                            // The view moved to another window or was replaced meanwhile.
+                            if let Some(view) = weak.upgrade().filter(|_| result == "pip") {
+                                view.picture_in_picture(PipMode::Exit, |_| {});
+                            }
+                        } else if b.mini_player.auto_pip.answered(key, &result, b.screen_tabs().contains(&key)) {
                             b.exit_pip(key);
                         }
                     })

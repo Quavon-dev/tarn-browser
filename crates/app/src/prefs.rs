@@ -357,12 +357,10 @@ impl Browser {
     pub fn new_tab_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let replaced = self.model.active.filter(|_| self.pref(Pref::NewTabStartPage) && !self.overlay_open() && !self.inline_editing());
         if replaced.is_some() {
-            let before = self.screen_tabs();
             if let Some(view) = self.active_view() {
                 view.set_visible(false);
             }
             self.model.active = None;
-            self.screen_changed(before, cx);
         }
         // Before the sidebar closes, so a click in it still hands the field to the main window.
         self.open_command(CommandMode::NewTab, window, cx);

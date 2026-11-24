@@ -2293,6 +2293,8 @@ impl WebView {
         }
         let (inner, done) = (Rc::downgrade(&self.0), Rc::new(done));
         self.run_isolated(&picture_in_picture_ready_script(), move |answer| match (answer.as_str(), inner.upgrade()) {
+            // Back on screen before the check answered: no gesture for a video that stays inline.
+            ("ready", Some(inner)) if inner.visible.get() => done("none".into()),
             ("ready", Some(inner)) => {
                 let done = done.clone();
                 WebView(inner).run_isolated_as_gesture(&picture_in_picture_script(PipMode::Enter), true, move |a| done(a));

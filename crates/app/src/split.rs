@@ -156,22 +156,16 @@ impl Browser {
 
     /// Takes `key` out of its split; the tab stays open and a split left with one pane ends.
     pub fn leave_split(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) {
-        let before = self.screen_tabs();
         let heir = self.splits.leave(key).filter(|_| self.model.active == Some(key));
         if let Some(heir) = heir {
             self.activate(heir, window, cx);
         }
         self.split_moved(cx);
-        if heir.is_none() {
-            self.screen_changed(before, cx);
-        }
     }
 
     pub fn close_split(&mut self, key: TabKey, cx: &mut Context<Self>) {
-        let before = self.screen_tabs();
         if self.splits.close(key) {
             self.split_moved(cx);
-            self.screen_changed(before, cx);
         }
     }
 

@@ -431,8 +431,7 @@ pub enum PipMode {
     Exit,
 }
 
-const PIP_ENTER_PICK: &str =
-    "videos.some(shown) ? 'open' : videos.find(v => !v.paused && !v.ended && !v.muted && v.volume > 0 && v.videoWidth > 0 && area(v) >= 40000)";
+const PIP_ENTER_PICK: &str = "videos.some(shown) ? 'open' : videos.find(v => !v.paused && !v.ended && !v.muted && v.volume > 0 && v.videoWidth > 0 && v.clientWidth >= 200 && v.clientHeight >= 200)";
 const PIP_ENTER: &str = r"try { await video.requestPictureInPicture(); return 'pip'; } catch (e) {}
             if (!video.disablePictureInPicture && video.webkitSupportsPresentationMode && video.webkitSupportsPresentationMode('picture-in-picture')) {
                 video.webkitSetPresentationMode('picture-in-picture');
