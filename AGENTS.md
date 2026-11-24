@@ -4,13 +4,14 @@ Tarn is an open-source, keyboard-first browser with built-in tracker and ad bloc
 Rust. What it does not give up:
 
 1. **Private by default.** No telemetry, accounts or crash upload. Every request the browser makes
-   on its own is listed in `PRIVACY.md`, and that list does not grow by accident. What could
-   reveal something about the user is off until they turn it on (rule 9).
+   on its own is listed in `PRIVACY.md`, and that list does not grow by accident. What a new
+   feature could reveal about the user is off until they turn it on (rule 9).
 2. **The same protection everywhere.** Shield levels, page isolation and private-session cleanup
    hold on all five clients, or the change is not done.
 3. **Five clients, one core.** State, decisions and policy are written once in the shared crates;
    a shell renders and forwards input.
-4. **Keyboard first.** On desktop a new action gets a shortcut or a command palette entry.
+4. **Keyboard first.** On desktop a new action is reachable from the keyboard: through the
+   command palette, and through a shortcut where it is used often.
 5. **Little code.** The smallest change that is correct on every client beats the clever one.
 
 Tarn ships on five clients. macOS is the lead client; a feature, UI change or UX change is meant
@@ -19,13 +20,13 @@ to reach all of them, in the same change where that is possible.
 | Client | Shell | Engine | Code |
 |---|---|---|---|
 | macOS (lead) | GPUI | WebKit / Chromium | `crates/app`, `crates/engine`, `crates/platform` |
-| Windows | GPUI (same as macOS) | WebView2 | `crates/app`, `crates/engine` behind `#[cfg(windows)]` — `docs/windows-plan.md` |
+| Windows | GPUI (same as macOS) | Chromium (CEF) | `crates/app`; `crates/engine` and `crates/platform` behind `#[cfg(windows)]`; `crates/app-dll` — `docs/windows-plan.md` |
 | Linux | NSH | WebKitGTK | `linux/` |
 | iOS | NSH | WKWebView | `mobile/app`, `mobile/ios` |
 | Android | NSH | Android WebView | `mobile/app`, `mobile/android` |
 
 Shared by every client: `crates/browser-core`, `crates/engine` (platform-neutral modules),
-`crates/shield`, `crates/store`, `crates/sync`, `nsh-shared`. Contract and rules:
+`crates/shield`, `crates/store`, `crates/ai`; `nsh-shared` by Linux, iOS and Android. Contract and rules:
 `docs/shared-core.md`.
 
 ## Start here
@@ -116,15 +117,16 @@ Read the matching doc before you change code in that area; review holds the chan
    `docs/nsh-plan.md`) with the reason. "Not done yet" is not a gap.
 8. **Security is identical everywhere.** Shield levels, page isolation (no page-to-shell bridge),
    private-session cleanup and the mitigations in `docs/threat-model.md` hold on every client.
-9. **Private by default.** A feature is off until the user turns it on when it sends anything off
-   the device, contacts a party Tarn did not contact before, carries data across sites, profiles
-   or apps, or keeps more about the user than Tarn kept before. Where it is switched on, it says
+9. **Private by default.** A new feature is off until the user turns it on when it sends anything
+   off the device, contacts a party Tarn did not contact before, carries data across sites,
+   profiles or apps, or keeps more about the user than Tarn kept before. What Tarn does today is
+   the baseline: the rows in `PRIVACY.md`, which a change may shrink but not widen. Where it is switched on, it says
    what leaves the device and to whom. A protection is the reverse: on by default, and the user
    may switch it off. A feature that reveals nothing new and that users expect to work may be on
    by default; say in the pull request why that is better for them. When in doubt, off. The
    default is set once in the shared crates (`browser-core`, `store`), so it is the same on
-   every client,
-   and a request the browser makes on its own still needs its row in `PRIVACY.md` (hard rule 8).
+   every client, and a request the browser makes on its own still needs its row in `PRIVACY.md`
+   (hard rule 8).
 
 ## Workflow for a feature
 
@@ -142,10 +144,10 @@ Read the matching doc before you change code in that area; review holds the chan
 The most common defect is a change that works on the path you tried and is missing beside it.
 Walk this list and say in the pull request which entries applied:
 
-- **Clients.** All five have it. Each one that does not has a `docs/port-backlog.md` entry (not
-  ported yet) or a documented gap in its plan doc (cannot be done there, with the reason).
-- **Engines.** On macOS it works on WebKit and on Chromium; a web view operation or event reaches
-  every implementation (rule 6).
+- **Clients.** Every client has it, a `docs/port-backlog.md` entry (not ported yet) or a
+  documented gap in its plan doc (cannot be done there, with the reason), as rule 1 asks.
+- **Engines.** On macOS it works on WebKit and on Chromium, which is the only engine on Windows;
+  a web view operation or event reaches every implementation (rule 6).
 - **Entry points.** Menu, command palette, shortcut and settings on desktop, the matching control
   or gesture on touch. Fixing one is not fixing the feature.
 - **Default.** A new setting or behaviour has the default rule 9 asks for, the same on every
@@ -210,9 +212,9 @@ Always on throwaway data (hard rule 12); the person's profile is in use while yo
 | Client | Command |
 |---|---|
 | macOS | `TARN_DATA_DIR="$(mktemp -d)" cargo run -p app` (add `-- <url>` to open a page) |
-| macOS with Chromium | the same with `--features chromium`, after `scripts/fetch-cef.sh` and `scripts/fetch-ninja.sh` |
+| macOS with Chromium | `scripts/fetch-ninja.sh <dir>` and `export PATH="<dir>:$PATH"` once, then `CEF_PATH="$(scripts/fetch-cef.sh)" TARN_DATA_DIR="$(mktemp -d)" cargo run -p app --features chromium` |
 | Windows (Git Bash) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"`, then as macOS |
-| Linux | `docker build -t tarn-linux-fedora -f linux/docker/fedora.Dockerfile linux/docker`, then `linux/scripts/cargo.sh test --locked && linux/scripts/test-display.sh`; no Linux desktop needed (`linux/README.md`) |
+| Linux | `docker build -t tarn-linux-fedora -f linux/docker/fedora.Dockerfile linux/docker` once, then `linux/scripts/env.sh && linux/scripts/app.sh` starts the app under Xvfb with a test server; no Linux desktop needed (`linux/README.md`) |
 | iOS simulator | `cd mobile/app && nsh package --target ios-simulator` |
 | Android | `mobile/android/build.sh` for a debug APK (`mobile/android/README.md`) |
 
@@ -230,22 +232,22 @@ rendering or tab switching (`README.md`, "Development").
   workspaces, each with its own `Cargo.lock`, and `linux/` and `mobile/` build the shared crates.
   A dependency change in a shared crate therefore changes several lockfiles: update each, then
   run `scripts/third-party-licenses.sh` and `cargo deny check` (guideline 8).
-- **`unsafe`.** Only in `crates/engine` and `crates/platform`, plus the one export in
-  `crates/app-dll`; every other crate is `#![forbid(unsafe_code)]`. Each block carries a
-  `// SAFETY:` comment with its invariant, which the root and `mobile/` workspaces enforce by
-  denying `undocumented_unsafe_blocks` (hard rule 9).
-  `crates/app` reaches the platform through `engine` and `platform`, never through its own FFI.
-- **Platform code.** `crates/app` compiles for macOS and Windows: a macOS-only item has a
-  `#[cfg(windows)]` counterpart of the same name and signature (rule 4).
+- **`unsafe`.** In the root workspace only in `crates/engine` and `crates/platform`, plus the one
+  export in `crates/app-dll`; every other crate there is `#![forbid(unsafe_code)]`. `linux/` and
+  `nsh-shared/` forbid it through their workspace lints. The `mobile/` workspace allows it for its platform
+  bindings (`mobile/ios`, `mobile/android/rust`). Each block carries a `// SAFETY:` comment
+  with its invariant, which the root and `mobile/` workspaces enforce by denying
+  `undocumented_unsafe_blocks` (hard rule 9). `crates/app` reaches the platform through `engine`
+  and `platform`, never through its own FFI.
 - **Tests.** Logic is tested where it lives, as unit tests in the shared crate. The protections
   have integration tests in `crates/app/tests` (`blocking`, `egress`, `lockdown`, `redirects`,
   `referrer`, `tls_policy`): a change near one keeps its test meaning what it meant (hard rule 2).
-  Linux has display tests under Xvfb (`linux/scripts/display-tests.sh`); parsers of untrusted
+  Linux has display tests under Xvfb (`linux/scripts/display-tests.sh`, which
+  `linux/scripts/test-display.sh` runs in the Fedora container); parsers of untrusted
   input (filter lists, bundles, themes, imported profiles, reader and page scripts) have fuzz
   targets in `fuzz/fuzz_targets`.
 - **Comments.** Default to none. Write one only for what the code cannot show: a constraint, the
   reason for a workaround, an invariant. No narration, no commented-out code.
-- **Lints.** Fix the cause. `#[allow(...)]` and `#[expect(...)]` are not a fix (hard rule 2).
 - **Prose.** Docs use British spelling (licence, behaviour, colour) and say what is true now; a
   plan doc marks what is not built yet as such (rule 7).
 

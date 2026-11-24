@@ -188,7 +188,7 @@ macOS is the lead client; every feature is meant to reach all five.
 | **Android** | Native Shell | System WebView | Android 9 or later |
 
 Shared by all of them: `browser-core` (state and decisions), `engine`, `shield` (blocking and
-policy), `store` and `sync`. Contract: [`docs/shared-core.md`](docs/shared-core.md); security
+policy), `store` and `ai`. Contract: [`docs/shared-core.md`](docs/shared-core.md); security
 model and per-platform differences: [`docs/threat-model.md`](docs/threat-model.md).
 
 ## Build and run
@@ -409,8 +409,9 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 | Windows (Git Bash, MSVC) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"; cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked` |
 
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
-`crates/engine` and `crates/platform`, plus one export in `crates/app-dll`; every other crate is
-`#![forbid(unsafe_code)]`.
+`crates/engine` and `crates/platform`, plus one export in `crates/app-dll`, and in the platform
+bindings `mobile/ios` and `mobile/android/rust`; the other root crates, `linux/` and `nsh-shared/`
+forbid it.
 Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 and read [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
 [`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
