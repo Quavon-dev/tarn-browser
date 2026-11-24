@@ -16,13 +16,14 @@ use browser_core::assistant::view as chat_view;
 use browser_core::assistant::{ASK, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, allowed, commands, on_device_task};
 use browser_core::cleanup;
 use browser_core::tabs::{TabChoice, TabKey};
-use nsh_base::{Input, input};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use store::{Id, Store};
 use url::Url;
 
-use crate::controls::{accent_pill, empty_state, group, icon_button, label, pill, section, segmented, switch_row};
+use crate::controls::{
+    accent_pill, confirm, empty_state, field, group, hint, icon_button, label, list_row, pill, section, segmented, signal_field, switch_row,
+};
 use crate::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
 
 pub const ABOUT: &str = "The assistant answers questions in a chat beside the page. It is off until you turn it on for this profile, and it never works in a private space, a burner tab or on a Lockdown page.";
@@ -79,13 +80,13 @@ pub fn offered<H: Host>(host: H) -> bool {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Backend {
-    Claude,
+    Claude(String),
     Ollama(String),
 }
 
 fn backend<H: Host>(host: H) -> Result<Backend, String> {
     match host.with_store(settings::provider) {
-        Provider::ClaudeApi => Ok(Backend::Claude),
+        Provider::ClaudeApi => Ok(Backend::Claude(host.with_store(settings::claude_model_id))),
         Provider::Ollama => match host.platform().ollama_gap {
             Some(why) => Err(why.to_owned()),
             None => Ok(Backend::Ollama(host.with_store(settings::ollama_model))),
@@ -107,9 +108,9 @@ fn answer(
     let named = &mut |m: &str| (out.borrow_mut())(Msg::Model(m.to_owned()));
     let on_text = &mut |t: &str| (out.borrow_mut())(Msg::Text(t.to_owned()));
     match backend {
-        Backend::Claude => {
+        Backend::Claude(model) => {
             let token = ai::secrets::load_token(platform.secrets)?.ok_or_else(|| AiError::Unavailable(NOT_CONNECTED.into()))?;
-            let api = ClaudeApi::new(token, None, transport);
+            let api = ClaudeApi::new(token, Some(model.clone()), transport);
             ai::local::answer(Model::Cloud(&api, Provider::ClaudeApi.name()), platform.on_device, on_device, req, cancel, named, on_text)
         }
         Backend::Ollama(model) => {
@@ -173,14 +174,33 @@ fn run<H: Host>(
     });
 }
 
+fn now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
+}
+
 thread_local! {
     static FORGOTTEN: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Each `forget_chats_of` since the start, by the generation it made.
+    static FORGOTTEN_OF: std::cell::RefCell<Vec<(u64, Id)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// Drops every window's chat the next time it is used: call when a profile is deleted or reset or
 /// its AI switch is turned off.
 pub fn forget_chats() {
     FORGOTTEN.set(FORGOTTEN.get() + 1);
+    FORGOTTEN_OF.with_borrow_mut(Vec::clear);
+}
+
+/// Drops every window's chat of `profile` the next time it is used, once its saved chats are deleted.
+fn forget_chats_of(profile: Id) {
+    FORGOTTEN.set(FORGOTTEN.get() + 1);
+    FORGOTTEN_OF.with_borrow_mut(|f| f.push((FORGOTTEN.get(), profile)));
+}
+
+/// Whether a chat of `profile` made at generation `at` was forgotten since.
+fn forgotten(at: u64, profile: Id) -> bool {
+    let now = FORGOTTEN.get();
+    at != now && FORGOTTEN_OF.with_borrow(|f| f.first().is_none_or(|(first, _)| *first > at + 1) || f.iter().any(|(made, p)| *made > at && *p == profile))
 }
 
 /// One window's chat: its `Session`, the request it runs and what the panel draws.
@@ -247,8 +267,10 @@ impl Chat {
     }
 
     fn check(self) {
-        if self.session.with(|s| s.as_ref().is_some_and(|(at, _)| *at != FORGOTTEN.get())) {
-            self.close();
+        match self.session.with(|s| s.as_ref().map(|(at, s)| forgotten(*at, s.profile()))) {
+            Some(true) => self.close(),
+            Some(false) => self.session.with(|s| s.iter_mut().for_each(|(at, _)| *at = FORGOTTEN.get())),
+            None => {}
         }
     }
 
@@ -265,7 +287,17 @@ impl Chat {
 
     /// Sends the question field through `template`.
     pub fn send<H: Host>(self, host: H, template: &str) {
-        self.send_with(host, &self.question.get_untracked(), template);
+        self.send_with(host, &self.question.get_untracked(), template, true);
+    }
+
+    /// Sends the question field; `/name rest` runs that command with `rest` as its question.
+    pub fn submit<H: Host>(self, host: H) {
+        let typed = self.question.get_untracked();
+        let all = all_commands(host);
+        match commands::slash(&typed, &all) {
+            Some((ix, rest)) => self.send_with(host, rest, &all[ix].1, true),
+            None => self.send(host, ASK),
+        }
     }
 
     /// Attaches the page's selection from the selection menu and, for a command, sends it with
@@ -277,21 +309,92 @@ impl Chat {
         }
         let custom = host.with_store(|s| s.ai_commands(origin.profile).unwrap_or_default());
         if let Some(template) = command.and_then(|name| commands::for_selection(&custom, name)) {
-            self.send_with(host, "", &template);
+            self.send_with(host, "", &template, false);
         }
     }
 
-    fn send_with<H: Host>(self, host: H, question: &str, template: &str) {
+    /// Where a send comes from now and whether the profile's AI switch is on; none without a chat.
+    fn context<H: Host>(self, host: H) -> Option<(Origin, bool)> {
         self.check();
-        let Some(profile) = self.session.with(|s| s.as_ref().map(|(_, s)| s.profile())) else { return };
+        let profile = self.session.with(|s| s.as_ref().map(|(_, s)| s.profile()))?;
         let origin = host.origin().unwrap_or(Origin { profile, kind: ProfileKind::Private, level: ShieldLevel::Lockdown });
-        let on = ai_on(host, profile);
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
-        let effects = self.session.with(|s| s.as_mut().map(|(_, s)| s.send(question, template, now, origin, on, |u| host.level_of(u)))).unwrap_or_default();
-        if template == ASK && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
+        Some((origin, ai_on(host, profile)))
+    }
+
+    /// `from_input`: the question came from the field, which empties once it is sent.
+    fn send_with<H: Host>(self, host: H, question: &str, template: &str, from_input: bool) {
+        let Some((origin, on)) = self.context(host) else { return };
+        let effects = self.session.with(|s| s.as_mut().map(|(_, s)| s.send(question, template, now(), origin, on, |u| host.level_of(u)))).unwrap_or_default();
+        if from_input && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
             self.question.set(String::new());
         }
         self.effects_for(host, effects, on_device_task(template));
+    }
+
+    /// Asks the last question again in place of its answer.
+    pub fn retry<H: Host>(self, host: H) {
+        let Some((origin, on)) = self.context(host) else { return };
+        let (effects, on_device) =
+            self.session.with(|s| s.as_mut().map(|(_, s)| (s.retry(now(), origin, on, |u| host.level_of(u)), s.last_was_command()))).unwrap_or_default();
+        self.effects_for(host, effects, on_device);
+        self.save(host);
+    }
+
+    /// Takes the last question and its answer out of the chat and puts the question in the field.
+    pub fn edit_last<H: Host>(self, host: H) {
+        self.check();
+        if let Some(question) = self.session.with(|s| s.as_mut().and_then(|(_, s)| s.edit_last())) {
+            self.save(host);
+            self.question.set(question);
+            self.render();
+        }
+    }
+
+    fn save<H: Host>(self, host: H) {
+        self.check();
+        self.session.with(|s| {
+            if let Some((_, s)) = s.as_mut() {
+                host.with_store(|store| s.save(store));
+            }
+        });
+    }
+
+    /// The saved chat this conversation continues.
+    fn saved(self) -> Option<Id> {
+        self.session.with(|s| s.as_ref().and_then(|(_, s)| s.chat()))
+    }
+
+    /// Continues the current profile's saved chat `id` in place of this conversation.
+    pub fn restore<H: Host>(self, host: H, id: Id) -> bool {
+        let Some(origin) = host.origin() else { return false };
+        let Some(saved) = host.with_store(|s| s.chat(origin.profile, id).ok().flatten()) else { return false };
+        let Some(session) = Session::restore(origin, ai_on(host, origin.profile), &saved, |u| host.level_of(u)) else { return false };
+        self.finish(host);
+        self.close();
+        self.view.set(Some(chat_view(&session)));
+        self.session.replace(Some((FORGOTTEN.get(), session)));
+        self.save(host);
+        true
+    }
+
+    /// Attaches `note` from the page or space shown now.
+    pub fn attach_note<H: Host>(self, host: H, note: &store::Note) {
+        if let Some(origin) = host.origin()
+            && let Some(pill) = browser_core::notes::as_pill(note, origin.profile)
+        {
+            self.attach(host, origin, pill);
+        }
+    }
+
+    /// Stops an answer that is streaming and keeps the chat as it stands.
+    pub fn finish<H: Host>(self, host: H) {
+        self.apply(host, Event::Cancel);
+        self.save(host);
+    }
+
+    fn render(self) {
+        self.view.set(self.session.with(|s| s.as_ref().map(|(_, s)| chat_view(s))));
+        self.tail.set(String::new());
     }
 
     fn effects<H: Host>(self, host: H, effects: Vec<Effect>) {
@@ -323,6 +426,7 @@ impl Chat {
                                 self.running.replace(None);
                             }
                             self.apply(host, end.map_or_else(|message| Event::Failed { id, message }, |()| Event::Done { id }));
+                            self.save(host);
                         },
                     );
                 }
@@ -332,33 +436,198 @@ impl Chat {
                         cancel.store(true, Ordering::Relaxed);
                     }
                 }
-                Effect::Render => {
-                    self.view.set(self.session.with(|s| s.as_ref().map(|(_, s)| chat_view(s))));
-                    self.tail.set(String::new());
-                }
+                Effect::Render => self.render(),
             }
         }
     }
 }
 
-fn hint(content: impl IntoReactive<SharedString>) -> Text {
-    text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted).px_1()
+/// The provider choice, which `changed` follows; Ollama only where the client can reach it.
+fn providers<H: Host>(host: H, changed: impl Fn() + Copy + 'static) -> View {
+    let chosen = host.with_store(settings::provider);
+    let gap = host.platform().ollama_gap;
+    segmented(
+        Provider::ALL
+            .into_iter()
+            .filter(|p| *p != Provider::Ollama || gap.is_none())
+            .map(|p| {
+                let pick = move || {
+                    host.with_store(|s| settings::set_provider(s, p));
+                    changed();
+                };
+                (p.name().to_owned(), Box::new(move || p == chosen) as Box<dyn Fn() -> bool>, Box::new(pick) as Box<dyn Fn()>)
+            })
+            .collect(),
+    )
 }
 
-fn field(name: &'static str, value: Signal<String>) -> Input {
-    input()
-        .value(move || value.get())
-        .on_change(move |v: &str| value.set(v.to_owned()))
-        .label(name)
-        .placeholder(name)
-        .w_full()
-        .px(px(8.))
-        .py(px(6.))
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised())
-        .border_1()
-        .border_color(Theme::hairline())
-        .text_color(Theme::text())
+/// The Claude model choice, which `changed` follows.
+fn claude_models<H: Host>(host: H, changed: impl Fn() + Copy + 'static) -> View {
+    let chosen = host.with_store(settings::claude_model);
+    segmented(
+        settings::CLAUDE_MODELS
+            .iter()
+            .enumerate()
+            .map(|(ix, (_, name))| {
+                let pick = move || {
+                    host.with_store(|s| settings::set_claude_model(s, ix));
+                    changed();
+                };
+                ((*name).to_owned(), Box::new(move || ix == chosen) as Box<dyn Fn() -> bool>, Box::new(pick) as Box<dyn Fn()>)
+            })
+            .collect(),
+    )
+}
+
+/// What answers now: the Claude model's name or Ollama's model.
+fn answers_with<H: Host>(host: H) -> String {
+    match host.with_store(settings::provider) {
+        Provider::ClaudeApi => settings::CLAUDE_MODELS[host.with_store(settings::claude_model)].1.to_owned(),
+        Provider::Ollama => format!("Ollama: {}", host.with_store(settings::ollama_model)),
+    }
+}
+
+pub const PLACEHOLDERS: &str =
+    "In a template, {page} stands for the page or note attached, {selection} for the text selected on the page and {question} for what you type.";
+
+/// A custom command being added (`was` none) or edited.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CommandDraft {
+    pub was: Option<Id>,
+    pub name: String,
+    pub template: String,
+}
+
+impl CommandDraft {
+    /// Saves the draft for `profile` among its `custom` commands; the message to show when it cannot.
+    pub fn save(&self, store: &Store, profile: Id, custom: &[store::AiCommand]) -> Result<(), String> {
+        commands::check(&self.name, &self.template, custom, self.was)?;
+        let name = self.name.trim();
+        let saved = match self.was {
+            None => store.create_ai_command(profile, name, &self.template).map(drop),
+            Some(id) => store.update_ai_command(profile, id, name, &self.template),
+        };
+        saved.map_err(|_| "The command could not be saved.".to_owned())
+    }
+}
+
+/// Settings › AI › Commands: the built-in commands, and the profile's own to add, edit and delete.
+fn commands_section<H: Host>(host: H, profile: Id) -> AnyElement {
+    let rev = signal(0u64);
+    let draft: Signal<Option<CommandDraft>> = signal(None);
+    let error: Signal<Option<String>> = signal(None);
+    let editing = computed(move || draft.with(Option::is_some));
+    let edit = move |next: Option<CommandDraft>| {
+        error.set(None);
+        draft.set(next);
+    };
+    dynamic(move || {
+        rev.get();
+        let custom = host.with_store(|s| s.ai_commands(profile).unwrap_or_default());
+        let built_in = group().children(commands::BUILT_IN.iter().enumerate().map(|(ix, (name, template))| list_row(ix, *name, *template).into_element()));
+        let own: Vec<AnyElement> = custom
+            .iter()
+            .enumerate()
+            .map(|(ix, c)| {
+                let (id, name) = (c.id, c.name.clone());
+                let open = CommandDraft { was: Some(id), name: c.name.clone(), template: c.template.clone() };
+                let gone = name.clone();
+                list_row(ix, name.clone(), c.template.clone())
+                    .child(pill("Edit", move || edit(Some(open.clone()))).accessibility_label(format!("Edit {name}")))
+                    .child(
+                        pill("Delete", move || {
+                            let gone = gone.clone();
+                            confirm(format!("Delete {gone}?"), "The command is removed from this profile.", "Delete", move || {
+                                host.with_store(|s| s.delete_ai_command(profile, id).ok());
+                                host.changed();
+                                rev.update(|r| *r += 1);
+                            })
+                        })
+                        .accessibility_label(format!("Delete {}", c.name)),
+                    )
+                    .into_element()
+            })
+            .collect();
+        let (listed, total) = (commands::names(&custom).len(), commands::all(&custom).len());
+        let editor = dynamic(move || {
+            editing.get().then(|| {
+                let save = move || {
+                    let Some(d) = draft.get_untracked() else { return };
+                    let custom = host.with_store(|s| s.ai_commands(profile).unwrap_or_default());
+                    match host.with_store(|s| d.save(s, profile, &custom)) {
+                        Ok(()) => {
+                            edit(None);
+                            host.changed();
+                            rev.update(|r| *r += 1);
+                        }
+                        Err(message) => error.set(Some(message)),
+                    }
+                };
+                let set = move |f: &dyn Fn(&mut CommandDraft)| draft.update(|d| d.iter_mut().for_each(f));
+                group()
+                    .p_3()
+                    .gap_2()
+                    .child(field(
+                        "Name",
+                        move || draft.with(|d| d.as_ref().map(|d| d.name.clone()).unwrap_or_default()),
+                        move |v| set(&|d| d.name = v.to_owned()),
+                    ))
+                    .child(
+                        field(
+                            "Template",
+                            move || draft.with(|d| d.as_ref().map(|d| d.template.clone()).unwrap_or_default()),
+                            move |v| set(&|d| d.template = v.to_owned()),
+                        )
+                        .multiline(true)
+                        .min_h(px(88.)),
+                    )
+                    .child(hint(PLACEHOLDERS))
+                    .child(dynamic(move || error.get().map(|e| hint(e).text_color(Theme::accent_text))))
+                    .child(view().flex_row().gap_2().child(accent_pill("Save", save)).child(pill("Cancel", move || edit(None))))
+            })
+        });
+        Some(
+            view()
+                .gap_2()
+                .child(built_in)
+                .child(if own.is_empty() { view().child(empty_state("No commands of your own yet.")) } else { group().children(own) })
+                .child(hint(if total > listed {
+                    format!("A selection's menu lists the first {listed} commands; the chat's / list runs every one.")
+                } else {
+                    "Commands show in a selection's menu and in the chat when you type /.".to_owned()
+                }))
+                .child(dynamic(move || (!editing.get()).then(|| view().flex_row().child(pill("Add Command", move || edit(Some(CommandDraft::default())))))))
+                .child(editor),
+        )
+    })
+    .into_element()
+}
+
+/// Settings › AI › Chats: how many chats the profile keeps, and Delete All Chats.
+fn chats_section<H: Host>(host: H, profile: Id) -> AnyElement {
+    let rev = signal(0u64);
+    dynamic(move || {
+        rev.get();
+        let count = host.with_store(|s| s.chat_titles(profile).map(|t| t.len()).unwrap_or_default());
+        let delete = move || {
+            confirm("Delete all chats?", "Every saved chat of this profile is removed. This cannot be undone.", "Delete All Chats", move || {
+                host.with_store(|s| s.delete_chats(profile).ok());
+                forget_chats_of(profile);
+                rev.update(|r| *r += 1);
+            })
+        };
+        Some(
+            view()
+                .gap_2()
+                .child(hint(match count {
+                    0 => "No saved chats. A chat is saved in this profile once it has an answer.".to_owned(),
+                    1 => "1 saved chat in this profile.".to_owned(),
+                    n => format!("{n} saved chats in this profile."),
+                }))
+                .when(count > 0, |v| v.child(view().flex_row().child(pill("Delete All Chats", delete)))),
+        )
+    })
+    .into_element()
 }
 
 fn size(bytes: usize) -> String {
@@ -412,17 +681,7 @@ pub fn settings_pane<H: Host>(host: H, chat: Chat) -> AnyElement {
             host.changed();
             rev.update(|r| *r += 1);
         };
-        let options: Vec<crate::controls::Segment> = Provider::ALL
-            .into_iter()
-            .filter(|p| *p != Provider::Ollama || platform.ollama_gap.is_none())
-            .map(|p| {
-                let pick = move || {
-                    host.with_store(|s| settings::set_provider(s, p));
-                    rev.update(|r| *r += 1);
-                };
-                (p.name().to_owned(), Box::new(move || p == chosen) as Box<dyn Fn() -> bool>, Box::new(pick) as Box<dyn Fn()>)
-            })
-            .collect();
+        let bump = move || rev.update(|r| *r += 1);
         let claude = move || {
             let status = dynamic(move || {
                 Some(hint(match connected.get() {
@@ -445,8 +704,10 @@ pub fn settings_pane<H: Host>(host: H, chat: Chat) -> AnyElement {
                 .gap_2()
                 .child(hint(CLAUDE))
                 .child(status)
-                .child(field("API key", token).masked(true).auto_correct(false).on_submit(move |_: &str| connect()))
+                .child(signal_field("API key", token).masked(true).auto_correct(false).on_submit(move |_: &str| connect()))
                 .child(view().flex_row().gap_2().child(accent_pill("Connect", connect)).child(pill("Disconnect", disconnect)))
+                .child(label("Model"))
+                .child(claude_models(host, bump))
         };
         let ollama = move || {
             let save = move || {
@@ -458,21 +719,31 @@ pub fn settings_pane<H: Host>(host: H, chat: Chat) -> AnyElement {
                 .p_3()
                 .gap_2()
                 .child(hint(OLLAMA))
-                .child(field("Model", model).auto_correct(false).on_submit(move |_: &str| save()))
+                .child(signal_field("Model", model).auto_correct(false).on_submit(move |_: &str| save()))
                 .child(view().flex_row().child(pill("Save Model", save)))
         };
-        Some(view().gap_2().child(hint(ABOUT)).child(group().child(switch_row("Use the assistant in this profile", move || on, toggle))).when(on, |v| {
-            v.child(section("Provider"))
-                .child(segmented(options))
-                .when_some(platform.ollama_gap, |v, why| v.child(hint(format!("{}: unavailable. {why}", Provider::Ollama.name()))))
-                .child(match chosen {
-                    Provider::Ollama if platform.ollama_gap.is_none() => ollama().into_element(),
-                    _ => claude().into_element(),
+        Some(
+            view()
+                .gap_2()
+                .child(hint(ABOUT))
+                .child(group().child(switch_row("Use the assistant in this profile", move || on, toggle)))
+                .when(on, |v| {
+                    v.child(section("Provider"))
+                        .child(providers(host, bump))
+                        .when_some(platform.ollama_gap, |v, why| v.child(hint(format!("{}: unavailable. {why}", Provider::Ollama.name()))))
+                        .child(match chosen {
+                            Provider::Ollama if platform.ollama_gap.is_none() => ollama().into_element(),
+                            _ => claude().into_element(),
+                        })
+                        .child(dynamic(move || error.get().map(|e| hint(e).text_color(Theme::accent_text))))
+                        .child(section("What is sent"))
+                        .child(hint(SENT))
+                        .child(section("Commands"))
+                        .child(commands_section(host, profile))
                 })
-                .child(dynamic(move || error.get().map(|e| hint(e).text_color(Theme::accent_text))))
-                .child(section("What is sent"))
-                .child(hint(SENT))
-        }))
+                .child(section("Chats"))
+                .child(chats_section(host, profile)),
+        )
     })
     .into_element()
 }
@@ -546,12 +817,18 @@ fn block<H: Host>(host: H, chat: Chat, block: Block) -> AnyElement {
             .child(spans(host, chat, s).flex_1().min_w(px(0.)))
             .into_element(),
         Block::Quote(s) => view().pl_2().border_l_1().border_color(Theme::hairline()).child(spans(host, chat, s).text_color(Theme::muted())).into_element(),
-        Block::Code { code, .. } => view()
-            .p_2()
-            .rounded(px(Theme::radius_small()))
-            .bg(Theme::raised())
-            .child(text(code).font_family("monospace").text_size(px(TEXT_SMALL)).text_color(Theme::text()).selectable(true))
-            .into_element(),
+        Block::Code { code, .. } => {
+            let copied = code.clone();
+            view()
+                .flex_row()
+                .gap_1()
+                .p_2()
+                .rounded(px(Theme::radius_small()))
+                .bg(Theme::raised())
+                .child(text(code).font_family("monospace").text_size(px(TEXT_SMALL)).text_color(Theme::text()).selectable(true).flex_1().min_w(px(0.)))
+                .child(icon_button(crate::icons::icon(crate::icons::COPY, 14.), "Copy Code", move || set_clipboard(copied.clone())))
+                .into_element()
+        }
         Block::Rule => view().h(px(1.)).bg(Theme::separator()).into_element(),
     }
 }
@@ -607,17 +884,134 @@ pub fn panel<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) ->
     view().flex_col().gap_3().p_3().h_full().min_h(px(0.)).bg(Theme::panel()).child(header).child(body(host, chat)).into_element()
 }
 
+fn all_commands<H: Host>(host: H) -> Vec<(String, String)> {
+    let custom = host.origin().map(|o| host.with_store(|s| s.ai_commands(o.profile).unwrap_or_default())).unwrap_or_default();
+    commands::all(&custom)
+}
+
+/// The profile's saved chats: a search, and each to open, rename or delete.
+fn chat_list<H: Host>(host: H, chat: Chat, open: Signal<bool>) -> AnyElement {
+    let rev = signal(0u64);
+    let query = signal(String::new());
+    let renaming: Signal<Option<(Id, String)>> = signal(None);
+    let error: Signal<Option<String>> = signal(None);
+    dynamic(move || {
+        rev.get();
+        let profile = host.origin()?.profile;
+        let titles = host.with_store(|s| s.chat_titles(profile).unwrap_or_default());
+        if titles.is_empty() {
+            return Some(view().child(hint("No saved chats yet. A chat is saved once it has an answer.")));
+        }
+        let rows = dynamic(move || {
+            let shown = browser_core::assistant::find_chats(&titles, &query.get());
+            if shown.is_empty() {
+                return Some(view().child(hint("No chats match.")));
+            }
+            Some(group().children(shown.into_iter().enumerate().map(|(ix, c)| {
+                let (id, title) = (c.id, c.title.clone());
+                let (named, gone) = (title.clone(), title.clone());
+                list_row(ix, title.clone(), "")
+                    .child(
+                        pill("Open", move || {
+                            if chat.restore(host, id) {
+                                open.set(false);
+                            }
+                        })
+                        .accessibility_label(format!("Open {title}")),
+                    )
+                    .child(
+                        pill("Rename", move || {
+                            error.set(None);
+                            renaming.set(Some((id, named.clone())));
+                        })
+                        .accessibility_label(format!("Rename {}", c.title)),
+                    )
+                    .child(
+                        pill("Delete", move || {
+                            confirm(format!("Delete {gone}?"), "The chat is removed from this profile.", "Delete", move || {
+                                host.with_store(|s| s.delete_chat(profile, id).ok());
+                                if chat.saved() == Some(id) {
+                                    chat.close();
+                                }
+                                rev.update(|r| *r += 1);
+                            })
+                        })
+                        .accessibility_label(format!("Delete {}", c.title)),
+                    )
+                    .into_element()
+            })))
+        });
+        let editor = dynamic(move || {
+            let (id, _) = renaming.get()?;
+            let save = move || {
+                let title = renaming.with_untracked(|r| r.as_ref().map(|(_, t)| t.clone())).unwrap_or_default();
+                match host.with_store(|s| s.rename_chat(profile, id, &title)) {
+                    Ok(()) => {
+                        renaming.set(None);
+                        rev.update(|r| *r += 1);
+                    }
+                    Err(_) => error.set(Some(format!("A title has 1 to {} characters.", store::MAX_NOTE_TITLE))),
+                }
+            };
+            Some(
+                group()
+                    .p_3()
+                    .gap_2()
+                    .child(
+                        field(
+                            "Title",
+                            move || renaming.with(|r| r.as_ref().map(|(_, t)| t.clone()).unwrap_or_default()),
+                            move |v| renaming.update(|r| r.iter_mut().for_each(|(_, t)| *t = v.to_owned())),
+                        )
+                        .on_submit(move |_: &str| save()),
+                    )
+                    .child(dynamic(move || error.get().map(|e| hint(e).text_color(Theme::accent_text))))
+                    .child(view().flex_row().gap_2().child(accent_pill("Save", save)).child(pill("Cancel", move || renaming.set(None)))),
+            )
+        });
+        Some(view().gap_2().child(signal_field("Search chats", query)).child(rows).child(editor))
+    })
+    .into_element()
+}
+
+/// The provider and, for the Claude API, the model, as Settings › AI offers them.
+fn model_picker<H: Host>(host: H, rev: Signal<u64>) -> View {
+    rev.get();
+    let bump = move || rev.update(|r| *r += 1);
+    let claude = host.with_store(settings::provider) == Provider::ClaudeApi;
+    view().gap_1().child(providers(host, bump)).when(claude, |v| v.child(claude_models(host, bump)))
+}
+
+fn bubble_actions<H: Host>(host: H, chat: Chat, copy: Option<String>, last: bool) -> View {
+    view()
+        .flex_row()
+        .gap_1()
+        .children(copy.map(|text| icon_button(crate::icons::icon(crate::icons::COPY, 14.), "Copy Answer", move || set_clipboard(text.clone())).into_element()))
+        .when(last, |v| {
+            v.child(icon_button(crate::icons::icon(crate::icons::RELOAD, 14.), "Retry", move || chat.retry(host))).child(icon_button(
+                crate::icons::icon(crate::icons::PENCIL, 14.),
+                "Edit Question",
+                move || chat.edit_last(host),
+            ))
+        })
+}
+
 /// The panel without its header, for a sheet that has its own.
 pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
     let notes_open = signal(false);
     let tabs_open = signal(false);
+    let chats_open = signal(false);
+    let model_open = signal(false);
+    let model_rev = signal(0u64);
     dynamic(move || {
         untracked(|| chat.open(host));
         let Some(chat_view) = chat.view.get() else {
             let here = host.origin().is_some_and(allowed);
             return Some(view().gap_2().child(empty_state(if here { OFF } else { NOT_HERE })));
         };
+        let (can_send, can_cancel) = (chat_view.can_send, chat_view.can_cancel);
         let last = chat_view.rows.len().saturating_sub(1);
+        let asked = chat_view.rows.iter().any(|r| r.role == Role::You);
         let rows: Vec<AnyElement> = chat_view
             .rows
             .iter()
@@ -628,13 +1022,31 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                     Role::You => bubble.bg(Theme::selected()).child(label(row.text.clone()).selectable(true)),
                     Role::Assistant if ix == last && row.streaming => {
                         let base = row.text.clone();
-                        bubble.child(dynamic(move || Some(answer_view(host, chat, &format!("{base}{}", chat.tail.get())))))
+                        bubble.child(dynamic(move || Some(answer_view(host, chat, &format!("{base}{}", chat.tail.get()))))).child(hint("Answering…"))
                     }
                     Role::Assistant => bubble.child(answer_view(host, chat, &row.text)).children(link_list(host, chat, &row.text)),
                 };
-                bubble.children(row.by.clone().map(hint)).when(row.interrupted, |b| b.opacity(0.6).child(hint("Interrupted; not sent again."))).into_element()
+                let copy = (row.role == Role::Assistant && !row.streaming && !row.text.is_empty() && row.text != browser_core::assistant::FORGOTTEN)
+                    .then(|| row.text.clone());
+                let latest = ix == last && asked && !can_cancel;
+                bubble
+                    .children(row.by.clone().map(hint))
+                    .when(row.interrupted, |b| b.opacity(0.6).child(hint("Interrupted; not sent again.")))
+                    .when(copy.is_some() || latest, |b| b.child(bubble_actions(host, chat, copy, latest)))
+                    .into_element()
             })
             .collect();
+        let conversation = if rows.is_empty() {
+            view().gap_2().child(hint("Ask about the page or anything. Type / for commands, or start with one:")).child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_1()
+                    .children(commands::BUILT_IN.iter().map(|(name, template)| pill(*name, move || chat.send(host, template)).into_element())),
+            )
+        } else {
+            view().gap_2().children(rows)
+        };
         let chips: Vec<AnyElement> = chat_view
             .chips
             .iter()
@@ -659,13 +1071,32 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                 .child(hint(format!("Will send with your question ({}):", size(chat_view.will_send_bytes))))
                 .children(chat_view.will_send.iter().map(|(name, bytes)| hint(format!("{name} · {}", size(*bytes))).into_element()))
         });
-        let (can_send, can_cancel) = (chat_view.can_send, chat_view.can_cancel);
+        let submit = move |_: &str| chat.submit(host);
         Some(
             view()
                 .gap_2()
                 .flex_1()
                 .min_h(px(0.))
-                .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(view().gap_2().children(rows)))
+                .child(
+                    view()
+                        .flex_row()
+                        .flex_wrap()
+                        .gap_1()
+                        .child(pill("Chats", move || chats_open.update(|o| *o = !*o)))
+                        .child(pill("New Chat", move || {
+                            chats_open.set(false);
+                            chat.finish(host);
+                            chat.close();
+                        }))
+                        .child(dynamic(move || {
+                            model_rev.get();
+                            let name = answers_with(host);
+                            Some(pill(name.clone(), move || model_open.update(|o| *o = !*o)).accessibility_label(format!("Model: {name}")))
+                        })),
+                )
+                .child(dynamic(move || model_open.get().then(|| model_picker(host, model_rev))))
+                .child(dynamic(move || chats_open.get().then(|| chat_list(host, chat, chats_open))))
+                .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(conversation))
                 .children(chat_view.notice.clone().map(|n| hint(n).text_color(Theme::accent_text)))
                 .child(view().flex_row().flex_wrap().gap_1().children(chips))
                 .children(will_send)
@@ -680,18 +1111,28 @@ pub fn body<H: Host>(host: H, chat: Chat) -> AnyElement {
                 )
                 .child(dynamic(move || tabs_open.get().then(|| tab_picker(host, tabs_open))))
                 .child(dynamic(move || notes_open.get().then(|| notes(host, chat, notes_open))))
-                .child(field("Ask about the page or anything", chat.question).multiline(true).min_h(px(64.)).on_submit(move |_: &str| chat.send(host, ASK)))
+                .child(dynamic(move || {
+                    let typed = chat.question.get();
+                    if !typed.trim_start().starts_with('/') || !can_send {
+                        return None;
+                    }
+                    let all = all_commands(host);
+                    let found = commands::slash_menu(&typed, &all);
+                    if found.is_empty() {
+                        return commands::slash(&typed, &all).is_none().then(|| view().child(hint("No command matches.")));
+                    }
+                    Some(view().flex_row().flex_wrap().gap_1().children(found.into_iter().map(|ix| {
+                        let name = all[ix].0.clone();
+                        pill(name.clone(), move || chat.question.set(format!("/{name} "))).into_element()
+                    })))
+                }))
+                .child(signal_field("Ask anything, or type / for commands", chat.question).multiline(true).min_h(px(64.)).on_submit(submit))
                 .child(
                     view()
                         .flex_row()
                         .flex_wrap()
                         .gap_1()
-                        .when(can_send, |v| {
-                            let custom = host.origin().map(|o| host.with_store(|s| s.ai_commands(o.profile).unwrap_or_default())).unwrap_or_default();
-                            v.child(accent_pill("Send", move || chat.send(host, ASK))).children(
-                                commands::all(&custom).into_iter().map(|(name, template)| pill(name, move || chat.send(host, &template)).into_element()),
-                            )
-                        })
+                        .when(can_send, |v| v.child(accent_pill("Send", move || chat.submit(host))))
                         .when(can_cancel, |v| v.child(pill("Cancel", move || chat.apply(host, Event::Cancel)))),
                 ),
         )
@@ -708,9 +1149,7 @@ fn notes<H: Host>(host: H, chat: Chat, open: Signal<bool>) -> View {
         let name = browser_core::notes::title(&n);
         pill(name, move || {
             open.set(false);
-            if let Some(origin) = host.origin() {
-                chat.attach(host, origin, browser_core::notes::as_pill(&n));
-            }
+            chat.attach_note(host, &n);
         })
         .into_element()
     }))
@@ -868,10 +1307,10 @@ mod tests {
     fn commands_answer_on_the_device_and_name_it_while_questions_go_where_chosen() {
         let secrets: &'static FakeSecrets = Box::leak(Box::new(FakeSecrets(Mutex::new(Some("test-key".into())))));
         let with_device = platform(secrets, Some((&Device, "On-device")));
-        let (out, name, asked) = ask_on(&Backend::Claude, &with_device, true);
+        let (out, name, asked) = ask_on(&Backend::Claude(settings::CLAUDE_MODELS[0].0.into()), &with_device, true);
         assert_eq!((out.unwrap().as_str(), name.as_str()), ("device", "On-device"));
         assert!(asked.is_empty(), "a command the device answers sends nothing");
-        let (out, name, asked) = ask_on(&Backend::Claude, &with_device, false);
+        let (out, name, asked) = ask_on(&Backend::Claude(settings::CLAUDE_MODELS[0].0.into()), &with_device, false);
         assert_eq!((out.unwrap().as_str(), name.as_str(), asked.len()), ("Hi", "Claude API", 1));
         let (_, name, asked) = ask_on(&Backend::Ollama("llama3.2".into()), &with_device, true);
         assert_eq!(name, "Ollama on this computer (llama3.2)", "a local choice keeps its own model");
@@ -881,15 +1320,17 @@ mod tests {
     #[test]
     fn claude_needs_a_stored_key_and_sends_it_only_to_anthropic() {
         let secrets: &'static FakeSecrets = Box::leak(Box::default());
-        let (result, asked) = ask(&Backend::Claude, secrets);
+        let claude = Backend::Claude("claude-haiku-5-5".into());
+        let (result, asked) = ask(&claude, secrets);
         assert!(matches!(result, Err(AiError::Unavailable(ref m)) if m == NOT_CONNECTED));
         assert!(asked.is_empty(), "nothing is sent without a key");
         ai::secrets::store_token(secrets, &ApiToken::new("test-key".into())).unwrap();
-        let (result, asked) = ask(&Backend::Claude, secrets);
+        let (result, asked) = ask(&claude, secrets);
         assert_eq!(result.unwrap(), "Hi");
         assert_eq!(asked.len(), 1);
         assert_eq!(asked[0].0, "https://api.anthropic.com/v1/messages");
         assert!(asked[0].1.starts_with("test-key ") && asked[0].1.contains("\"q\""));
+        assert!(asked[0].1.contains("\"claude-haiku-5-5\""), "the chosen model answers");
     }
 
     #[test]
@@ -1009,6 +1450,66 @@ mod tests {
         let view = chat.view.get_untracked().unwrap();
         assert!(view.notice.is_some() && view.rows.is_empty() && !view.can_cancel, "a refused selection sends nothing, not even the note");
         SHOWN.set(None);
+    }
+
+    #[test]
+    fn command_drafts_save_checked_and_unique() {
+        let store = Store::open_in_memory().unwrap();
+        let profile = store.create_profile("cmd", "cmd", false).unwrap().id;
+        let draft = |was, name: &str, template: &str| CommandDraft { was, name: name.into(), template: template.into() };
+        let custom = || store.ai_commands(profile).unwrap();
+        assert!(draft(None, " ", "x").save(&store, profile, &[]).is_err());
+        assert!(draft(None, "Tone", "  ").save(&store, profile, &[]).is_err());
+        assert!(draft(None, "Tone", &"a".repeat(store::MAX_AI_TEMPLATE + 1)).save(&store, profile, &[]).is_err());
+        assert!(draft(None, "summarize", "x").save(&store, profile, &[]).is_err(), "a built-in name is taken");
+        assert_eq!(draft(None, " Tone ", "Rewrite {selection} kindly. {question}").save(&store, profile, &[]), Ok(()));
+        assert_eq!(custom()[0].name, "Tone");
+        assert!(draft(None, "TONE", "y").save(&store, profile, &custom()).is_err(), "a custom name is taken");
+        let id = custom()[0].id;
+        assert_eq!(draft(Some(id), "Tone", "Kinder: {selection}").save(&store, profile, &custom()), Ok(()), "an edit keeps its own name");
+        assert_eq!(custom().iter().map(|c| (c.name.as_str(), c.template.as_str())).collect::<Vec<_>>(), [("Tone", "Kinder: {selection}")]);
+    }
+
+    #[test]
+    fn a_chat_is_saved_when_its_answer_ends_and_restored_by_id() {
+        let work = STORE.with(|s| s.create_profile("saved", "saved", false).and_then(|p| s.set_profile_ai(p.id, true).map(|()| p.id)).unwrap());
+        let runtime = nsh_core::element::Runtime::default();
+        let _entered = runtime.enter();
+        let shown = Origin { profile: work, kind: ProfileKind::Normal, level: ShieldLevel::Standard };
+        SHOWN.set(Some(shown));
+        let chat = Chat::new();
+        assert!(chat.open(Window));
+        let effects = chat.session.with(|s| s.as_mut().unwrap().1.send("Hi?", ASK, 0, shown, true, |_| ShieldLevel::Standard));
+        let Some(Effect::Start { id, .. }) = effects.into_iter().find(|e| matches!(e, Effect::Start { .. })) else { panic!("no request") };
+        chat.apply(Window, Event::Chunk { id, text: "Hello".into() });
+        chat.apply(Window, Event::Done { id });
+        chat.save(Window);
+        let saved = chat.saved().expect("saved once the answer ended");
+        assert_eq!(STORE.with(|s| s.chat_titles(work).unwrap()).iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Hi?"]);
+        assert!(chat.restore(Window, saved));
+        assert_eq!(chat.view.get_untracked().unwrap().rows.len(), 2, "the saved turns come back");
+        assert!(!chat.restore(Window, saved + 1000), "no such chat");
+        SHOWN.set(Some(Origin { kind: ProfileKind::Private, ..shown }));
+        assert!(!chat.restore(Window, saved), "never in a private space");
+        SHOWN.set(Some(shown));
+        chat.edit_last(Window);
+        assert_eq!(chat.question.get_untracked(), "Hi?");
+        assert!(chat.view.get_untracked().unwrap().rows.is_empty());
+        assert!(!chat.restore(Window, saved), "a chat whose only question was taken back is deleted");
+        SHOWN.set(None);
+    }
+
+    #[test]
+    fn deleting_a_profiles_chats_forgets_only_its_chats() {
+        let at = FORGOTTEN.get();
+        forget_chats_of(7);
+        assert!(forgotten(at, 7));
+        assert!(!forgotten(at, 8), "another profile's chat stays");
+        let later = FORGOTTEN.get();
+        assert!(!forgotten(later, 7), "nothing since");
+        forget_chats();
+        forget_chats_of(9);
+        assert!(forgotten(later, 8), "a forget of every chat came between");
     }
 
     #[test]

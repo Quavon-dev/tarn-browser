@@ -1,36 +1,20 @@
-use browser_core::notes::{Draft, EMPTY, INTRO, NO_MATCH, PRIVATE, rows};
-use nsh_base::{Input, input};
+use browser_core::notes::{Draft, EMPTY, INTRO, NO_MATCH, PRIVATE, Sort, markdown, sorted};
 use nsh_core::prelude::*;
-use store::{Id, Store};
+use store::{Id, Note, Store};
 
-use crate::controls::{accent_pill, confirm, empty_state, group, label, pill, section};
-use crate::theme::{TEXT_SMALL, Theme};
+use crate::controls::{Segment, accent_pill, confirm, empty_state, field, group, hint, list_row, pill, section, segmented, signal_field};
+use crate::theme::Theme;
 
 /// What the Notes pane edits: the current profile's notes in the disk store.
 pub trait Host: Copy + 'static {
     /// The current profile, or none in a private space or burner tab.
     fn profile(self) -> Option<Id>;
     fn with_store<R>(self, f: impl FnOnce(&Store) -> R) -> R;
-}
-
-fn field(name: &'static str, value: impl Fn() -> String + 'static, set: impl Fn(&str) + 'static) -> Input {
-    input()
-        .value(value)
-        .on_change(move |v: &str| set(v))
-        .label(name)
-        .placeholder(name)
-        .w_full()
-        .px(px(8.))
-        .py(px(6.))
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised())
-        .border_1()
-        .border_color(Theme::hairline())
-        .text_color(Theme::text())
-}
-
-fn hint(content: impl IntoReactive<SharedString>) -> Text {
-    text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted).px_1()
+    /// Opens the assistant's chat with `note` attached, under the chat's own rules.
+    fn ask(self, note: &Note);
+    /// Hands `markdown`, every note as one file named `notes::EXPORT_NAME`, to the system to
+    /// save or share, and says when it could not.
+    fn export(self, markdown: String);
 }
 
 /// Settings › Notes: the current profile's notes with a search field, each with its title and a
@@ -52,8 +36,21 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
             return Some(view().gap_2().child(intro).child(empty_state(PRIVATE)));
         };
         let saved = host.with_store(|s| s.notes(profile).unwrap_or_default());
+        let sort = host.with_store(Sort::load);
+        let sorts: Vec<Segment> = Sort::ALL
+            .into_iter()
+            .map(|choice| {
+                let pick = move || {
+                    host.with_store(|s| choice.save(s));
+                    rev.update(|r| *r += 1);
+                };
+                (choice.name().to_owned(), Box::new(move || choice == sort) as Box<dyn Fn() -> bool>, Box::new(pick) as Box<dyn Fn()>)
+            })
+            .collect();
+        let all = markdown(&saved);
+        let has_notes = !saved.is_empty();
         let list = dynamic(move || {
-            let shown = rows(&saved, &query.get());
+            let shown = sorted(&saved, &query.get(), sort);
             if shown.is_empty() {
                 return Some(view().child(empty_state(if saved.is_empty() { EMPTY } else { NO_MATCH })));
             }
@@ -62,22 +59,11 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                 .enumerate()
                 .map(|(ix, r)| {
                     let (id, title) = (r.id, r.title.clone());
-                    let open = saved.iter().find(|n| n.id == id).map(Draft::of);
-                    let (gone, named) = (title.clone(), title.clone());
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .px_3()
-                        .py_2()
-                        .when(ix > 0, |v| v.border_t_1().border_color(Theme::separator))
-                        .child(
-                            view()
-                                .flex_1()
-                                .min_w(px(0.))
-                                .child(label(r.title).font_weight(FontWeight::MEDIUM).number_of_lines(1_u32))
-                                .child(hint(r.preview).number_of_lines(1_u32)),
-                        )
+                    let note = saved.iter().find(|n| n.id == id).cloned();
+                    let open = note.as_ref().map(Draft::of);
+                    let (gone, named, asked) = (title.clone(), title.clone(), title.clone());
+                    list_row(ix, r.title, r.preview)
+                        .children(note.map(|n| pill("Ask", move || host.ask(&n)).accessibility_label(format!("Ask the assistant about {asked}"))))
                         .child(pill("Edit", move || edit(open.clone())).accessibility_label(format!("Edit {title}")))
                         .child(
                             pill("Delete", move || {
@@ -128,9 +114,20 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                 .gap_2()
                 .child(intro)
                 .child(section("Notes"))
-                .child(field("Search notes", move || query.get(), move |v| query.set(v.to_owned())))
+                .child(signal_field("Search notes", query))
+                .when(has_notes, |v| v.child(segmented(sorts)))
                 .child(list)
-                .child(dynamic(move || (!editing.get()).then(|| view().flex_row().child(pill("New Note", move || edit(Some(Draft::default())))))))
+                .child(dynamic(move || {
+                    (!editing.get()).then(|| {
+                        let all = all.clone();
+                        view()
+                            .flex_row()
+                            .flex_wrap()
+                            .gap_2()
+                            .child(pill("New Note", move || edit(Some(Draft::default()))))
+                            .when(has_notes, |v| v.child(pill("Export", move || host.export(all.clone())).accessibility_label("Export Notes as Markdown")))
+                    })
+                }))
                 .child(editor),
         )
     })

@@ -1,25 +1,23 @@
-use browser_core::snippets::{NAME_RULE, NOTE, preview, valid_name};
-use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window, div,
-    prelude::FluentBuilder, px,
-};
+use browser_core::snippets::{EXPAND, EXPAND_NOTE, NAME_RULE, NO_MATCH, NOTE, matching, preview, valid_name};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window, div, px};
 use store::{Id, Snippet};
-use ui::controls::{button, field, group, note, row, section, tab_stop};
+use ui::controls::{button, field, group, note, row, section, switch_row, tab_stop, text_block};
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::Theme;
 
-use super::{SettingsWindow, Snapshot, label, value};
+use super::{SettingsWindow, Snapshot, editor_actions, label, search_field, value, warning};
 
 pub(super) struct Pane {
+    search: Entity<TextInput>,
     name: Entity<TextInput>,
     body: Entity<TextInput>,
     editing: Option<Snippet>,
     error: Option<String>,
-    _submit: [Subscription; 2],
+    _inputs: [Subscription; 3],
 }
 
 impl Pane {
     pub(super) fn new(cx: &mut Context<SettingsWindow>) -> Pane {
+        let search = cx.new(|cx| TextInput::new("Search snippets", cx));
         let name = cx.new(|cx| TextInput::new("name", cx));
         let body = cx.new(|cx| TextInput::new("Text to insert", cx));
         let submit = |this: &mut SettingsWindow, _: Entity<TextInput>, event: &TextInputEvent, cx: &mut Context<SettingsWindow>| {
@@ -27,7 +25,19 @@ impl Pane {
                 this.save_snippet(cx);
             }
         };
-        Pane { _submit: [cx.subscribe(&name, submit), cx.subscribe(&body, submit)], name, body, editing: None, error: None }
+        let filter = |_: &mut SettingsWindow, _: Entity<TextInput>, event: &TextInputEvent, cx: &mut Context<SettingsWindow>| {
+            if matches!(event, TextInputEvent::Changed) {
+                cx.notify();
+            }
+        };
+        Pane {
+            _inputs: [cx.subscribe(&search, filter), cx.subscribe(&name, submit), cx.subscribe(&body, submit)],
+            search,
+            name,
+            body,
+            editing: None,
+            error: None,
+        }
     }
 }
 
@@ -97,11 +107,22 @@ impl SettingsWindow {
         let Some(profile) = s.profile.as_ref().filter(|_| !s.private).map(|p| p.id) else {
             return page.child(note("Snippets belong to a saved profile. Open Settings from one of its spaces to edit them.")).into_any_element();
         };
-        let list = if s.snippets.is_empty() {
-            note("No snippets yet.").into_any_element()
+        let pane = &self.snippets;
+        let focused = |input: &Entity<TextInput>| input.focus_handle(cx).is_focused(window);
+        let expand = EXPAND.on(&crate::shared::core(cx).disk);
+        let toggle =
+            group().child(switch_row("snippet-expand", true, text_block("Expand ;name in the address and command bar", EXPAND_NOTE), expand).on_click(
+                cx.listener(move |_, _, _, cx| {
+                    EXPAND.set(&crate::shared::core(cx).disk, !expand);
+                    cx.notify();
+                }),
+            ));
+        let shown = matching(pane.search.read(cx).text(), &s.snippets);
+        let list = if shown.is_empty() {
+            note(if s.snippets.is_empty() { "No snippets yet." } else { NO_MATCH }).into_any_element()
         } else {
             let mut list = group();
-            for (ix, snippet) in s.snippets.iter().enumerate() {
+            for (ix, snippet) in shown.into_iter().enumerate() {
                 let (id, edit) = (snippet.id, snippet.clone());
                 list = list.child(
                     row(ix == 0)
@@ -119,26 +140,25 @@ impl SettingsWindow {
             }
             list.into_any_element()
         };
-        let pane = &self.snippets;
-        let focused = |input: &Entity<TextInput>| input.focus_handle(cx).is_focused(window);
         let editing = pane.editing.is_some();
         let editor = group()
             .child(row(true).child(label("Name")).child(field(focused(&pane.name)).w(px(260.)).py_0p5().child(pane.name.clone())))
             .child(row(false).child(label("Text")).child(field(focused(&pane.body)).w(px(420.)).py_0p5().child(pane.body.clone())));
-        let actions = div()
-            .pt_2()
-            .flex()
-            .justify_end()
-            .gap_2()
-            .when(editing, |d| {
-                d.child(tab_stop(button("snippet-cancel", "Cancel", false)).on_click(cx.listener(|this, _, _, cx| this.clear_snippet_editor(cx))))
-            })
-            .child(tab_stop(button("snippet-save", if editing { "Save" } else { "Add" }, true)).on_click(cx.listener(|this, _, _, cx| this.save_snippet(cx))));
-        page.child(list)
+        let actions = editor_actions(
+            "snippet-editor",
+            editing,
+            Box::new(cx.listener(|this, _, _, cx| this.clear_snippet_editor(cx))),
+            Box::new(cx.listener(|this, _, _, cx| this.save_snippet(cx))),
+        );
+        page.child(section("Expansion"))
+            .child(toggle)
+            .child(section("Your snippets"))
+            .child(search_field(&pane.search, focused(&pane.search)))
+            .child(div().pt_2().child(list))
             .child(section(if editing { "Edit snippet" } else { "New snippet" }))
             .child(editor)
             .child(note(NAME_RULE))
-            .children(pane.error.clone().map(|e| note(e).text_color(Theme::warning())))
+            .children(pane.error.clone().map(warning))
             .child(actions)
             .into_any_element()
     }

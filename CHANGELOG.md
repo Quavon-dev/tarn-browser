@@ -8,6 +8,17 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
+  Settings › AI deletes them all. An answer can be copied and retried and its question edited;
+  code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude
+  model. On macOS and Windows, Insert into Page types an answer into the page's focused field, as
+  Insert Snippet does. Never in a private space, a burner tab or under Lockdown.
+- Settings › AI: choose the Claude model (Opus 5.5, Sonnet 5.5, Haiku 5.5) and write your own
+  commands with `{page}`, `{selection}` and `{question}`.
+- Settings › Snippets: search, and a switch for `;name` expansion in the address and command bar.
+- Settings › Notes: sort by last edited or title, Ask the assistant about a note, and export all
+  notes as one Markdown file.
+
 - Install with one command: `brew install --cask quavon-dev/tarn/tarn` on macOS (the cask follows
   each release; Tarn keeps updating itself), and on Windows
   `irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.ps1 | iex`,

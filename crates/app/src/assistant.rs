@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
@@ -9,16 +9,16 @@ use std::time::{Duration, Instant};
 use ai::local::Model;
 use ai::markdown::{Block, Span};
 use browser_core::assistant::links::{self, LinkAction};
-use browser_core::assistant::settings::Provider as Choice;
+use browser_core::assistant::settings::{self as ai_settings, CLAUDE_MODELS, Provider as Choice};
 use browser_core::assistant::{self as core, ChatView, Effect, Event, Origin, Pill, ProfileKind, Role, Session, commands};
 use browser_core::tabs::TabKey;
 use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, FontStyle, FontWeight, HighlightStyle, InteractiveElement, InteractiveText, IntoElement, ParentElement,
-    PromptLevel, StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, Subscription, Task, UnderlineStyle, Window, actions, div,
+    AnyElement, AppContext, ClipboardItem, Context, Entity, Focusable, FontStyle, FontWeight, HighlightStyle, InteractiveElement, InteractiveText, IntoElement,
+    ParentElement, PromptLevel, StatefulInteractiveElement, StrikethroughStyle, Styled, StyledText, Subscription, Task, UnderlineStyle, Window, actions, div,
     prelude::FluentBuilder, px,
 };
 use shield::ShieldLevel;
-use ui::controls::{button, field, icon_button, note, tab_stop, tooltip};
+use ui::controls::{button, field, icon_button, note, segment, segmented, tab_stop, tooltip};
 use ui::icon::{Icon, icon};
 use ui::motion::{FADE, SLIDE, progress};
 use ui::text::OneLine;
@@ -79,7 +79,18 @@ pub(crate) struct Assistant {
     grouping: Option<Cancel>,
     /// Each answer row's text and its parsed blocks, parsed again only when the text changed.
     parsed: RefCell<HashMap<usize, Parsed>>,
-    _submit: Subscription,
+    /// The saved chats list is shown in place of the chat.
+    chats: bool,
+    chat_search: Entity<TextInput>,
+    rename: Entity<TextInput>,
+    renaming: Option<store::Id>,
+    /// The provider and model picker under the header is open.
+    models: bool,
+    /// The question starts with `/`, so the column lists commands.
+    slash: bool,
+    /// The provider and Claude model, read again only when a setting changed.
+    choice: Cell<Option<(u64, Choice, usize)>>,
+    _inputs: [Subscription; 3],
 }
 
 impl Assistant {
@@ -97,9 +108,31 @@ impl Assistant {
 
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Browser>) -> Self {
         let input = cx.new(|cx| TextInput::new("Ask about the pills above, or anything", cx));
-        let submit = cx.subscribe_in(&input, window, |b: &mut Browser, _, event, window, cx| match event {
+        let submit = cx.subscribe_in(&input, window, |b: &mut Browser, input, event, window, cx| match event {
             TextInputEvent::Submit => b.send_question(cx),
             TextInputEvent::Cancel => b.toggle_assistant(false, window, cx),
+            TextInputEvent::Changed => {
+                let slash = input.read(cx).text().trim_start().starts_with('/');
+                if slash || b.assistant.slash {
+                    b.assistant.slash = slash;
+                    cx.notify();
+                }
+            }
+            _ => {}
+        });
+        let chat_search = cx.new(|cx| TextInput::new("Search chats", cx));
+        let rename = cx.new(|cx| TextInput::new("Title", cx));
+        let search = cx.subscribe(&chat_search, |_: &mut Browser, _, event, cx| {
+            if matches!(event, TextInputEvent::Changed) {
+                cx.notify();
+            }
+        });
+        let renamed = cx.subscribe(&rename, |b: &mut Browser, _, event, cx| match event {
+            TextInputEvent::Submit => b.rename_chat(cx),
+            TextInputEvent::Cancel => {
+                b.assistant.renaming = None;
+                cx.notify();
+            }
             _ => {}
         });
         Assistant {
@@ -113,7 +146,14 @@ impl Assistant {
             picking: false,
             grouping: None,
             parsed: RefCell::default(),
-            _submit: submit,
+            chats: false,
+            chat_search,
+            rename,
+            renaming: None,
+            models: false,
+            slash: false,
+            choice: Cell::default(),
+            _inputs: [submit, search, renamed],
         }
     }
 }
@@ -279,7 +319,7 @@ impl Browser {
         }
     }
 
-    fn sync_assistant_menus(&self) {
+    pub(crate) fn sync_assistant_menus(&self) {
         self.views.keys().for_each(|key| self.sync_assistant_menu(*key));
     }
 
@@ -320,7 +360,18 @@ impl Browser {
         }
         let custom = self.core.disk.ai_commands(origin.profile).unwrap_or_default();
         if let Some(template) = command.and_then(|name| commands::for_selection(&custom, &name)) {
-            self.send(String::new(), &template, cx);
+            self.send(String::new(), &template, false, cx);
+        }
+    }
+
+    /// Opens the chat with `note` as a pill, for Settings › Notes' Ask.
+    pub(crate) fn ask_note(&mut self, note: &store::Note, window: &mut Window, cx: &mut Context<Self>) {
+        window.activate_window();
+        self.toggle_assistant(true, window, cx);
+        if let Some((origin, true)) = self.assistant_origin()
+            && let Some(pill) = browser_core::notes::as_pill(note, origin.profile)
+        {
+            self.add_pill(origin, pill, cx);
         }
     }
 
@@ -346,14 +397,33 @@ impl Browser {
         cx.notify();
     }
 
+    /// Sends the question field; `/name rest` runs that command with `rest` as its question.
     fn send_question(&mut self, cx: &mut Context<Self>) {
         let question = self.assistant.input.read(cx).text().to_owned();
-        if !question.trim().is_empty() {
-            self.send(question, core::ASK, cx);
+        if question.trim().is_empty() {
+            return;
+        }
+        let all = self.chat_commands();
+        match commands::slash(&question, &all) {
+            Some((ix, rest)) => self.send(rest.to_owned(), &all[ix].1, true, cx),
+            None => self.send(question, core::ASK, true, cx),
         }
     }
 
-    fn send(&mut self, question: String, template: &str, cx: &mut Context<Self>) {
+    /// Built-in and the profile's own commands, as the `/` menu lists them.
+    fn chat_commands(&self) -> Vec<(String, String)> {
+        let custom = self.assistant.session.as_ref().and_then(|s| self.core.disk.ai_commands(s.profile()).ok()).unwrap_or_default();
+        commands::all(&custom)
+    }
+
+    fn run_command(&mut self, ix: usize, cx: &mut Context<Self>) {
+        if let Some((_, template)) = self.chat_commands().get(ix) {
+            self.send(String::new(), &template.clone(), true, cx);
+        }
+    }
+
+    /// `from_input`: the question came from the field, which empties once it is sent.
+    fn send(&mut self, question: String, template: &str, from_input: bool, cx: &mut Context<Self>) {
         self.sync_session();
         if self.assistant.session.as_ref().is_none_or(|s| !core::view(s).can_send) {
             return;
@@ -365,17 +435,148 @@ impl Browser {
         let (shell, profile) = (&self.core, session.profile());
         let level_of = |url: &Url| shell.level(false, profile, Some(url)).unwrap_or(ShieldLevel::Lockdown);
         let effects = session.send(&question, template, browser_core::now(), origin, on, level_of);
-        if template == core::ASK && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
+        if from_input && effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
             self.assistant.input.update(cx, |i, cx| i.set_text("", cx));
         }
         self.run_effects(effects, Some((answer, core::on_device_task(template))), cx);
     }
 
+    /// Asks the last question again in place of its answer.
+    fn retry_answer(&mut self, cx: &mut Context<Self>) {
+        self.sync_session();
+        let Some((origin, on)) = self.page_origin() else { return };
+        let answer = provider(&self.core.disk);
+        self.assistant.connect = false;
+        let Some(session) = self.assistant.session.as_mut() else { return };
+        let (shell, profile) = (&self.core, session.profile());
+        let level_of = |url: &Url| shell.level(false, profile, Some(url)).unwrap_or(ShieldLevel::Lockdown);
+        let effects = session.retry(browser_core::now(), origin, on, level_of);
+        let on_device = session.last_was_command();
+        self.run_effects(effects, Some((answer, on_device)), cx);
+        self.save_chat();
+    }
+
+    /// Takes the last question back into the field to change and send again.
+    fn edit_question(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(question) = self.assistant.session.as_mut().and_then(Session::edit_last) else { return };
+        self.save_chat();
+        self.assistant.input.update(cx, |i, cx| {
+            i.set_text(question, cx);
+            i.append_selected("", cx);
+        });
+        window.focus(&self.assistant.input.focus_handle(cx));
+        cx.notify();
+    }
+
     fn cancel_answer(&mut self, cx: &mut Context<Self>) {
+        let Some(session) = self.assistant.session.as_mut().filter(|s| core::view(s).can_cancel) else { return };
+        let effects = session.apply(Event::Cancel);
+        self.run_effects(effects, None, cx);
+        self.save_chat();
+    }
+
+    /// Keeps the chat in the profile once no answer streams; the store refuses a private profile.
+    fn save_chat(&mut self) {
         if let Some(session) = self.assistant.session.as_mut() {
-            let effects = session.apply(Event::Cancel);
-            self.run_effects(effects, None, cx);
+            session.save(&self.core.disk);
         }
+    }
+
+    fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_answer(cx);
+        self.end_run();
+        self.assistant.chats = false;
+        self.assistant.session = self.assistant_origin().and_then(|(o, on)| Session::new(o, on));
+        self.assistant.input.update(cx, |i, cx| i.set_text("", cx));
+        window.focus(&self.assistant.input.focus_handle(cx));
+        cx.notify();
+    }
+
+    /// Continues a saved chat of the current profile, under the rules of a new one.
+    fn open_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
+        let Some((origin, on)) = self.assistant_origin() else { return };
+        let saved = self.core.disk.chat(origin.profile, id).ok().flatten();
+        let shell = &self.core;
+        let level_of = |url: &Url| shell.level(false, origin.profile, Some(url)).unwrap_or(ShieldLevel::Lockdown);
+        let Some(session) = saved.and_then(|c| Session::restore(origin, on, &c, level_of)) else {
+            return self.show_toast_as(browser_core::toast::Tone::Warning, "This chat could not be opened.", None, cx);
+        };
+        self.cancel_answer(cx);
+        self.end_run();
+        self.assistant.session = Some(session);
+        self.save_chat();
+        self.assistant.chats = false;
+        window.focus(&self.assistant.input.focus_handle(cx));
+        cx.notify();
+    }
+
+    fn delete_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(profile) = self.assistant.session.as_ref().map(Session::profile) else { return };
+        if self.core.disk.delete_chat(profile, id).is_ok() && self.assistant.session.as_ref().and_then(Session::chat) == Some(id) {
+            let chats = self.assistant.chats;
+            self.new_chat(window, cx);
+            self.assistant.chats = chats;
+        }
+        cx.notify();
+    }
+
+    fn start_rename(&mut self, id: store::Id, title: String, window: &mut Window, cx: &mut Context<Self>) {
+        self.assistant.renaming = Some(id);
+        self.assistant.rename.update(cx, |i, cx| {
+            i.set_text(title, cx);
+            i.select_all_from_start(cx);
+        });
+        window.focus(&self.assistant.rename.focus_handle(cx));
+        cx.notify();
+    }
+
+    fn rename_chat(&mut self, cx: &mut Context<Self>) {
+        let (Some(id), Some(profile)) = (self.assistant.renaming.take(), self.assistant.session.as_ref().map(Session::profile)) else { return };
+        let title = self.assistant.rename.read(cx).text().to_owned();
+        if self.core.disk.rename_chat(profile, id, &title).is_err() {
+            self.show_toast_as(browser_core::toast::Tone::Warning, "That title cannot be used.", None, cx);
+        }
+        cx.notify();
+    }
+
+    /// Ends `profile`'s chat once its saved chats are deleted, so it is not saved again.
+    pub(crate) fn forget_chats(&mut self, profile: store::Id, cx: &mut Context<Self>) {
+        if self.assistant.session.as_ref().is_some_and(|s| s.profile() == profile) {
+            self.end_run();
+            self.assistant.session = None;
+            self.sync_session();
+        }
+        cx.notify();
+    }
+
+    /// Types the last answer into the page's focused field, as Insert Snippet does.
+    fn insert_last_answer(&mut self, cx: &mut Context<Self>) {
+        if let Some(text) = self.assistant.session.as_ref().and_then(|s| s.last_answer().map(str::to_owned)) {
+            self.insert_answer(&text, cx);
+        }
+    }
+
+    fn choose_model(&mut self, provider: Choice, model: Option<usize>, cx: &mut Context<Self>) {
+        ai_settings::set_provider(&self.core.disk, provider);
+        if let Some(ix) = model {
+            ai_settings::set_claude_model(&self.core.disk, ix);
+        }
+        self.assistant.connect = false;
+        crate::shared::others(cx, |_, _, cx| cx.notify());
+        cx.notify();
+    }
+
+    /// The chosen provider and Claude model.
+    fn chosen_model(&self) -> (Choice, usize) {
+        let changes = self.core.disk.settings_changes();
+        if let Some((seen, provider, model)) = self.assistant.choice.get()
+            && seen == changes
+        {
+            return (provider, model);
+        }
+        let (provider, model) = (ai_settings::provider(&self.core.disk), ai_settings::claude_model(&self.core.disk));
+        self.assistant.choice.set(Some((changes, provider, model)));
+        (provider, model)
     }
 
     fn remove_pill(&mut self, ix: usize, cx: &mut Context<Self>) {
@@ -457,6 +658,9 @@ impl Browser {
             self.assistant.run = None;
         }
         self.run_effects(effects, None, cx);
+        if !going || self.assistant.run.is_none() {
+            self.save_chat();
+        }
         going
     }
 
@@ -587,14 +791,17 @@ impl Browser {
 /// stays on this Mac where its on-device model can answer.
 pub(crate) fn provider(store: &store::Store) -> Answer {
     let transport: Arc<dyn ai::Transport> = Arc::new(ai::UreqTransport);
-    match browser_core::assistant::settings::provider(store) {
-        Choice::ClaudeApi => Box::new(move |req, on_device, cancel, named, on_text| {
-            let token = ai::secrets::load_token(&ai::secrets::Keyring)?.ok_or_else(|| ai::AiError::Unavailable(core::NOT_CONNECTED.into()))?;
-            let api = ai::ClaudeApi::new(token, None, transport);
-            ai::local::answer(Model::Cloud(&api, Choice::ClaudeApi.name()), on_device_model(), on_device, req, cancel, named, on_text)
-        }),
+    match ai_settings::provider(store) {
+        Choice::ClaudeApi => {
+            let model = ai_settings::claude_model_id(store);
+            Box::new(move |req, on_device, cancel, named, on_text| {
+                let token = ai::secrets::load_token(&ai::secrets::Keyring)?.ok_or_else(|| ai::AiError::Unavailable(core::NOT_CONNECTED.into()))?;
+                let api = ai::ClaudeApi::new(token, Some(model), transport);
+                ai::local::answer(Model::Cloud(&api, Choice::ClaudeApi.name()), on_device_model(), on_device, req, cancel, named, on_text)
+            })
+        }
         Choice::Ollama => {
-            let name = browser_core::assistant::settings::ollama_model(store);
+            let name = ai_settings::ollama_model(store);
             let label = format!("{} ({name})", Choice::Ollama.name());
             let model = ai::Ollama::new(name, transport);
             Box::new(move |req, on_device, cancel, named, on_text| {
@@ -626,8 +833,15 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
     let reduce = b.pref(crate::prefs::Pref::ReduceMotion);
     b.sync_session();
     let body = match b.assistant.session.as_ref() {
+        Some(session) if b.assistant.chats => chat_list(session.profile(), session.chat(), b, window, cx),
         Some(session) => chat(&core::view(session), b, window, cx),
         None => unavailable(b, cx),
+    };
+    let saved = b.assistant.session.as_ref().is_some();
+    let (provider, model) = b.chosen_model();
+    let model_name = match provider {
+        Choice::ClaudeApi => CLAUDE_MODELS[model].1,
+        Choice::Ollama => "Ollama",
     };
     let column = div()
         .id("assistant")
@@ -660,13 +874,38 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
                 .items_center()
                 .gap_2()
                 .child(icon(Icon::Sparkles, ui::icon::ICON, Theme::muted()))
-                .child(div().flex_1().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).one_line("Assistant"))
+                .child(div().flex_1().min_w_0().text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).one_line("Assistant"))
+                .when(saved, |d| {
+                    d.child(
+                        tab_stop(button("assistant-model", model_name, b.assistant.models)).tooltip(tooltip("Choose the provider and model", None)).on_click(
+                            cx.listener(|b, _, _, cx| {
+                                b.assistant.models = !b.assistant.models;
+                                cx.notify();
+                            }),
+                        ),
+                    )
+                    .child(
+                        tab_stop(icon_button("assistant-chats", Icon::History, true))
+                            .tooltip(tooltip(if b.assistant.chats { "Back to the Chat" } else { "Saved Chats" }, None))
+                            .on_click(cx.listener(|b, _, _, cx| {
+                                b.assistant.chats = !b.assistant.chats;
+                                b.assistant.renaming = None;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        tab_stop(icon_button("assistant-new", Icon::Plus, true))
+                            .tooltip(tooltip("New Chat", None))
+                            .on_click(cx.listener(|b, _, w, cx| b.new_chat(w, cx))),
+                    )
+                })
                 .child(
                     tab_stop(icon_button("assistant-close", Icon::Close, true))
                         .tooltip(tooltip("Close Assistant", Some("⇧Esc".into())))
                         .on_click(cx.listener(|b, _, w, cx| b.toggle_assistant(false, w, cx))),
                 ),
         )
+        .when(saved && b.assistant.models, |d| d.child(model_picker(provider, model, cx)))
         .child(body);
     let outer = div().flex_none().h_full().overflow_hidden();
     Some(if reduce { outer.w(px(WIDTH)).opacity(shown).child(column).into_any_element() } else { outer.w(px(WIDTH * shown)).child(column).into_any_element() })
@@ -692,34 +931,152 @@ fn open_settings_button(id: &'static str, cx: &mut Context<Browser>) -> gpui::St
     tab_stop(button(id, "Open Settings › AI", false)).on_click(cx.listener(|b, _, w, cx| b.open_settings_pane(SettingsPane::Ai, w, cx)))
 }
 
+/// Where questions go, written to the same settings as Settings › AI.
+fn model_picker(provider: Choice, model: usize, cx: &mut Context<Browser>) -> AnyElement {
+    let providers = segmented().children(Choice::ALL.into_iter().enumerate().map(|(ix, choice)| {
+        tab_stop(segment(("assistant-provider", ix), choice.name(), choice == provider))
+            .on_click(cx.listener(move |b, _, _, cx| b.choose_model(choice, None, cx)))
+    }));
+    let models = (provider == Choice::ClaudeApi).then(|| {
+        segmented().children(CLAUDE_MODELS.iter().enumerate().map(|(ix, (_, name))| {
+            tab_stop(segment(("assistant-claude-model", ix), *name, ix == model))
+                .on_click(cx.listener(move |b, _, _, cx| b.choose_model(Choice::ClaudeApi, Some(ix), cx)))
+        }))
+    });
+    div()
+        .flex_none()
+        .px_3()
+        .pb_2()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .text_size(px(TEXT_SMALL))
+        .border_b_1()
+        .border_color(Theme::separator())
+        .child(providers)
+        .children(models)
+        .into_any_element()
+}
+
+fn chat_list(profile: store::Id, open: Option<store::Id>, b: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
+    let all = b.core.disk.chat_titles(profile).unwrap_or_default();
+    let shown = core::find_chats(&all, b.assistant.chat_search.read(cx).text());
+    let search_focused = b.assistant.chat_search.focus_handle(cx).is_focused(window);
+    let rename_focused = b.assistant.rename.focus_handle(cx).is_focused(window);
+    let empty = if all.is_empty() {
+        Some("No saved chats yet. A chat is kept once it has an answer.")
+    } else if shown.is_empty() {
+        Some("No chats match.")
+    } else {
+        None
+    };
+    let rows = shown.into_iter().enumerate().map(|(ix, chat)| {
+        let id = chat.id;
+        if b.assistant.renaming == Some(id) {
+            return div().px_1().child(field(rename_focused).child(b.assistant.rename.clone())).into_any_element();
+        }
+        let title = chat.title.clone();
+        div()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(
+                tab_stop(
+                    div()
+                        .id(("assistant-chat", ix))
+                        .flex_1()
+                        .min_w_0()
+                        .px_2()
+                        .h(px(28.))
+                        .flex()
+                        .items_center()
+                        .rounded(px(Theme::radius_small()))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(Theme::control()))
+                        .when(open == Some(id), |d| d.bg(Theme::accent_soft()))
+                        .child(div().min_w_0().one_line(chat.title.clone())),
+                )
+                .on_click(cx.listener(move |b, _, w, cx| b.open_chat(id, w, cx))),
+            )
+            .child(
+                tab_stop(icon_button(("assistant-chat-rename", ix), Icon::Pencil, true))
+                    .tooltip(tooltip("Rename", None))
+                    .on_click(cx.listener(move |b, _, w, cx| b.start_rename(id, title.clone(), w, cx))),
+            )
+            .child(
+                tab_stop(icon_button(("assistant-chat-delete", ix), Icon::Trash, true))
+                    .tooltip(tooltip("Delete", None))
+                    .on_click(cx.listener(move |b, _, w, cx| b.delete_chat(id, w, cx))),
+            )
+            .into_any_element()
+    });
+    div()
+        .id("assistant-chat-list")
+        .flex_1()
+        .min_h_0()
+        .overflow_y_scroll()
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(field(search_focused).child(b.assistant.chat_search.clone()))
+        .children(empty.map(|e| note(e).pt_1()))
+        .children(rows)
+        .into_any_element()
+}
+
 fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Browser>) -> AnyElement {
     let me = cx.entity().downgrade();
+    let last = view.rows.len().checked_sub(1);
     let rows = view
         .rows
         .iter()
         .enumerate()
-        .map(|(ix, row)| match row.role {
-            Role::You => div()
-                .ml_auto()
-                .max_w(px(WIDTH - 48.))
-                .px_3()
-                .py_2()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::accent_soft())
-                .child(row.text.clone())
-                .into_any_element(),
-            Role::Assistant => {
-                let blocks = b.assistant.blocks(ix, &row.text);
-                let mut answer = div().flex().flex_col().gap_2().children(markdown(&blocks, ix, &me));
-                if row.streaming {
-                    answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
-                } else {
-                    answer = answer.children(link_list(&blocks, ix, cx));
+        .map(|(ix, row)| {
+            let actions = (!row.streaming && !view.can_cancel).then(|| turn_actions(ix, row, Some(ix) == last, cx));
+            match row.role {
+                Role::You => div()
+                    .flex()
+                    .flex_col()
+                    .items_end()
+                    .gap_1()
+                    .child(div().max_w(px(WIDTH - 48.)).px_3().py_2().rounded(px(Theme::radius_row())).bg(Theme::accent_soft()).child(row.text.clone()))
+                    .children(actions)
+                    .into_any_element(),
+                Role::Assistant => {
+                    let blocks = b.assistant.blocks(ix, &row.text);
+                    let mut answer = div().flex().flex_col().gap_2().children(markdown(&blocks, ix, &me));
+                    if row.streaming {
+                        answer = answer.child(ui::controls::spinner(ui::icon::ICON_SMALL, Theme::muted()));
+                    } else {
+                        answer = answer.children(link_list(&blocks, ix, cx));
+                    }
+                    answer.children(row.by.clone().map(|by| note(by).pt_0())).children(actions).into_any_element()
                 }
-                answer.children(row.by.clone().map(|by| note(by).pt_0())).into_any_element()
             }
         })
         .collect::<Vec<_>>();
+    let typed = b.assistant.input.read(cx).text().to_owned();
+    let commands = if b.assistant.slash { b.chat_commands() } else { Vec::new() };
+    let menu = commands::slash_menu(&typed, &commands);
+    let menu = (!menu.is_empty()).then(|| {
+        div().id("assistant-commands").max_h(px(180.)).overflow_y_scroll().flex().flex_col().gap_1().children(menu.into_iter().map(|ix| {
+            tab_stop(
+                div()
+                    .id(("assistant-command", ix))
+                    .px_2()
+                    .h(px(26.))
+                    .flex()
+                    .items_center()
+                    .rounded(px(Theme::radius_small()))
+                    .text_size(px(TEXT_SMALL))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(Theme::control()))
+                    .child(div().min_w_0().one_line(format!("/{}", commands[ix].0))),
+            )
+            .on_click(cx.listener(move |b, _, _, cx| b.run_command(ix, cx)))
+        }))
+    });
     let picker = b.assistant.picking.then(|| tab_picker(b, cx));
     let chips = view
         .chips
@@ -773,9 +1130,7 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .flex()
                 .flex_col()
                 .gap_3()
-                .when(view.rows.is_empty(), |d| {
-                    d.child(note("Ask a question, or add this page with the button below. Nothing leaves this computer until you press Send.").pt_0())
-                })
+                .when(view.rows.is_empty(), |d| d.child(empty_chat(cx)))
                 .children(rows),
         )
         .child(
@@ -795,6 +1150,7 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 .child(div().flex().flex_wrap().gap_1().children(chips))
                 .child(note(will_send).pt_0())
                 .children(picker)
+                .children(menu)
                 .child(field(focused).child(b.assistant.input.clone()))
                 .child(
                     div()
@@ -811,6 +1167,49 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 ),
         )
         .into_any_element()
+}
+
+/// What an empty chat shows: how sending works, and commands to start from. A suggestion only
+/// fills the question field; nothing is sent until Send.
+fn empty_chat(cx: &mut Context<Browser>) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(note("Ask a question, or add this page with the button below. Nothing leaves this computer until you press Send.").pt_0())
+        .child(note("Type / for commands, or start with one:").pt_0())
+        .child(div().flex().flex_wrap().gap_1().children(commands::BUILT_IN.iter().enumerate().map(|(ix, (name, _))| {
+            tab_stop(button(("assistant-suggest", ix), *name, false)).on_click(cx.listener(move |b, _, w, cx| {
+                b.assistant.input.update(cx, |i, cx| {
+                    i.set_text(format!("/{name} "), cx);
+                    i.append_selected("", cx);
+                });
+                w.focus(&b.assistant.input.focus_handle(cx));
+                cx.notify();
+            }))
+        })))
+        .into_any_element()
+}
+
+/// Copy on every answer; on the last turn also Retry and Edit Question, and Insert into Page for
+/// an answer.
+fn turn_actions(ix: usize, row: &core::Row, last: bool, cx: &mut Context<Browser>) -> gpui::Div {
+    let answer = row.role == Role::Assistant && !row.text.is_empty() && row.text != core::FORGOTTEN;
+    let text = row.text.clone();
+    let action = |id: &'static str, glyph: Icon, tip: &'static str| tab_stop(icon_button((id, ix), glyph, true)).tooltip(tooltip(tip, None));
+    div()
+        .flex()
+        .gap_1()
+        .when(answer, |d| {
+            d.child(action("assistant-copy", Icon::Copy, "Copy").on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(text.clone()))))
+        })
+        .when(last, |d| {
+            d.child(action("assistant-retry", Icon::Reload, "Retry").on_click(cx.listener(|b, _, _, cx| b.retry_answer(cx))))
+                .child(action("assistant-edit", Icon::Pencil, "Edit Question").on_click(cx.listener(|b, _, w, cx| b.edit_question(w, cx))))
+        })
+        .when(last && answer, |d| {
+            d.child(action("assistant-insert", Icon::FileDown, "Insert into Page").on_click(cx.listener(|b, _, _, cx| b.insert_last_answer(cx))))
+        })
 }
 
 /// The current space's other tabs the assistant may read; a sleeping one is shown but cannot be
@@ -900,14 +1299,22 @@ fn markdown(blocks: &[Block], row: usize, me: &gpui::WeakEntity<Browser>) -> Vec
                 Block::Quote(spans) => {
                     div().pl_2().border_l_2().border_color(Theme::separator()).text_color(Theme::muted()).child(spans_text(id, spans, me)).into_any_element()
                 }
-                Block::Code { code, .. } => div()
-                    .p_2()
-                    .rounded(px(Theme::radius_small()))
-                    .bg(Theme::control())
-                    .font_family(ui::theme::MONO_FONT)
-                    .text_size(px(TEXT_SMALL))
-                    .child(code.trim_end().to_owned())
-                    .into_any_element(),
+                Block::Code { code, .. } => {
+                    let copied = code.trim_end().to_owned();
+                    div()
+                        .flex()
+                        .gap_1()
+                        .p_2()
+                        .rounded(px(Theme::radius_small()))
+                        .bg(Theme::control())
+                        .child(div().flex_1().min_w_0().font_family(ui::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(copied.clone()))
+                        .child(
+                            tab_stop(icon_button(("assistant-code-copy", row * 10_000 + ix), Icon::Copy, true))
+                                .tooltip(tooltip("Copy Code", None))
+                                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))),
+                        )
+                        .into_any_element()
+                }
                 Block::Rule => div().h(px(1.)).bg(Theme::separator()).into_any_element(),
             }
         })

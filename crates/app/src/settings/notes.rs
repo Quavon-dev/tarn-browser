@@ -1,14 +1,11 @@
-use browser_core::notes::{Draft, EMPTY, INTRO, NO_MATCH, PRIVATE, rows};
-use gpui::{
-    AnyElement, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window, div,
-    prelude::FluentBuilder, px,
-};
+use browser_core::notes::{Draft, EMPTY, EXPORT_NAME, INTRO, NO_MATCH, PRIVATE, Sort, markdown, sorted};
+use gpui::{AnyElement, AppContext, Context, Entity, Focusable, IntoElement, ParentElement, StatefulInteractiveElement, Styled, Subscription, Window, div, px};
+use shield::ShieldLevel;
 use store::{Id, Note};
-use ui::controls::{button, field, group, note, row, section, tab_stop};
+use ui::controls::{button, field, group, note, row, section, segment, segmented, tab_stop};
 use ui::text_input::{TextInput, TextInputEvent};
-use ui::theme::Theme;
 
-use super::{SettingsWindow, Snapshot, label, value};
+use super::{SettingsWindow, Snapshot, editor_actions, heading, label, search_field, value, warning};
 
 pub(super) struct Pane {
     search: Entity<TextInput>,
@@ -16,6 +13,7 @@ pub(super) struct Pane {
     body: Entity<TextInput>,
     editing: Option<Id>,
     error: Option<String>,
+    exported: Option<String>,
     _inputs: [Subscription; 3],
 }
 
@@ -41,6 +39,7 @@ impl Pane {
             body,
             editing: None,
             error: None,
+            exported: None,
         }
     }
 }
@@ -88,6 +87,25 @@ impl SettingsWindow {
         cx.notify();
     }
 
+    /// Writes every note as one Markdown file where the person picks; nothing leaves this computer.
+    fn export_notes(&mut self, notes: Vec<Note>, cx: &mut Context<Self>) {
+        let dir = std::env::home_dir().map(|h| h.join("Downloads")).unwrap_or_default();
+        let path = cx.prompt_for_new_path(&dir, Some(EXPORT_NAME));
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(path))) = path.await else { return };
+            let written = std::fs::write(&path, markdown(&notes));
+            this.update(cx, |this, cx| {
+                (this.notes.exported, this.notes.error) = match written {
+                    Ok(()) => (Some(format!("Saved to {}.", path.display())), None),
+                    Err(e) => (None, Some(format!("The notes could not be saved: {e}"))),
+                };
+                cx.notify();
+            })
+            .ok();
+        })
+        .detach();
+    }
+
     pub(super) fn notes(&self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let page = div().pt_3().child(note(INTRO));
         let Some(profile) = s.profile.as_ref().filter(|_| !s.private).map(|p| p.id) else {
@@ -97,17 +115,26 @@ impl SettingsWindow {
         let focused = |input: &Entity<TextInput>| input.focus_handle(cx).is_focused(window);
         let saved = &s.notes;
         let query = pane.search.read(cx).text().to_owned();
-        let shown = rows(saved, &query);
+        let sort = Sort::load(&crate::shared::core(cx).disk);
+        let shown = sorted(saved, &query, sort);
+        let ask = s.profile.as_ref().is_some_and(|p| p.ai_enabled && p.shield_level != ShieldLevel::Lockdown && !s.burner);
         let list = if shown.is_empty() {
             note(if saved.is_empty() { EMPTY } else { NO_MATCH }).into_any_element()
         } else {
             let mut list = group();
             for (ix, r) in shown.into_iter().enumerate() {
                 let (id, edit) = (r.id, saved.iter().find(|n| n.id == r.id).cloned());
+                let asked = edit.clone().filter(|_| ask);
                 list = list.child(
                     row(ix == 0)
                         .child(div().w(px(180.)).flex_none().child(label(r.title)))
                         .child(value(r.preview).flex_1().min_w_0().overflow_hidden())
+                        .children(asked.map(|note| {
+                            tab_stop(button(("note-ask", ix), "Ask", false)).on_click(cx.listener(move |this, _, _, cx| {
+                                let note = note.clone();
+                                this.with_browser(cx, move |b, window, cx| b.ask_note(&note, window, cx));
+                            }))
+                        }))
                         .child(tab_stop(button(("note-edit", ix), "Edit", false)).on_click(cx.listener(move |this, _, window, cx| {
                             if let Some(note) = edit.clone() {
                                 this.edit_note(note, window, cx);
@@ -125,18 +152,36 @@ impl SettingsWindow {
         let editor = group()
             .child(row(true).child(label("Title")).child(field(focused(&pane.title)).w(px(420.)).py_0p5().child(pane.title.clone())))
             .child(row(false).child(label("Note")).child(field(focused(&pane.body)).w(px(420.)).py_0p5().child(pane.body.clone())));
-        let actions = div()
-            .pt_2()
-            .flex()
-            .justify_end()
-            .gap_2()
-            .when(editing, |d| d.child(tab_stop(button("note-cancel", "Cancel", false)).on_click(cx.listener(|this, _, _, cx| this.clear_note_editor(cx)))))
-            .child(tab_stop(button("note-save", if editing { "Save" } else { "Add" }, true)).on_click(cx.listener(|this, _, _, cx| this.save_note(cx))));
-        page.child(div().pt_2().child(field(focused(&pane.search)).w(px(320.)).py_0p5().child(pane.search.clone())))
+        let actions = editor_actions(
+            "note-editor",
+            editing,
+            Box::new(cx.listener(|this, _, _, cx| this.clear_note_editor(cx))),
+            Box::new(cx.listener(|this, _, _, cx| this.save_note(cx))),
+        );
+        let order = segmented().children(Sort::ALL.into_iter().enumerate().map(|(ix, choice)| {
+            tab_stop(segment(("note-sort", ix), choice.name(), choice == sort)).on_click(cx.listener(move |_, _, _, cx| {
+                choice.save(&crate::shared::core(cx).disk);
+                cx.notify();
+            }))
+        }));
+        let all = saved.clone();
+        let export = tab_stop(button("note-export", "Export\u{2026}", false)).on_click(cx.listener(move |this, _, _, cx| this.export_notes(all.clone(), cx)));
+        page.child(heading("Your notes", if saved.is_empty() { div().into_any_element() } else { export.into_any_element() }))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .flex_wrap()
+                    .child(search_field(&pane.search, focused(&pane.search)))
+                    .child(div().pt_2().child(order)),
+            )
             .child(div().pt_2().child(list))
+            .children(pane.exported.clone().map(note))
             .child(section(if editing { "Edit note" } else { "New note" }))
             .child(editor)
-            .children(pane.error.clone().map(|e| note(e).text_color(Theme::warning())))
+            .children(pane.error.clone().map(warning))
             .child(actions)
             .into_any_element()
     }

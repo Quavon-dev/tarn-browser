@@ -26,6 +26,10 @@ pub const NO_INSERT: &str = "Snippets cannot be typed into a Lockdown page";
 pub const PAGE_CHANGED: &str = "The page changed, so the snippet was not typed";
 /// What Insert Snippet lists when the profile has none.
 pub const EMPTY: &str = "No snippets yet. Add them in Settings \u{203a} Snippets.";
+/// Settings' switch for `;name` in the address and command bar, on every client.
+pub const EXPAND: crate::prefs::Switch = crate::prefs::Switch { key: "snippet_expand", default: true };
+pub const EXPAND_NOTE: &str = "Off, ;name stays as you typed it; Insert Snippet\u{2026} still works.";
+pub const NO_MATCH: &str = "No snippets match.";
 
 /// `text` with a trailing `;name` replaced by that snippet's body on one line, when `name` is one
 /// of `snippets` and the `;` starts the text or follows white space; `None` otherwise.
@@ -89,6 +93,12 @@ impl<D: WebsiteData> Core<D> {
     pub fn snippets_changed(&self) {
         self.snippets.borrow_mut().take();
     }
+
+    /// A shell field's `text` with a trailing `;name` of `profile`'s snippets expanded, while
+    /// Settings' `EXPAND` switch is on.
+    pub fn expand_snippet(&self, profile: Option<(bool, Id)>, text: &str) -> Option<String> {
+        EXPAND.on(&self.disk).then(|| expand(text, &self.snippets(profile))).flatten()
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +118,18 @@ mod tests {
         assert_eq!(core.snippets(Some((false, p))).len(), 1, "read once until a change is announced");
         core.reset_profile_data(false, p).unwrap();
         assert!(core.snippets(Some((false, p))).is_empty());
+    }
+
+    #[test]
+    fn expansion_follows_the_settings_switch() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let id = core.disk.profiles().unwrap().remove(0).id;
+        let p = Some((false, id));
+        core.disk.save_snippet(id, "sig", "Ada").unwrap();
+        assert_eq!(core.expand_snippet(p, "hi ;sig").as_deref(), Some("hi Ada"));
+        assert!(EXPAND.set(&core.disk, false));
+        assert_eq!(core.expand_snippet(p, "hi ;sig"), None);
     }
 
     fn snippet(name: &str, body: &str) -> Snippet {

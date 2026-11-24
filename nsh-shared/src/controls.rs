@@ -2,7 +2,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use browser_core::toast::Tone;
-use nsh_base::{ButtonElement, button};
+use nsh_base::{ButtonElement, Input, button, input};
 use nsh_core::element::IntoProp;
 use nsh_core::prelude::*;
 
@@ -389,6 +389,44 @@ pub fn confirm(title: impl Into<SharedString>, description: impl Into<SharedStri
 
 pub fn empty_state(content: impl IntoReactive<SharedString>) -> Text {
     label(content).text_color(Theme::muted).text_center().px_4().py_6()
+}
+
+/// Small muted text under a control: what it does or why it cannot.
+pub fn hint(content: impl IntoReactive<SharedString>) -> Text {
+    text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted).px_1()
+}
+
+pub fn field(name: &'static str, value: impl Fn() -> String + 'static, set: impl Fn(&str) + 'static) -> Input {
+    input()
+        .value(value)
+        .on_change(move |v: &str| set(v))
+        .label(name)
+        .placeholder(name)
+        .w_full()
+        .px(px(8.))
+        .py(px(6.))
+        .rounded(px(Theme::radius_row()))
+        .bg(Theme::raised())
+        .border_1()
+        .border_color(Theme::hairline())
+        .text_color(Theme::text())
+}
+
+pub fn signal_field(name: &'static str, value: Signal<String>) -> Input {
+    field(name, move || value.get(), move |v| value.set(v.to_owned()))
+}
+
+/// A row of a pane's list: its title and a line of detail; the actions it is given wrap under
+/// the title where the width is too narrow for both.
+pub fn list_row(ix: usize, title: impl Into<String>, detail: impl Into<String>) -> View {
+    let detail: String = detail.into();
+    view().flex_row().flex_wrap().items_center().gap_2().px_3().py_2().when(ix > 0, |v| v.border_t_1().border_color(Theme::separator)).child(
+        view()
+            .flex_1()
+            .min_w(px(160.))
+            .child(label(title.into()).font_weight(FontWeight::MEDIUM).number_of_lines(1_u32))
+            .when(!detail.is_empty(), |v| v.child(hint(detail).number_of_lines(1_u32))),
+    )
 }
 
 pub fn group() -> View {

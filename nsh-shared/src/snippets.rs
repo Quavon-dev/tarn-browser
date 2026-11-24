@@ -1,10 +1,9 @@
-use browser_core::snippets::{MAX_SNIPPET, NAME_RULE, NOTE, preview, valid_name};
-use nsh_base::{Input, input};
+use browser_core::snippets::{EXPAND, EXPAND_NOTE, MAX_SNIPPET, NAME_RULE, NO_MATCH, NOTE, matching, preview, valid_name};
 use nsh_core::prelude::*;
 use store::{Id, Snippet, Store};
 
-use crate::controls::{accent_pill, confirm, empty_state, group, label, pill, section};
-use crate::theme::{TEXT_SMALL, Theme};
+use crate::controls::{accent_pill, confirm, empty_state, field, group, hint, list_row, pill, section, signal_field, switch_row};
+use crate::theme::Theme;
 
 /// What the Snippets pane edits: the current profile's snippets in the disk store.
 pub trait Host: Copy + 'static {
@@ -48,30 +47,11 @@ impl Draft {
     }
 }
 
-fn field(name: &'static str, value: impl Fn() -> String + 'static, set: impl Fn(&str) + 'static) -> Input {
-    input()
-        .value(value)
-        .on_change(move |v: &str| set(v))
-        .label(name)
-        .placeholder(name)
-        .w_full()
-        .px(px(8.))
-        .py(px(6.))
-        .rounded(px(Theme::radius_row()))
-        .bg(Theme::raised())
-        .border_1()
-        .border_color(Theme::hairline())
-        .text_color(Theme::text())
-}
-
-fn hint(content: impl IntoReactive<SharedString>) -> Text {
-    text(content).text_size(px(TEXT_SMALL)).text_color(Theme::muted).px_1()
-}
-
 /// Settings › Snippets: the current profile's snippets, each with its name and first line, and
 /// a form to add or edit one.
 pub fn pane<H: Host>(host: H) -> AnyElement {
     let rev = signal(0u64);
+    let query = signal(String::new());
     let draft: Signal<Option<Draft>> = signal(None);
     let error: Signal<Option<String>> = signal(None);
     let editing = computed(move || draft.with(Option::is_some));
@@ -86,27 +66,25 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
             return Some(view().gap_2().child(intro).child(empty_state("Snippets belong to a profile. Edit them outside a private space.")));
         };
         let list = host.with_store(|s| s.snippets(profile).unwrap_or_default());
-        let rows: Vec<AnyElement> = list
-            .iter()
-            .enumerate()
-            .map(|(ix, s)| {
+        let expands = host.with_store(|s| EXPAND.on(s));
+        let toggle = move || {
+            host.with_store(|s| EXPAND.set(s, !expands));
+            host.changed();
+            rev.update(|r| *r += 1);
+        };
+        let rows = dynamic(move || {
+            if list.is_empty() {
+                return Some(view().child(empty_state("No snippets yet.")));
+            }
+            let shown = matching(&query.get(), &list);
+            if shown.is_empty() {
+                return Some(view().child(empty_state(NO_MATCH)));
+            }
+            Some(group().children(shown.into_iter().enumerate().map(|(ix, s)| {
                 let (id, name, body) = (s.id, s.name.clone(), s.body.clone());
                 let open = Draft { was: Some((id, name.clone())), name: name.clone(), body: body.clone() };
                 let gone = name.clone();
-                view()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_2()
-                    .when(ix > 0, |v| v.border_t_1().border_color(Theme::separator))
-                    .child(
-                        view()
-                            .flex_1()
-                            .min_w(px(0.))
-                            .child(label(format!(";{name}")).font_weight(FontWeight::MEDIUM).number_of_lines(1_u32))
-                            .child(hint(preview(&body)).number_of_lines(1_u32)),
-                    )
+                list_row(ix, format!(";{name}"), preview(&body))
                     .child(pill("Edit", move || edit(Some(open.clone()))).accessibility_label(format!("Edit {name}")))
                     .child(
                         pill("Delete", move || {
@@ -119,8 +97,8 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
                         .accessibility_label(format!("Delete {}", s.name)),
                     )
                     .into_element()
-            })
-            .collect();
+            })))
+        });
         let editor = dynamic(move || {
             editing.get().then(|| {
                 let save = move || {
@@ -158,8 +136,11 @@ pub fn pane<H: Host>(host: H) -> AnyElement {
             view()
                 .gap_2()
                 .child(intro)
+                .child(group().child(switch_row("Expand ;name in the address bar", move || expands, toggle)))
+                .child(hint(EXPAND_NOTE))
                 .child(section("Snippets"))
-                .child(if rows.is_empty() { view().child(empty_state("No snippets yet.")) } else { group().children(rows) })
+                .child(signal_field("Search snippets", query))
+                .child(rows)
                 .child(dynamic(move || (!editing.get()).then(|| view().flex_row().child(pill("Add Snippet", move || edit(Some(Draft::default())))))))
                 .child(editor),
         )

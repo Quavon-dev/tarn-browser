@@ -45,6 +45,27 @@ impl tarn_nsh_shared::notes::Host for Notes {
     fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
         tarn_nsh_shared::snippets::Host::with_store(self, f)
     }
+    fn ask(self, note: &store::Note) {
+        super::assistant::open(self.0, false);
+        self.0.chat.attach_note(super::assistant::Host(self.0), note);
+    }
+    fn export(self, markdown: String) {
+        let ui = self.0;
+        let dialog = SaveDialog::new()
+            .file_name(browser_core::notes::EXPORT_NAME)
+            .filter(FileFilter::new("Markdown", ["md"]))
+            .directory(webview::session::downloads_dir());
+        ui.root.run(|| {
+            drop(spawn(async move {
+                let said = match pick_save_path(dialog).await {
+                    Ok(None) => return,
+                    Ok(Some(path)) if std::fs::write(&path, markdown).is_ok() => "Notes exported",
+                    _ => "The notes could not be exported",
+                };
+                act(ui, |b| b.show_toast(said, None));
+            }))
+        });
+    }
 }
 
 fn card_of(b: &Browser) -> Option<(Card, bool)> {

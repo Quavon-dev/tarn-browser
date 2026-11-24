@@ -84,11 +84,11 @@ const PANES: [(SettingsPane, Icon, &str, &str); 14] = [
         "block ads trackers cookie banners youtube pop-ups malware adult zoom muted hidden elements connections history clear export delete data localhost passkeys security keys sign-in",
     ),
     (SettingsPane::Permissions, Icon::Camera, "Permissions", "camera microphone location pop-ups site answers allow block"),
-    (SettingsPane::Ai, Icon::Sparkles, "AI", "assistant chat claude api key ollama model connect disconnect ask"),
+    (SettingsPane::Ai, Icon::Sparkles, "AI", "assistant chat chats claude api key ollama model connect disconnect ask commands prompts"),
     (SettingsPane::Developer, Icon::Code, "Developer", "web inspector developer tools profile local servers localhost"),
     (SettingsPane::Extensions, Icon::Braces, "Extensions", "install github file bitwarden every site official catalog store updates"),
-    (SettingsPane::Snippets, Icon::FileText, "Snippets", "text expansion insert templates signature"),
-    (SettingsPane::Notes, Icon::Pencil, "Notes", "notes write search ideas assistant"),
+    (SettingsPane::Snippets, Icon::FileText, "Snippets", "text expansion expand insert templates signature"),
+    (SettingsPane::Notes, Icon::Pencil, "Notes", "notes write search sort export markdown ideas assistant"),
     (SettingsPane::Shortcuts, Icon::Keyboard, "Shortcuts", "keyboard keys"),
 ];
 
@@ -128,6 +128,27 @@ fn label(text: impl Into<SharedString>) -> gpui::Div {
 /// A section title with a button at its right end.
 fn heading(title: impl Into<SharedString>, action: impl IntoElement) -> Div {
     section(title).flex().items_center().justify_between().gap_3().child(action)
+}
+
+fn warning(text: impl Into<SharedString>) -> Div {
+    note(text).text_color(Theme::warning())
+}
+
+fn search_field(input: &gpui::Entity<TextInput>, focused: bool) -> Div {
+    div().pt_2().child(field(focused).w(px(320.)).py_0p5().child(input.clone()))
+}
+
+type Click = Box<dyn Fn(&gpui::ClickEvent, &mut Window, &mut App)>;
+
+/// A list editor's buttons: Cancel while an item is edited, then Save or Add.
+fn editor_actions(id: &'static str, editing: bool, cancel: Click, save: Click) -> Div {
+    div()
+        .pt_2()
+        .flex()
+        .justify_end()
+        .gap_2()
+        .when(editing, |d| d.child(tab_stop(button((id, 0usize), "Cancel", false)).on_click(cancel)))
+        .child(tab_stop(button((id, 1usize), if editing { "Save" } else { "Add" }, true)).on_click(save))
 }
 
 fn licenses() -> Option<std::path::PathBuf> {
@@ -179,6 +200,9 @@ struct Snapshot {
     burner: bool,
     ai_provider: browser_core::assistant::settings::Provider,
     ollama_model: String,
+    claude_model: usize,
+    ai_commands: Vec<store::AiCommand>,
+    chats: usize,
     overrides: Vec<(String, ShieldLevel)>,
     zooms: Vec<(String, f64)>,
     muted: Vec<String>,
@@ -377,6 +401,15 @@ impl SettingsWindow {
             burner: b.model.burner_shown(),
             ai_provider: browser_core::assistant::settings::provider(&b.core.disk),
             ollama_model: if self.pane == SettingsPane::Ai { browser_core::assistant::settings::ollama_model(&b.core.disk) } else { String::new() },
+            claude_model: if self.pane == SettingsPane::Ai { browser_core::assistant::settings::claude_model(&b.core.disk) } else { 0 },
+            ai_commands: match (self.pane, b.model.profile()) {
+                (SettingsPane::Ai, Some((false, id))) => b.core.disk.ai_commands(id).unwrap_or_default(),
+                _ => Vec::new(),
+            },
+            chats: match (self.pane, b.model.profile()) {
+                (SettingsPane::Ai, Some((false, id))) => b.core.disk.chat_titles(id).map(|c| c.len()).unwrap_or_default(),
+                _ => 0,
+            },
             overrides: if matches!(self.pane, SettingsPane::Privacy | SettingsPane::Profile) { b.site_overrides() } else { Vec::new() },
             zooms: if self.pane == SettingsPane::Privacy { b.site_zooms() } else { Vec::new() },
             muted: if self.pane == SettingsPane::Privacy { b.muted_sites() } else { Vec::new() },
