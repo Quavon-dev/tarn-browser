@@ -305,8 +305,8 @@ format.
 `brew install --cask quavon-dev/tarn/tarn` reads `Casks/tarn.rb` in the tap repository
 `Quavon-dev/homebrew-tarn`. After `publish`, `release.yml`'s `homebrew` job renders the cask from
 `packaging/homebrew/tarn.rb.in` (`scripts/homebrew-cask.sh`) with the disk image's SHA-256 from the
-attested `SHA256SUMS`, and pushes it to the tap, only for a release that became the latest one
-(never a nightly). The cask sets `auto_updates true`, so Sparkle keeps updating the app and
+attested `SHA256SUMS`, and pushes it to the tap; it always names the latest release, so a run
+replaced in the job's queue loses nothing (never a nightly). The cask sets `auto_updates true`, so Sparkle keeps updating the app and
 `brew upgrade` leaves it alone. Setup, once, by a maintainer:
 
 1. Create the public repository `Quavon-dev/homebrew-tarn` with one commit on its default branch.

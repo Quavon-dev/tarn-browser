@@ -47,8 +47,9 @@ irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.
 
 **Windows, without installing:** download `Tarn-<version>-windows-x64-portable-unsigned.zip` from the
 release, unzip it anywhere (a USB stick works) and start `tarn.exe`. It keeps its profiles, history and site data in the
-`Data` folder next to it, readable only by you, SYSTEM and administrators where the drive supports
-permissions (not on FAT or exFAT sticks). Downloads still go to your Downloads folder and an AI key
+`Data` folder next to it. At start Tarn tries to limit that folder to you, SYSTEM and
+administrators and warns when it cannot, as on FAT or exFAT sticks; a folder that already has its
+own protected permissions keeps them, so unzip it where only you can write. Downloads still go to your Downloads folder and an AI key
 to Windows' Credential Manager. The same script unpacks or updates it:
 
 ```powershell

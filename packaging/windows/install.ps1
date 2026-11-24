@@ -45,7 +45,8 @@ function Remove-Tree($Item) {
 
 function Install-Portable([string]$Target) {
     if (-not $Target) { $Target = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Tarn Portable' }
-    $full = [IO.Path]::GetFullPath($Target)
+    $full = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Target)
+    if (-not [IO.Path]::IsPathRooted($full)) { throw "$Target is not a folder path." }
     if ([IO.Path]::GetPathRoot($full) -eq $full) { throw "$full is a drive; choose a folder on it with -Path." }
     $folder = $full.TrimEnd('\', '/')
     if (Test-Path -LiteralPath $folder -PathType Leaf) { throw "$folder is a file." }

@@ -399,7 +399,7 @@ fn dacl_protected(path: &[u16]) -> std::io::Result<bool> {
     Ok(read && control & SE_DACL_PROTECTED != 0)
 }
 
-/// The SID of the user this process runs as, in SDDL's `S-1-5-…` form.
+/// The SID of the user this process runs as, in SDDL's `S-1-…` form.
 fn current_user_sid() -> std::io::Result<String> {
     use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, LocalFree};
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
@@ -523,7 +523,7 @@ mod tests {
         super::restrict_to_user(&data).unwrap();
         assert!(super::dacl_protected(&path).unwrap(), "inherited permissions no longer apply");
         super::restrict_to_user(&data).unwrap();
-        assert!(super::current_user_sid().unwrap().starts_with("S-1-5-"));
+        assert!(super::current_user_sid().unwrap().starts_with("S-1-"));
         let (mut dacl, mut descriptor): (*mut ACL, PSECURITY_DESCRIPTOR) = (std::ptr::null_mut(), std::ptr::null_mut());
         // SAFETY: `path` is NUL-terminated; on success `descriptor` is a LocalAlloc block freed below and `dacl` points into it.
         let status = unsafe {
