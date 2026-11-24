@@ -323,9 +323,13 @@ rule-list type); `engine::DataStore` implements it on macOS and the GPUI shell n
 `Core<DataStore>`. Each NSH shell implements it for its own web view's data store. Its ephemeral
 store holds the private space and Lockdown data and must never write website data to disk (threat
 model S8); each implementation needs a test that checks this on its platform. `data_dir(base)`
-is `TARN_DATA_DIR`, else the host's `base`, else `~/Library/Application Support/Tarn` on macOS and
-`$XDG_DATA_HOME/tarn` or `~/.local/share/tarn` on Linux; iOS and Android have no default, so their
-host passes `base`. `container` and `staleness` are macOS-only.
+is `TARN_DATA_DIR`, else the host's `base`, else `Data` beside the executable when a
+`tarn-portable` file sits there (`portable_dir`, Windows only, decided once per run), else
+`~/Library/Application Support/Tarn` on macOS and `$XDG_DATA_HOME/tarn` or `~/.local/share/tarn`
+on Linux; iOS and Android have no default, so their host passes `base`. macOS has no portable mode,
+a platform gap: WebKit keeps site data under `~/Library/WebKit` and secrets go to the Keychain,
+outside any folder Tarn could carry along; the app bundle itself runs from any folder. Linux has
+none yet (`docs/port-backlog.md`). `container` and `staleness` are macOS-only.
 
 **Window model:** `browser_core::tabs::Model` holds one window's spaces, the current
 space's tabs, folders and groups, the open folders, the active tab, the tab lifecycle and the

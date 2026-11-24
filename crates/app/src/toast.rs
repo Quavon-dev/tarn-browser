@@ -47,6 +47,8 @@ pub enum Action {
     UndoSort(Box<(bool, browser_core::cleanup::Undo)>),
     Reveal(PathBuf),
     RestartToUpdate,
+    /// Opens the release page of a later version in a new tab, for a portable Tarn.
+    Download(url::Url),
     /// Puts back the download list Clear removed from the private or normal store's profile.
     RestoreDownloads(Box<(bool, store::Id, Vec<store::Download>)>),
     /// Takes a held warning away.
@@ -60,6 +62,7 @@ impl Action {
             Action::UndoSort(_) => "Undo Sort",
             Action::Reveal(_) => ui::controls::REVEAL,
             Action::RestartToUpdate => "Restart to Update",
+            Action::Download(_) => "Download",
             Action::RestoreDownloads(_) => "Undo",
             Action::Dismiss => "Dismiss",
         }
@@ -274,6 +277,7 @@ impl Browser {
             }
             Some(Action::Reveal(path)) => engine::reveal_in_finder(&path),
             Some(Action::RestartToUpdate) => crate::shared::restart_to_update(cx),
+            Some(Action::Download(page)) => self.new_tab(&page, window, cx),
             Some(Action::RestoreDownloads(cleared)) => {
                 let (private, profile_id, list) = *cleared;
                 self.core.restore_downloads(private, profile_id, &list);

@@ -52,6 +52,23 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   `{localappdata}\Programs\Tarn` (`UsePreviousAppDir=no`); at start the installed `tarn.exe`
   re-points an earlier Make Default registration that names another path, a development build's
   included.
+- **Portable:** `Tarn-<tag>-windows-x64-portable-unsigned.zip` is the installer's folder plus a
+  `tarn-portable` file; with it beside `tarn.exe`, `browser_core::portable_dir` puts all data,
+  Chromium's included, in `Data` there and nothing in `%LOCALAPPDATA%`. At start Tarn gives `Data` a
+  protected access list for the current user, SYSTEM and Administrators (`engine::restrict_to_user`)
+  unless it already has a protected one, as Local AppData's inherited one does for an install; when
+  that fails (FAT and exFAT have no permissions, or another account owns the folder) the storage
+  warning says so at every start. The updater still checks
+  the signed feed (the Chromium staleness gate needs it) but downloads and runs no installer, which
+  would install elsewhere: a later version shows a toast whose Download opens the release page.
+  Settings shows no Make Default on Windows, so a portable Tarn registers nothing. The AI token
+  stays in the Credential Manager, and Chromium encrypts cookies and passwords with DPAPI, so on
+  another computer or account sites sign out and the token is asked for again.
+- **Install script:** `install.ps1` in every release (`docs/release.md`) runs the installer
+  silently for the current user, or with `-Portable [-Path <folder>]` unpacks the portable zip into
+  an empty or portable folder: it replaces the files the zip ships and old runtime files (`*.dll`,
+  `*.pak`, `*.bin`), never `Data`, the marker or other files, stops before deleting anything when
+  one of them is or holds a link, and refuses any other folder or a drive. `scripts/install-script.test.ps1` runs in the `windows` CI job.
 - **Window and input:** the toolbar and the settings header are the caption (the hook starts the
   system move; a double click maximizes), with Windows minimize/maximize/close buttons. Pop-ups
   opened without focus (address suggestions, hover cards, peek) stay inactive until clicked,

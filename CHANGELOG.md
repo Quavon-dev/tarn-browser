@@ -8,6 +8,14 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Install with one command: `brew install --cask quavon-dev/tarn/tarn` on macOS (the cask follows
+  each release; Tarn keeps updating itself), and on Windows
+  `irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.ps1 | iex`,
+  which installs for the current user after checking the installer's SHA-256.
+- A portable Windows download, `Tarn-<version>-windows-x64-portable-unsigned.zip`: unzip it anywhere and
+  start `tarn.exe`; profiles and site data stay in the `Data` folder beside it. It tells you when a new version
+  is out instead of installing one; `install.ps1 -Portable -Path <folder>` unpacks or updates it,
+  keeping `Data`.
 - Sites that ask for a client certificate offer the certificates they accept and send only the
   one picked; Cancel sends none (macOS and Windows). Chromium tabs no longer send the first
   certificate without asking.

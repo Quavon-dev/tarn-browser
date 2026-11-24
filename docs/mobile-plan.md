@@ -839,6 +839,13 @@ the simulator's keychain; evidence in
 `mobile/evidence/themes-github/`. Android carries theme sheets in the page world, as it does
 site CSS (S28/S29).
 
+### Install script and portable build
+
+Not on iOS or Android, a platform gap: apps come from the stores (or a sideloaded APK) and run only
+once installed, so the Homebrew cask, `install.ps1` and the portable zip (`docs/release.md`) have no
+counterpart. The phone hosts pass their own data folder, so `browser_core::portable_dir` never
+applies there.
+
 ### Nightly builds
 
 Not on iOS or Android, a platform gap: the stores decide which build a phone installs, so Settings ›

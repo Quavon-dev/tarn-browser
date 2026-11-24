@@ -88,7 +88,7 @@ pub use events::{Event, Protection};
 #[cfg(windows)]
 pub use host_windows::{
     Host, MIN_ZOOM, Popup, alert, app_active, bundle_identifier, is_default_browser, local_app_data, make_default_browser, open_external, option_held,
-    reduce_motion, refresh_browser_registration, reveal_in_finder, shift_held,
+    reduce_motion, refresh_browser_registration, restrict_to_user, reveal_in_finder, shift_held,
 };
 pub use nav_policy::SiteFor;
 #[cfg(any(target_os = "macos", windows))]

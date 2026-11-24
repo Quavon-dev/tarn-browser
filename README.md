@@ -33,6 +33,32 @@ Start with the macOS DMG or a Linux package from the [latest GitHub release](htt
 Windows packages are provided as unsigned previews. iOS and Android builds are still in testing.
 For platform requirements and installation options, visit the [Tarn download page](https://tarnbrowser.com/download).
 
+**macOS, with Homebrew:**
+
+```sh
+brew install --cask quavon-dev/tarn/tarn
+```
+
+**Windows, in PowerShell** (installs for your user, no administrator rights):
+
+```powershell
+irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.ps1 | iex
+```
+
+**Windows, without installing:** download `Tarn-<version>-windows-x64-portable-unsigned.zip` from the
+release, unzip it anywhere (a USB stick works) and start `tarn.exe`. It keeps its profiles, history and site data in the
+`Data` folder next to it, readable only by you, SYSTEM and administrators where the drive supports
+permissions (not on FAT or exFAT sticks). Downloads still go to your Downloads folder and an AI key
+to Windows' Credential Manager. The same script unpacks or updates it:
+
+```powershell
+& ([scriptblock]::Create((irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.ps1))) -Portable -Path D:\Tarn
+```
+
+The portable build tells you when a new version is out but does not update itself; run the command
+again, or unzip the new version over the old folder, keeping `Data`. Chromium protects cookies and
+saved passwords with your Windows account, so on another computer or account sites sign you out.
+
 ## Features
 
 <table>

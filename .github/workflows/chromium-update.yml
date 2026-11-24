@@ -305,6 +305,7 @@ jobs:
       NOTARY_API_KEY_ID: ${{ secrets.NOTARY_API_KEY_ID }}
       NOTARY_API_ISSUER: ${{ secrets.NOTARY_API_ISSUER }}
       SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+      HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
 
   report:
     needs: [watch, propose, open, tag, build]

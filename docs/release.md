@@ -22,6 +22,11 @@ feeds ("Signing in CI") and publishes a GitHub release with:
   `Tarn-<tag>-windows-x64-setup-unsigned.exe`, the Inno Setup installer of the same folder
   (`scripts/installer-windows.sh`, Inno Setup pinned by version and SHA-256 in the workflow), which
   users install and the updater downloads. `windows-update.json` and `.sig`, the signed Windows feed.
+  `Tarn-<tag>-windows-x64-portable-unsigned.zip`: the same folder with a `tarn-portable` file beside
+  `tarn.exe`, which runs without installing and keeps its data in `Data` there
+  (`browser_core::portable_dir`). `install.ps1`, which the `assets` job fills in from
+  `packaging/windows/install.ps1` (text substitution only): it names this release's installer and
+  portable zip with their SHA-256 and refuses a download that differs.
 - `tarn_<version>_<distribution>_amd64.deb` (Debian, Ubuntu), the Fedora `.rpm` and the Arch
   `.pkg.tar.zst`, each built in a clean container by `linux/packaging/build-all.sh`.
 - `Tarn-<tag>-ios-unsigned.zip` (`nsh package --target ios`, built with Xcode 26.3 and the iOS 26 SDK; the bundle
@@ -59,9 +64,11 @@ packages, Gradle dependencies and, on Arch, Rust from the distribution without a
 are pinned by digest and rustup-init by SHA-256). The `sbom` job only writes the SBOMs. The `deny`
 job runs `cargo deny check` (advisories, bans, licences, sources) on every workspace of the released
 commit, engine updates included, and `sign` waits for it (`SECURITY.md`, "Dependency and code
-scanning"). The `assets` job, which runs no build code, downloads each artifact by the ID its build
-job reported and accepts only that job's own file names, so no job can replace another platform's
-file; it writes `SHA256SUMS` and attests every binary (the macOS archives included), the SBOMs and
+scanning"). The `assets` job, which runs no build code, downloads each artifact by the ID its
+build job reported and accepts only that job's own file names, so no job can replace another
+platform's file; it fills the placeholders of `packaging/windows/install.ps1` with the Windows
+installer and portable zip it took and their SHA-256 (`sed`, no script from the repository), writes
+`SHA256SUMS` and attests every binary (the macOS archives included), the SBOMs, `install.ps1` and
 `SHA256SUMS` itself.
 
 The archives are attested (`actions/attest`, predicate type
@@ -120,8 +127,9 @@ and:
 The `assets` job takes the signed files with the rest, writes `SHA256SUMS` and attests them, and
 `publish` publishes the release, marks the highest published version as the latest release (an older
 one finishing late never takes over the feeds), gives that release the newest signed Windows feed of
-the recent releases (a macOS-only release carries the feed that was latest when it started), and
-starts `linux-repo.yml`. It does so holding the branch `release-latest-lock`, which it deletes
+the recent releases (a macOS-only release carries the feed and `install.ps1` that were latest when
+it started; a newer feed brings its release's `install.ps1` along), and starts `linux-repo.yml`;
+the `homebrew` job then updates the cask ("Homebrew"). It does so holding the branch `release-latest-lock`, which it deletes
 afterwards; delete it by hand only if a cancelled run left it behind, then re-run that run's
 `publish`, which finishes a release it had already created. A tag whose message has the line
 `critical` marks both feeds critical.
@@ -282,11 +290,33 @@ every release carries all three files. An engine update (`chromium-update.yml`) 
 macOS-only run builds no Windows files; its `publish` job carries the latest release's
 `windows-update.json` and `.sig` over unchanged (they are not in that release's `SHA256SUMS`, which the `assets` job wrote before; their Ed25519 signature covers them), which stay valid, so Windows keeps a verified feed; without them Windows checks
 fail: new installs open no page, and existing ones close Chromium seven days after their last
-verified check. Windows still needs its own release within 28 days of
+verified check. The same step carries the latest release's `install.ps1` over, which still names
+that release's Windows files by tag and SHA-256, so the install command keeps working (it is
+attested with that release, not in this release's `SHA256SUMS`); when
+`publish` gives the latest release a newer Windows feed, it copies that release's `install.ps1`
+along. Windows still needs its own release within 28 days of
 each Chromium update, since the staleness gate also closes Chromium by its age.
 `scripts/sign-windows.ps1 -Check` checks a release feed by hand; the authority is the client's own verification (`crates/platform/src/updater/windows.rs`). `scripts/sign-windows.test.ps1` (run by the
 `windows` CI job) checks the Ed25519 verification against RFC 8032's test vectors and the feed
 format.
+
+## Homebrew
+
+`brew install --cask quavon-dev/tarn/tarn` reads `Casks/tarn.rb` in the tap repository
+`Quavon-dev/homebrew-tarn`. After `publish`, `release.yml`'s `homebrew` job renders the cask from
+`packaging/homebrew/tarn.rb.in` (`scripts/homebrew-cask.sh`) with the disk image's SHA-256 from the
+attested `SHA256SUMS`, and pushes it to the tap, only for a release that became the latest one
+(never a nightly). The cask sets `auto_updates true`, so Sparkle keeps updating the app and
+`brew upgrade` leaves it alone. Setup, once, by a maintainer:
+
+1. Create the public repository `Quavon-dev/homebrew-tarn` with one commit on its default branch.
+2. Add a deploy key with write access there (`ssh-keygen -t ed25519 -N ''`), and nowhere else.
+3. Create the `homebrew-tap` environment here (deployments from `v*` tags and `main`) holding the
+   private key as `HOMEBREW_TAP_DEPLOY_KEY`.
+
+Without the secret the job notes that the cask was not updated and succeeds. Until the tap exists,
+`scripts/homebrew-cask.sh <tag> <dmg sha256> Quavon-dev/tarn-browser` prints the cask for a manual
+commit.
 
 ## Store submission (protected CI)
 
@@ -475,21 +505,23 @@ Applied by hand in the repository and organisation settings; no workflow changes
 
 - **Stored** only as secrets of the GitHub environments named above (`release-signing`,
   `nightly-signing`, `chromium-update`, `filter-signing`) and of `linux-repo` and `aur`
-  (`linux-repo.yml`), never as repository secrets, in the repository, in workflow files or in logs.
+  (`linux-repo.yml`) and `homebrew-tap` (`release.yml`), never as repository secrets, in the repository, in workflow files or in logs.
   Mobile store keys live only in the separate `ios-store` and `android-store` environments;
   build, release assembly and nightly jobs hold none of them.
 - **Accessed** only by the one job that needs each one: `sign` for the Apple and notary credentials
   and the update key (`SPARKLE_ED_PRIVATE_KEY`, which signs both the Sparkle feed and the Windows
   feed); the `open` and `tag` jobs of `chromium-update.yml` and `sign` for the update app key; the signing job
   of `filter-lists.yml` for `FILTER_SIGNING_KEY`; the `build` job of `linux-repo.yml` for
-  `LINUX_REPO_GPG_KEY` and `LINUX_REPO_GPG_PASSPHRASE`, its `aur` job for `AUR_SSH_PRIVATE_KEY`.
+  `LINUX_REPO_GPG_KEY` and `LINUX_REPO_GPG_PASSPHRASE`, its `aur` job for `AUR_SSH_PRIVATE_KEY`;
+  the `homebrew` job of `release.yml` for `HOMEBREW_TAP_DEPLOY_KEY`.
   `release-signing` needs a maintainer's approval for every run; a maintainer may approve their own
   release. `nightly-signing` holds the same Apple credentials and update key without approval, but
   only `main` may deploy to it. Maintainers with admin rights can set secrets but cannot read them
   back.
 - **Rotated** at once when a secret may have leaked, when a maintainer with access to it leaves, or
   when a workflow that reads it was compromised; otherwise the Developer ID certificate when it
-  expires, and the notary API key, the update app's private key and the AUR SSH key every year.
+  expires, and the notary API key, the update app's private key, the AUR SSH key and the tap's
+  deploy key every year.
   Replacing the update key (both updaters) or the filter signing key also needs an app release
   carrying the new public key before the old key is retired, so installed apps keep verifying
   updates; a new apt/dnf repository key is published in the repository and announced in the release

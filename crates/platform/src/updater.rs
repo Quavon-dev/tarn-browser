@@ -66,6 +66,11 @@ pub enum Report {
     UpToDate,
     /// Windows: a check asked for, or its download, failed.
     CheckFailed,
+    /// Windows, portable: a verified later version, published on `page`.
+    UpdateAvailable {
+        version: String,
+        page: Option<url::Url>,
+    },
 }
 
 #[cfg(target_os = "macos")]
@@ -236,7 +241,7 @@ mod mac {
     impl Updater {
         /// `None` when the bundle carries no valid feed and key or Sparkle does not load.
         /// `report` hears from Sparkle's delegate on the main thread, inside Sparkle's call.
-        pub fn start(automatic: bool, nightly: bool, _dir: &std::path::Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
+        pub fn start(automatic: bool, nightly: bool, _portable: bool, _dir: &std::path::Path, report: impl Fn(Report) + Send + 'static) -> Option<Self> {
             let mtm = MainThreadMarker::new()?;
             let bundle = NSBundle::mainBundle();
             let info = |key: &str| Some(bundle.objectForInfoDictionaryKey(&NSString::from_str(key))?.downcast::<NSString>().ok()?.to_string());

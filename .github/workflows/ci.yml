@@ -112,7 +112,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings
       - run: cargo test $CRATES --locked
-      - run: scripts/dmg.test.sh && scripts/windows-feed.test.sh
+      - run: scripts/dmg.test.sh && scripts/windows-feed.test.sh && scripts/homebrew-cask.test.sh
       - name: Chromium feature
         run: |
           scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"
@@ -148,6 +148,7 @@ jobs:
       # Links tarn.dll, whose delay-load flags apply only to the real cdylib.
       - run: cargo build --locked -p app-dll
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.test.ps1
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-script.test.ps1
 
   nsh-shared:
     needs: changes
