@@ -870,7 +870,7 @@ impl Browser {
     }
 
     pub fn set_default_level(&mut self, level: ShieldLevel) {
-        let Some((private, id)) = self.profile_of_space() else { return };
+        let Some((private, id)) = self.profile_of_space().filter(|(private, id)| !self.model.shield_fixed(*private, *id)) else { return };
         if self.core.store(private).set_profile_shield_level(id, level).is_ok()
             && let Some(rt) = self.core.profiles.borrow_mut().get_mut(&(private, id))
         {

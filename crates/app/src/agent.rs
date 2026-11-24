@@ -112,7 +112,10 @@ fn serve(conn: u64, stream: engine::agent_socket::Stream, tx: UnboundedSender<Ms
         if tx.unbounded_send(Msg::Call { conn, client: client.map(str::to_owned), tool, reply }).is_err() {
             return Outcome::Error(agent::STOPPED.into());
         }
-        answer.recv().unwrap_or_else(|_| Outcome::Error(agent::STOPPED.into()))
+        engine::agent_socket::await_answer(&answer, &stream).unwrap_or_else(|| {
+            let _ = tx.unbounded_send(Msg::Closed(conn));
+            Outcome::Error(agent::STOPPED.into())
+        })
     });
     let _ = tx.unbounded_send(Msg::Closed(conn));
 }

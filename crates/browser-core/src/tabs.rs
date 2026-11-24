@@ -170,6 +170,11 @@ impl Model {
         Some(self.confine(core, true, space.id))
     }
 
+    /// The agent's profile keeps Strict for its whole life (S31).
+    pub fn shield_fixed(&self, private: bool, profile: Id) -> bool {
+        private && self.agent_profile == Some(profile)
+    }
+
     /// Deletes everything of the agent's profile and drops its runtime with the data store, as `burn`.
     pub fn burn_agent<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<Id> {
         let profile = self.agent_profile.take()?;
@@ -1565,6 +1570,7 @@ mod tests {
         model.reload_space(&core);
         assert!(model.tab(a).is_some());
         assert_eq!(model.tear_off_label(a, true), None, "no tab leaves the agent's window");
+        assert!(model.shield_fixed(true, profile) && !model.shield_fixed(false, profile), "its level stays Strict");
         other.reload_spaces(&core);
         assert_eq!(other.spaces.len(), spaces, "another window never lists it");
         assert_eq!(model.burn_agent(&core), Some(profile));

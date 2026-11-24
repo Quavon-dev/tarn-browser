@@ -143,6 +143,9 @@ struct Running<K, C> {
     origin: String,
     /// A screenshot taken, held back until the secret-field check after it passes too.
     png: Option<String>,
+    /// The token of the document the check before the screenshot ran in; the check after it must
+    /// run in the same document.
+    doc: Option<String>,
 }
 
 struct Active<K, C> {
@@ -290,13 +293,20 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             (Tool::WaitFor { .. }, Raw::Script(_)) => Outcome::Text("Ready.".into()),
             (Tool::Snapshot { .. }, Raw::Script(raw)) | (Tool::ReadText { .. }, Raw::Text(raw)) if raw.is_empty() => Outcome::Error(LOCKED.into()),
             (Tool::Snapshot { .. }, Raw::Script(raw)) | (Tool::ReadText { .. }, Raw::Text(raw)) => Outcome::Text(super::page_answer(&raw)),
-            (Tool::Screenshot { .. }, Raw::Script(raw)) if raw == "0" && running.png.is_some() => Outcome::Image(running.png.clone().unwrap_or_default()),
-            (Tool::Screenshot { .. }, Raw::Script(raw)) if raw == "0" => {
+            (Tool::Screenshot { .. }, Raw::Script(raw)) if raw.starts_with("0:") && running.png.is_some() => {
+                if raw.get(2..) == running.doc.as_deref() {
+                    Outcome::Image(running.png.clone().unwrap_or_default())
+                } else {
+                    Outcome::Error("The page changed during the screenshot; take it again.".into())
+                }
+            }
+            (Tool::Screenshot { .. }, Raw::Script(raw)) if raw.starts_with("0:") => {
                 let (run, tab) = (running.run, running.tab);
-                active.running = Some(Running { deadline: ctx.now + PROMPT_TIMEOUT_MS, ..running });
+                let doc = Some(raw[2..].to_owned());
+                active.running = Some(Running { deadline: ctx.now + PROMPT_TIMEOUT_MS, doc, ..running });
                 return vec![Effect::Run { run, tab, op: Op::Screenshot }];
             }
-            (Tool::Screenshot { .. }, Raw::Script(raw)) if raw.is_empty() => Outcome::Error(LOCKED.into()),
+            (Tool::Screenshot { .. }, Raw::Script(raw)) if !raw.starts_with("1:") => Outcome::Error(LOCKED.into()),
             (Tool::Screenshot { .. }, Raw::Script(_)) => {
                 Outcome::Error("Tarn takes no screenshot while a password, payment or one-time-code field on the page holds a value.".into())
             }
@@ -530,7 +540,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         self.next_run += 1;
         let run = self.next_run;
         let Some(active) = self.active.as_mut() else { return Vec::new() };
-        active.running = Some(Running { run, tab, call, confirmed, deadline, origin, png: None });
+        active.running = Some(Running { run, tab, call, confirmed, deadline, origin, png: None, doc: None });
         vec![Effect::Run { run, tab, op }]
     }
 
@@ -788,24 +798,29 @@ mod tests {
         c.call(1, None, Tool::Screenshot { tab: 1 }, "s", &ctx(&tabs, 4000));
         let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 4100));
         let [(run, Some(3), Op::Script(_))] = &runs(&e)[..] else { panic!("{e:?}") };
-        let e = c.raw(*run, Raw::Script("1".into()), &ctx(&tabs, 4200));
+        let e = c.raw(*run, Raw::Script("1:d".into()), &ctx(&tabs, 4200));
         assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("no screenshot")));
         c.call(1, None, Tool::Screenshot { tab: 1 }, "t", &ctx(&tabs, 6000));
-        let e = c.raw(*run + 1, Raw::Script("0".into()), &ctx(&tabs, 6100));
+        let e = c.raw(*run + 1, Raw::Script("0:d".into()), &ctx(&tabs, 6100));
         assert_eq!(runs(&e), vec![(*run + 1, Some(3), Op::Screenshot)]);
         let e = c.raw(*run + 1, Raw::Png(Some("iVBOR".into())), &ctx(&tabs, 6200));
         let [(_, Some(3), Op::Script(check))] = &runs(&e)[..] else { panic!("the capture is checked again: {e:?}") };
         assert!(check.starts_with("if (!(location.origin === \"https://a.test\"))"), "{check}");
-        let e = c.raw(*run + 1, Raw::Script("0".into()), &ctx(&tabs, 6300));
+        let e = c.raw(*run + 1, Raw::Script("0:d".into()), &ctx(&tabs, 6300));
         assert_eq!(replies(&e)[0].1, Outcome::Image("iVBOR".into()));
         c.call(1, None, Tool::Screenshot { tab: 1 }, "u", &ctx(&tabs, 8000));
-        let e = c.raw(*run + 2, Raw::Script("0".into()), &ctx(&tabs, 8100));
+        let e = c.raw(*run + 2, Raw::Script("0:d".into()), &ctx(&tabs, 8100));
         let e2 = c.raw(*run + 2, Raw::Png(Some("iVBOR".into())), &ctx(&tabs, 8200));
         assert!(runs(&e).len() == 1 && runs(&e2).len() == 1);
-        let e = c.raw(*run + 2, Raw::Script("1".into()), &ctx(&tabs, 8300));
+        let e = c.raw(*run + 2, Raw::Script("1:d".into()), &ctx(&tabs, 8300));
         assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("no screenshot")), "a field filled during the capture withholds it");
+        c.call(1, None, Tool::Screenshot { tab: 1 }, "w", &ctx(&tabs, 9000));
+        c.raw(*run + 3, Raw::Script("0:d".into()), &ctx(&tabs, 9100));
+        c.raw(*run + 3, Raw::Png(Some("iVBOR".into())), &ctx(&tabs, 9200));
+        let e = c.raw(*run + 3, Raw::Script("0:other".into()), &ctx(&tabs, 9300));
+        assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("page changed")), "a new document after the capture withholds it");
         c.call(1, None, Tool::Screenshot { tab: 1 }, "v", &ctx(&tabs, 10_000));
-        let e = c.raw(*run + 3, Raw::Script(String::new()), &ctx(&tabs, 10_100));
+        let e = c.raw(*run + 4, Raw::Script(String::new()), &ctx(&tabs, 10_100));
         assert_eq!(replies(&e)[0].1, Outcome::Error(LOCKED.into()), "no answer, as under Lockdown, takes no screenshot");
     }
 

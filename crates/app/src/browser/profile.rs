@@ -85,7 +85,7 @@ impl Browser {
     }
 
     pub fn set_profile_shield(&mut self, level: ShieldLevel, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(target) = self.shield_target() else { return };
+        let Some(target) = self.shield_target().filter(|(private, id)| !self.model.shield_fixed(*private, *id)) else { return };
         if !self.shield_wipes_data(level) {
             return self.apply_profile_shield(target, level, window, cx);
         }

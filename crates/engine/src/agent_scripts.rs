@@ -44,11 +44,12 @@ pub enum AgentScript<'a> {
     Wait {
         text: Option<&'a str>,
     },
-    /// Answers "1" while a password, payment or one-time-code field holds a value, else "0".
+    /// Answers "1:" while a password, payment or one-time-code field holds a value, else "0:",
+    /// followed by a token of the document, which a new document does not share.
     Sensitive,
 }
 
-const COMMON: &str = r"const st = window.__tarnAgent || (window.__tarnAgent = { next: 1, map: new Map() });
+const COMMON: &str = r"const st = window.__tarnAgent || (window.__tarnAgent = { next: 1, map: new Map(), doc: Math.random().toString(36).slice(2) + Date.now().toString(36) });
 st.secret = st.secret || new WeakSet();
 st.password = st.password || new WeakSet();
 const sensitive = el => {
@@ -147,13 +148,15 @@ switch (act.kind) {
         el.focus();
         if (el.isContentEditable) { document.execCommand('selectAll'); document.execCommand('insertText', false, act.text); }
         else setValue(el, act.text);
-        if (act.submit && !confirmed && filledSensitive()) return 'confirm:typed';
+        if (act.submit && !confirmed && filledSensitive()) { st.typed = new WeakRef(el); return 'confirm:typed'; }
         if (act.submit && !submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
     }
     case 'submit': {
+        const typed = st.typed && st.typed.deref();
+        if (!typed || !typed.isConnected || typed !== el) return 'stale';
         if (guard()) return 'confirm';
-        if (!submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
+        if (!submit(typed)) { fire(typed, 'keydown', { key: 'Enter', code: 'Enter' }); fire(typed, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
     }
     case 'select': {
@@ -205,7 +208,7 @@ impl AgentScript<'_> {
                 };
                 format!("const target = {target}, confirmed = {confirmed}, act = {act};\n{COMMON}\n{ACT}")
             }
-            AgentScript::Sensitive => format!("{COMMON}\nreturn filledSensitive() ? '1' : '0';"),
+            AgentScript::Sensitive => format!("{COMMON}\nreturn (filledSensitive() ? '1:' : '0:') + st.doc;"),
             AgentScript::Wait { text } => format!(
                 "const want = {};\nreturn document.readyState === 'complete' && (!want || (document.body && document.body.innerText.includes(want))) ? '1' : '';",
                 text.map_or("null".to_string(), js_string)

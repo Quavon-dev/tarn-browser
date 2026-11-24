@@ -88,15 +88,24 @@ pub fn expects_reply(line: &str) -> bool {
 /// Copies the agent's requests from stdin to Tarn and each answer back to stdout, until either
 /// side closes. Without a running Tarn, every request is answered with `offline`.
 pub fn relay(data_dir: &Path, offline: &str) -> io::Result<()> {
-    let stdin = io::stdin();
     let mut stdout = io::stdout();
     let stream = connect(data_dir).ok();
     let mut channel = match &stream {
         Some(s) => Some((BufReader::new(s.try_clone()?), s.try_clone()?)),
         None => None,
     };
-    for line in stdin.lock().lines() {
-        let line = line?;
+    // The agent's input is read on its own thread so that the agent going away ends the relay at
+    // once, also while a call waits for the user; Tarn then sees the connection close.
+    let (lines, input) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for line in io::stdin().lock().lines().map_while(Result::ok) {
+            if lines.send(line).is_err() {
+                break;
+            }
+        }
+        std::process::exit(0);
+    });
+    for line in input {
         if line.trim().is_empty() {
             continue;
         }
@@ -110,8 +119,14 @@ pub fn relay(data_dir: &Path, offline: &str) -> io::Result<()> {
                     continue;
                 }
                 let mut answer = String::new();
-                if reader.by_ref().take(MAX_ANSWER_BYTES).read_line(&mut answer)? == 0 {
-                    return Ok(());
+                loop {
+                    answer.clear();
+                    if reader.by_ref().take(MAX_ANSWER_BYTES).read_line(&mut answer)? == 0 {
+                        return Ok(());
+                    }
+                    if answer.trim_end() != HEARTBEAT {
+                        break;
+                    }
                 }
                 answer
             }
@@ -122,6 +137,27 @@ pub fn relay(data_dir: &Path, offline: &str) -> io::Result<()> {
         stdout.flush()?;
     }
     Ok(())
+}
+
+/// What Tarn sends while a call waits, so that a failed write tells it the agent has gone; the
+/// relay drops it.
+pub const HEARTBEAT: &str = r#"{"jsonrpc":"2.0","method":"tarn/alive"}"#;
+
+/// Waits for the answer to a call, writing `HEARTBEAT` to `stream` every second meanwhile;
+/// `None` once the agent's end of the connection has closed or the answer can never come.
+pub fn await_answer<T>(answer: &std::sync::mpsc::Receiver<T>, stream: &Stream) -> Option<T> {
+    loop {
+        match answer.recv_timeout(std::time::Duration::from_secs(1)) {
+            Ok(value) => return Some(value),
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return None,
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                let mut out = stream;
+                if out.write_all(format!("{HEARTBEAT}\n").as_bytes()).and_then(|()| out.flush()).is_err() {
+                    return None;
+                }
+            }
+        }
+    }
 }
 
 fn offline_error(line: &str, message: &str) -> String {
@@ -376,6 +412,20 @@ mod tests {
         assert!(connect(dir.path()).is_err());
         let again = Server::start(dir.path(), "busy", |_, _| {}).unwrap();
         again.stop();
+    }
+
+    #[test]
+    fn a_wait_notices_the_agent_going_away() {
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (_keep, answer) = std::sync::mpsc::channel::<u8>();
+        let reader = std::thread::spawn(move || {
+            let mut line = String::new();
+            BufReader::new(&theirs).read_line(&mut line).unwrap();
+            assert_eq!(line.trim_end(), HEARTBEAT);
+            drop(theirs);
+        });
+        assert_eq!(await_answer(&answer, &ours), None);
+        reader.join().unwrap();
     }
 
     #[test]

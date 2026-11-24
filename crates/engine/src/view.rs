@@ -161,8 +161,8 @@ impl WebView {
         both!(self, v => v.set_agent_gate(gate))
     }
 
-    /// Runs an AI agent's script (`agent_scripts`, S31) in the isolated world, never as the user's
-    /// gesture; empty under Lockdown.
+    /// Runs an AI agent's script (`agent_scripts`, S31) in the isolated world, not as a gesture on
+    /// Chromium (WebKit counts every isolated-world script as one, S23); empty under Lockdown.
     pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
         both!(self, v => v.agent(source, done))
     }

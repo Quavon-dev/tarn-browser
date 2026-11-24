@@ -55,8 +55,8 @@ Every shell's web view offers the same operations and reports the same events. T
   (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
   (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
 - `agent` and `set_agent_gate` (S31): `agent` runs an agent script (`engine::agent_scripts`,
-  built by `browser_core::agent::control`) in the isolated world, never as the user's gesture,
-  and answers its text, empty under Lockdown; `set_agent_gate`
+  built by `browser_core::agent::control`) in the isolated world (a user gesture on WebKit, as
+  every isolated-world script there, S23; none on Chromium), and answers its text, empty under Lockdown; `set_agent_gate`
   holds a page-started main-frame navigation the gate refuses, cancelled before any request, and
   reports `AgentHeld`. NSH components: `agent` `{seq, body}` answered by `agentAnswer`
   `{seq, url, text}`, the `agentSites` prop and the `agentHeld` `{url}` event; iOS and Android do
