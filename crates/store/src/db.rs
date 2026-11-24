@@ -10,8 +10,8 @@ use rusqlite::{Connection, OptionalExtension, Row, params};
 use shield::ShieldLevel;
 
 use crate::models::{
-    AiCommand, Bookmark, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Note, Profile, SavedWindow, Schedule,
-    ShieldDay, ShieldStats, Slot, Snapshot, Snippet, Space, SpaceRule, Tab, TabKind, WebEngine,
+    AiCommand, Bookmark, Chat, ChatTitle, ChatTurn, Counter, Download, Folder, Group, HistoryEntry, Id, InstalledExtension, InstalledTheme, Layout, Note,
+    Profile, SavedWindow, Schedule, ShieldDay, ShieldStats, Slot, Snapshot, Snippet, Space, SpaceRule, Tab, TabKind, WebEngine,
 };
 
 const MIGRATIONS: &[&str] = &[
@@ -228,12 +228,21 @@ const MIGRATIONS: &[&str] = &[
          body TEXT NOT NULL,
          updated INTEGER NOT NULL
      );",
+    "CREATE TABLE chats (
+         id INTEGER PRIMARY KEY AUTOINCREMENT,
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         title TEXT NOT NULL,
+         turns TEXT NOT NULL,
+         sources TEXT NOT NULL,
+         updated INTEGER NOT NULL
+     );
+     CREATE INDEX chats_profile ON chats(profile_id, updated);",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
-const PROFILE_NEUTRAL: [&str; 3] = ["settings", "themes", "windows"];
+const PROFILE_NEUTRAL: [&str; 4] = ["settings", "themes", "windows", "sqlite_sequence"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 30] = [
+const PROFILE_TABLES: [(&str, &str); 31] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -264,6 +273,7 @@ const PROFILE_TABLES: [(&str, &str); 30] = [
     ("feature_hints", "profile_id = ?1"),
     ("snippets", "profile_id = ?1"),
     ("notes", "profile_id = ?1"),
+    ("chats", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -293,6 +303,11 @@ pub fn valid_snippet_name(name: &str) -> bool {
 pub const MAX_NOTE_TITLE: usize = 200;
 pub const MAX_NOTE: usize = 64 * 1024;
 pub const MAX_NOTES: usize = 1000;
+/// The most chats a profile keeps and the most bytes one chat's turns and sources take.
+pub const MAX_CHATS: usize = 200;
+pub const MAX_CHAT: usize = 1024 * 1024;
+/// What `rename_chat` refuses when the profile has no such chat, as opposed to a bad title.
+pub const MISSING_CHAT: &str = "missing chat";
 
 /// The most CSS one site may keep, in bytes.
 pub const MAX_SITE_CSS: usize = 64 * 1024;
@@ -1224,6 +1239,90 @@ impl Store {
         Ok(())
     }
 
+    /// The profile's chats without their turns, last changed first.
+    pub fn chat_titles(&self, profile_id: Id) -> Result<Vec<ChatTitle>> {
+        let mut stmt = self.conn.prepare("SELECT id, title, updated FROM chats WHERE profile_id = ?1 ORDER BY updated DESC, id DESC")?;
+        let rows = stmt.query_map([profile_id], |r| Ok(ChatTitle { id: r.get(0)?, title: r.get(1)?, updated: r.get(2)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The profile's chat `id`; none when it has no such chat or its rows cannot be read.
+    pub fn chat(&self, profile_id: Id, id: Id) -> Result<Option<Chat>> {
+        let row = self.conn.query_row("SELECT title, turns, sources, updated FROM chats WHERE profile_id = ?1 AND id = ?2", params![profile_id, id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))
+        });
+        let (title, turns, sources, updated) = match row {
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            other => other?,
+        };
+        let (Some(turns), Some(sources)) = (chat_turns(&turns), chat_sources(&sources)) else { return Ok(None) };
+        Ok(Some(Chat { id, profile_id, title, turns, sources, updated }))
+    }
+
+    /// Adds a chat (`id` none) or replaces the profile's chat `id`, its title `visible` on one
+    /// line (`None` keeps a saved chat's title) and its text `visible`. Refused for a private
+    /// profile, an empty chat, a new chat without a title, a title past `MAX_NOTE_TITLE`
+    /// characters, turns and sources past `MAX_CHAT` bytes, or a new chat past `MAX_CHATS`.
+    pub fn save_chat(&self, profile_id: Id, id: Option<Id>, title: Option<&str>, turns: &[ChatTurn], sources: &[(String, usize)]) -> Result<Id> {
+        use serde_json::json;
+        let title = title.map(|t| visible(t).split_whitespace().collect::<Vec<_>>().join(" "));
+        let turns_json = serde_json::Value::Array(
+            turns.iter().map(|t| json!({ "you": t.you, "text": visible(&t.text), "by": t.by.as_deref().map(visible), "interrupted": t.interrupted, "command": t.command })).collect(),
+        )
+        .to_string();
+        let sources_json = serde_json::Value::Array(sources.iter().map(|(url, since)| json!([visible(url), since])).collect()).to_string();
+        let bad_title = title.as_ref().map_or(id.is_none(), |t| t.is_empty() || t.chars().count() > MAX_NOTE_TITLE);
+        if turns.is_empty() || bad_title || turns_json.len() + sources_json.len() > MAX_CHAT {
+            return Err(Error::Invalid("chat"));
+        }
+        let updated = now_ms();
+        let id = match id {
+            None => self.conn.query_row(
+                "INSERT INTO chats (profile_id, title, turns, sources, updated)
+                 SELECT id, ?2, ?3, ?4, ?5 FROM profiles
+                 WHERE id = ?1 AND NOT is_private AND (SELECT COUNT(*) FROM chats WHERE profile_id = ?1) < ?6
+                 RETURNING id",
+                params![profile_id, title, turns_json, sources_json, updated, MAX_CHATS as i64],
+                |r| r.get(0),
+            ),
+            Some(id) => self.conn.query_row(
+                "UPDATE chats SET title = COALESCE(?3, title), turns = ?4, sources = ?5, updated = ?6
+                 WHERE id = ?2 AND profile_id = ?1 AND profile_id IN (SELECT id FROM profiles WHERE NOT is_private)
+                 RETURNING id",
+                params![profile_id, id, title, turns_json, sources_json, updated],
+                |r| r.get(0),
+            ),
+        };
+        match id {
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::Invalid("chat")),
+            other => Ok(other?),
+        }
+    }
+
+    /// Renames the profile's chat `id`, with the rules of `save_chat`'s title.
+    pub fn rename_chat(&self, profile_id: Id, id: Id, title: &str) -> Result<()> {
+        let title = visible(title).split_whitespace().collect::<Vec<_>>().join(" ");
+        if title.is_empty() || title.chars().count() > MAX_NOTE_TITLE {
+            return Err(Error::Invalid("chat title"));
+        }
+        match self.conn.execute("UPDATE chats SET title = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, title])? {
+            0 => Err(Error::Invalid(MISSING_CHAT)),
+            _ => Ok(()),
+        }
+    }
+
+    pub fn delete_chat(&self, profile_id: Id, id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM chats WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    pub fn delete_chats(&self, profile_id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM chats WHERE profile_id = ?1", [profile_id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
     /// When the profile was created, when it last showed any feature hint, and how often it
     /// showed `hint`.
     pub fn hint_counts(&self, profile_id: Id, hint: &str) -> Result<(i64, Option<i64>, i64)> {
@@ -2074,6 +2173,27 @@ fn check_ai_command(name: &str, template: &str) -> Result<String> {
     Ok(visible(template))
 }
 
+fn chat_turns(json: &str) -> Option<Vec<ChatTurn>> {
+    let list = serde_json::from_str::<serde_json::Value>(json).ok()?;
+    list.as_array()?
+        .iter()
+        .map(|t| {
+            Some(ChatTurn {
+                you: t.get("you")?.as_bool()?,
+                text: t.get("text")?.as_str()?.to_owned(),
+                by: t.get("by").and_then(|b| b.as_str()).map(str::to_owned),
+                interrupted: t.get("interrupted")?.as_bool()?,
+                command: t.get("command").and_then(serde_json::Value::as_bool).unwrap_or(true),
+            })
+        })
+        .collect()
+}
+
+fn chat_sources(json: &str) -> Option<Vec<(String, usize)>> {
+    let list = serde_json::from_str::<serde_json::Value>(json).ok()?;
+    list.as_array()?.iter().map(|s| Some((s.get(0)?.as_str()?.to_owned(), usize::try_from(s.get(1)?.as_u64()?).ok()?))).collect()
+}
+
 /// `text` without invisible characters (`is_invisible`) or control characters other than line
 /// breaks and tabs.
 fn visible(text: &str) -> String {
@@ -2545,6 +2665,48 @@ mod tests {
         store.count_hint(2, "Reader", 1).unwrap();
         store.delete_profile(2).unwrap();
         assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM feature_hints", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[test]
+    fn chats_are_clean_capped_per_profile_and_go_with_the_profile_and_its_reset() {
+        let mut store = store_before("CREATE TABLE chats");
+        store.conn.execute_batch("INSERT INTO profiles (id, name, data_store_uuid, created_at) VALUES (1, 'P', 'u1', 5), (2, 'Q', 'u2', 6);").unwrap();
+        store.migrate().unwrap();
+        let private = store.create_profile("Private", "u3", true).unwrap().id;
+        let turn = |you: bool, text: &str| ChatTurn { you, text: text.into(), by: (!you).then(|| "M".into()), interrupted: false, command: you };
+        let turns = [turn(true, "Why\u{202e}?"), turn(false, "Because\u{7}.")];
+        let sources = [("https://a.test/p".to_owned(), 0)];
+        let id = store.save_chat(1, None, Some(" Why\n sky "), &turns, &sources).unwrap();
+        let chat = store.chat(1, id).unwrap().unwrap();
+        assert_eq!(chat.title, "Why sky");
+        assert_eq!(chat.turns, [turn(true, "Why?"), turn(false, "Because.")]);
+        assert_eq!(chat.sources, sources);
+        assert_eq!(store.save_chat(1, Some(id), None, &turns[..1], &[]).unwrap(), id);
+        assert_eq!(store.chat(1, id).unwrap().unwrap().title, "Why sky", "None keeps the title");
+        assert!(store.save_chat(1, None, None, &turns, &[]).is_err(), "a new chat needs a title");
+        assert_eq!(store.chat(1, id).unwrap().unwrap().turns.len(), 1);
+        assert!(store.chat(2, id).unwrap().is_none(), "chats are per profile");
+        assert!(store.save_chat(2, Some(id), Some("x"), &turns, &[]).is_err(), "another profile cannot edit it");
+        assert!(store.save_chat(private, None, Some("x"), &turns, &[]).is_err(), "nothing of a private profile is written");
+        assert!(store.save_chat(1, None, Some("x"), &[], &[]).is_err(), "an empty chat is not kept");
+        assert!(store.save_chat(1, None, Some(" "), &turns, &[]).is_err());
+        assert!(store.save_chat(1, None, Some("x"), &[turn(true, &"x".repeat(MAX_CHAT))], &[]).is_err());
+        store.rename_chat(1, id, "Sky").unwrap();
+        assert!(matches!(store.rename_chat(2, id, "Not mine"), Err(Error::Invalid(MISSING_CHAT))), "another profile's chat is not renamed");
+        assert!(matches!(store.rename_chat(1, id, " "), Err(Error::Invalid(what)) if what != MISSING_CHAT), "a bad title is told apart from a missing chat");
+        assert_eq!(store.chat_titles(1).unwrap().iter().map(|c| c.title.as_str()).collect::<Vec<_>>(), ["Sky"]);
+        assert!(store.rename_chat(1, id, "\u{200b}").is_err());
+        store.delete_chat(2, id).unwrap();
+        assert_eq!(store.chat_titles(1).unwrap().len(), 1, "another profile's id deletes nothing");
+        assert!(store.export_profile(1).unwrap().contains("\"chats\""));
+        store.reset_profile(1, "S").unwrap();
+        assert!(store.chat_titles(1).unwrap().is_empty());
+        store.save_chat(2, None, Some("x"), &turns, &[]).unwrap();
+        store.delete_chats(2).unwrap();
+        assert!(store.chat_titles(2).unwrap().is_empty());
+        store.save_chat(2, None, Some("x"), &turns, &[]).unwrap();
+        store.delete_profile(2).unwrap();
+        assert_eq!(store.conn.query_row("SELECT COUNT(*) FROM chats", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]

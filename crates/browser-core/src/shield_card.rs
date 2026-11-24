@@ -23,9 +23,22 @@ pub struct Card {
 
 const DAY_MS: i64 = 86_400_000;
 
+/// A new file `file` in a directory only its owner can open; the earlier exports of this run go,
+/// so at most one copy of what was shared stays behind.
 pub fn export_path(file: &str) -> std::io::Result<PathBuf> {
     static EXPORTS: AtomicU64 = AtomicU64::new(0);
-    let dir = std::env::temp_dir().join(format!("tarn-card-{}-{}", std::process::id(), EXPORTS.fetch_add(1, Ordering::Relaxed)));
+    let n = EXPORTS.fetch_add(1, Ordering::Relaxed);
+    let prefix = format!("tarn-card-{}-", std::process::id());
+    if let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let earlier = name.to_str().and_then(|n| n.strip_prefix(&prefix)).and_then(|k| k.parse::<u64>().ok()).is_some_and(|k| k < n);
+            if earlier {
+                std::fs::remove_dir_all(entry.path()).ok();
+            }
+        }
+    }
+    let dir = std::env::temp_dir().join(format!("{prefix}{n}"));
     #[cfg(unix)]
     let builder = {
         let mut builder = std::fs::DirBuilder::new();
@@ -531,7 +544,10 @@ mod tests {
         let path = export_path("card.png").unwrap();
         let dir = path.parent().unwrap();
         assert_eq!(std::fs::metadata(dir).unwrap().permissions().mode() & 0o777, 0o700);
-        std::fs::remove_dir(dir).unwrap();
+        std::fs::write(&path, "notes").unwrap();
+        let next = export_path("card.png").unwrap();
+        assert!(!dir.exists(), "an earlier export goes with the next");
+        std::fs::remove_dir(next.parent().unwrap()).unwrap();
     }
 
     #[test]

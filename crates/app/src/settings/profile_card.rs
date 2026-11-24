@@ -220,7 +220,7 @@ impl SettingsWindow {
                     .child(row(false).child(label("Update checks")).child(value(updates)))
                     .child(
                         row(false)
-                            .child(text_block("Nothing else", "No accounts, no telemetry, no AI requests."))
+                            .child(text_block("Nothing else", "No accounts and no telemetry. The assistant sends only when you ask it to."))
                             .child(to_privacy("connections-details", "Details…")),
                     ),
             )

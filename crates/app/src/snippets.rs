@@ -43,7 +43,7 @@ impl Browser {
             return;
         }
         let text = input.text().to_owned();
-        if let Some(expanded) = snippets::expand(&text, &self.profile_snippets()) {
+        if let Some(expanded) = self.core.expand_snippet(self.model.profile(), &text) {
             self.command.update(cx, |input, cx| {
                 input.set_text(expanded, cx);
                 input.append_selected("", cx);
@@ -52,13 +52,28 @@ impl Browser {
     }
 
     fn insert_snippet(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(key) = self.model.active else { return };
+        if self.aim_insert(NO_INSERT, cx) {
+            self.open_command(CommandMode::Snippets, window, cx);
+        }
+    }
+
+    /// Types an answer into the active page's focused field, like a snippet.
+    pub(crate) fn insert_answer(&mut self, text: &str, cx: &mut Context<Self>) {
+        if self.aim_insert("Answers cannot be typed into a Lockdown page", cx) {
+            self.type_snippet(text, cx);
+        }
+    }
+
+    /// Remembers the active page as the one to type into; false, with a notice, on a Lockdown page.
+    fn aim_insert(&mut self, refused: &'static str, cx: &mut Context<Self>) -> bool {
+        let Some(key) = self.model.active else { return false };
         if self.level_for_tab(key, &self.tab_url(key).unwrap_or_default()) == ShieldLevel::Lockdown {
-            self.notify_offer(key, NO_INSERT.into(), None);
-            return cx.notify();
+            self.notify_offer(key, refused.into(), None);
+            cx.notify();
+            return false;
         }
         self.snippet_page = self.tab_url(key).map(|url| (key, url));
-        self.open_command(CommandMode::Snippets, window, cx);
+        true
     }
 
     pub(crate) fn snippet_rows(&mut self, query: &str, cx: &mut Context<Self>) {

@@ -1,4 +1,4 @@
-use browser_core::snippets::{NO_FIELD, NO_INSERT, PAGE_CHANGED, expand};
+use browser_core::snippets::{NO_FIELD, NO_INSERT, PAGE_CHANGED};
 use browser_core::tabs::TabKey;
 use serde_json::{Value, json};
 use shield::ShieldLevel;
@@ -18,7 +18,7 @@ impl Browser {
 
     /// A shell field's text with a trailing `;name` expanded.
     pub fn expand_snippet(&self, text: &str) -> Option<String> {
-        expand(text, &self.snippets())
+        self.core.expand_snippet(self.model.profile(), text)
     }
 
     /// Opens Insert Snippet on the active page, which it remembers with its committed address;

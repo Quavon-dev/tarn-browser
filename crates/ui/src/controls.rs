@@ -671,12 +671,46 @@ pub fn focus_ring() -> Vec<BoxShadow> {
     vec![ring(Theme::accent_text(), 2., 0.)]
 }
 
+/// The widest a paragraph of help text runs before it wraps.
+pub const READABLE_WIDTH: f32 = 600.;
+
 pub fn section(title: impl Into<SharedString>) -> Div {
-    div().pt_5().pb_2().px_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text()).child(title.into())
+    div().pt_6().pb_2().px_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text()).child(title.into())
 }
 
 pub fn note(text: impl Into<SharedString>) -> Div {
-    div().pt_1p5().px_1().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(text.into())
+    div().pt_1p5().px_1().max_w(px(READABLE_WIDTH)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(text.into())
+}
+
+/// A compact icon button for an action on one row of a list, named by its tooltip.
+pub fn row_action(id: impl Into<ElementId>, glyph: Icon, tip: impl Into<SharedString>) -> Stateful<Div> {
+    icon_frame(id, true).child(icon(glyph, 15., Theme::muted())).tooltip(tooltip(tip, None))
+}
+
+/// Hides `control` until the pointer is over the element marked `.group(group)`, or the
+/// keyboard reaches it.
+pub fn shown_on_hover(control: Stateful<Div>, group: &'static str) -> Stateful<Div> {
+    control.opacity(0.).group_hover(group, |s| s.opacity(1.)).focus(|s| s.shadow(focus_ring()).opacity(1.))
+}
+
+/// A row's leading glyph on a soft tile.
+pub fn leading_icon(glyph: Icon) -> Div {
+    div().w(px(28.)).h(px(28.)).flex().flex_none().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Theme::control()).child(icon(
+        glyph,
+        14.,
+        Theme::muted(),
+    ))
+}
+
+/// What a card of rows shows while it has none: a glyph, one line and, from the caller, an action.
+pub fn empty_state(glyph: Icon, text: impl Into<SharedString>) -> Div {
+    group()
+        .py_5()
+        .px_4()
+        .items_center()
+        .gap_2()
+        .child(div().w(px(36.)).h(px(36.)).flex().items_center().justify_center().rounded_full().bg(Theme::control()).child(icon(glyph, 16., Theme::muted())))
+        .child(div().max_w(px(READABLE_WIDTH - 120.)).text_center().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(text.into()))
 }
 
 #[cfg(test)]

@@ -39,6 +39,10 @@ impl assistant::Host for Host {
         read(self.0, |b| b.model.profile().and_then(|(private, id)| b.core.level(private, id, Some(url)))).flatten().unwrap_or(ShieldLevel::Lockdown)
     }
 
+    fn level_in(self, profile: store::Id, url: &Url) -> ShieldLevel {
+        read(self.0, |b| b.core.level(false, profile, Some(url))).flatten().unwrap_or(ShieldLevel::Lockdown)
+    }
+
     fn read_page(self) {
         act(self.0, Browser::read_page_for_assistant);
     }

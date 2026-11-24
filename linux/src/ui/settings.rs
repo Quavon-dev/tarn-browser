@@ -2,10 +2,11 @@ use browser_core::shield_card::{Card, H, SHORT, W, back, day_totals, face, front
 use nsh_core::file_dialog::{FileFilter, SaveDialog};
 use nsh_core::prelude::*;
 use shield::{Category, ShieldLevel};
+use tarn_nsh_shared::controls::{described, empty, list_row, row_action, section_with};
 use tarn_nsh_shared::panes::{self, GROUPS, Pane};
 
-use super::panels::{capitalised, levels, section};
-use super::tools::{line, note};
+use super::panels::{capitalised, levels};
+use super::tools::note;
 use super::{Panel, Ui, WINDOWS, act, confirmed, in_other_windows, read};
 use crate::browser::pages::{HISTORY_TEXT, SORT_DOWNLOADS};
 use crate::browser::{Browser, Notice};
@@ -44,6 +45,27 @@ impl tarn_nsh_shared::notes::Host for Notes {
     }
     fn with_store<R>(self, f: impl FnOnce(&store::Store) -> R) -> R {
         tarn_nsh_shared::snippets::Host::with_store(self, f)
+    }
+    fn ask(self, note: &store::Note) {
+        super::assistant::open(self.0, false);
+        self.0.chat.attach_note(super::assistant::Host(self.0), note);
+    }
+    fn export(self, markdown: String) {
+        let ui = self.0;
+        let dialog = SaveDialog::new()
+            .file_name(browser_core::notes::EXPORT_NAME)
+            .filter(FileFilter::new("Markdown", ["md"]))
+            .directory(webview::session::downloads_dir());
+        ui.root.run(|| {
+            drop(spawn(async move {
+                let said = match pick_save_path(dialog).await {
+                    Ok(None) => return,
+                    Ok(Some(path)) if std::fs::write(&path, markdown).is_ok() => "Notes exported",
+                    _ => "The notes could not be exported",
+                };
+                act(ui, |b| b.show_toast(said, None));
+            }))
+        });
     }
 }
 
@@ -202,7 +224,8 @@ fn week(ui: Ui, card: &Card) -> View {
 fn shortcut_rows(ui: Ui) -> View {
     let Some(stored) = read(ui, |b| shortcuts::stored(&b.core.disk)) else { return view() };
     let map = shortcuts::keymap(&stored);
-    let mut out = view().flex_col().gap_2().child(note("Click a shortcut and type the new keys with Ctrl, such as Ctrl+Shift+Y; Enter saves, Esc cancels."));
+    let mut out =
+        view().flex_col().gap_2().child(section_with("Keyboard", "Click a shortcut and type keys with Ctrl, such as Ctrl+Shift+Y. Enter saves, Esc cancels."));
     if let Some(error) = ui.shortcut_error.get_untracked() {
         out = out.child(note(error).text_color(Theme::warning()));
     }
@@ -234,7 +257,7 @@ fn shortcut_rows(ui: Ui) -> View {
                 .into_element()
             };
             let reset = custom.then(|| {
-                pill("Reset", move || {
+                row_action(icons::UNDO_2, format!("Reset {row_label}"), move || {
                     let result = read(ui, |b| shortcuts::reset(&b.core.disk, Some(action))).unwrap_or(Ok(()));
                     ui.shortcut_error.set(result.err());
                     ui.keys_rev.update(|r| *r += 1);
@@ -243,7 +266,7 @@ fn shortcut_rows(ui: Ui) -> View {
             });
             grp = grp.child(group_row().child(label(row_label).flex_1()).children(reset).child(control));
         }
-        out = out.child(small(name).pt_2()).child(grp);
+        out = out.child(section_with(name, "")).child(grp);
     }
     out = out.child(note("Fixed: Ctrl+1 … Ctrl+9 pick a tab, Ctrl+9 the last; Alt+1 … Alt+9 switch to space 1–9."));
     if !stored.is_empty() {
@@ -259,94 +282,77 @@ fn shortcut_rows(ui: Ui) -> View {
 
 fn rules(ui: Ui) -> View {
     let rows = read(ui, Browser::space_rule_rows).unwrap_or_default();
-    let mut out = view().flex_col();
     if rows.is_empty() {
-        return out.child(note("No rules. “Always open in” in a site's settings opens its new tabs in the space you pick."));
+        return group().child(empty(icons::FOLDER, "No rules. “Always open in” in a site's settings sends its new tabs to a space.", None));
     }
-    for (id, host, space) in rows {
-        out = out.child(line(format!("{host} → {space}")).child(pill("Remove", move || act(ui, |b| b.delete_space_rule(id)))));
-    }
-    out
+    group().children(rows.into_iter().enumerate().map(|(ix, (id, host, space))| {
+        list_row(ix, host.clone(), format!("Opens in {space}"))
+            .child(row_action(icons::TRASH, format!("Remove the rule for {host}"), move || act(ui, |b| b.delete_space_rule(id))))
+            .into_element()
+    }))
 }
 
 fn hidden(ui: Ui, private: bool) -> View {
     if private {
-        return view().child(note("A private space keeps no hidden elements."));
+        return group().child(empty(icons::LOCK, "A private space keeps no hidden elements.", None));
     }
     let zaps = read(ui, |b| b.zapped(None)).unwrap_or_default();
     if zaps.is_empty() {
-        return view().child(note("No hidden elements. Zap Element in the command bar hides an element on a site in this profile."));
+        return group().child(empty(icons::ZAP, "No hidden elements. Zap Element in the command bar hides one.", None));
     }
-    let rows: Vec<AnyElement> = zaps
-        .into_iter()
-        .map(|(host, selector)| {
-            let (h, s) = (host.clone(), selector.clone());
-            line(format!("{host}: {selector}")).child(pill("Show Again", move || act(ui, |b| b.unzap(&h, Some(&s))))).into_element()
-        })
-        .collect();
-    view().flex_col().children(rows)
+    group().children(zaps.into_iter().enumerate().map(|(ix, (host, selector))| {
+        let (h, s) = (host.clone(), selector.clone());
+        list_row(ix, engine::view_policy::title(&host), selector.clone())
+            .child(row_action(icons::UNDO_2, format!("Show {selector} on {host} again"), move || act(ui, |b| b.unzap(&h, Some(&s)))))
+            .into_element()
+    }))
 }
 
-fn site_list(ui: Ui, hosts: Vec<String>, empty: &'static str, button: &'static str, run: fn(&mut Browser, &str)) -> View {
+fn site_list(ui: Ui, hosts: Vec<String>, empty_line: &'static str, glyph: &'static str, button: &'static str, run: fn(&mut Browser, &str)) -> View {
     if hosts.is_empty() {
-        return view().child(note(empty));
+        return group().child(empty(icons::CIRCLE_CHECK, empty_line, None));
     }
-    let rows: Vec<AnyElement> = hosts
-        .into_iter()
-        .map(|host| {
-            let shown = browser_core::text::bounded_title(&host);
-            line(shown)
-                .child(pill(button, move || {
-                    let host = host.clone();
-                    act(ui, move |b| run(b, &host))
-                }))
-                .into_element()
-        })
-        .collect();
-    view().flex_col().children(rows)
+    group().children(hosts.into_iter().enumerate().map(|(ix, host)| {
+        let shown = browser_core::text::bounded_title(&host);
+        list_row(ix, shown.clone(), "")
+            .child(row_action(glyph, format!("{button} {shown}"), move || {
+                let host = host.clone();
+                act(ui, move |b| run(b, &host))
+            }))
+            .into_element()
+    }))
 }
 
 fn permissions(ui: Ui) -> View {
     let rows = read(ui, |b| b.permissions()).unwrap_or_default();
     if rows.is_empty() {
-        return view()
-            .child(note("No site has asked yet. When a site asks for the camera, microphone or location and you choose Remember, the answer shows here."));
+        return group().child(empty(icons::CAMERA, "No site has asked yet. Answers you remember show here.", None));
     }
-    let rows: Vec<AnyElement> = rows
-        .into_iter()
-        .map(|p| {
-            let set = |allow: Option<bool>| {
-                let (origin, kind) = (p.origin.clone(), p.kind.clone());
-                move || act(ui, |b| b.set_permission(&origin, &kind, allow))
-            };
-            let mark = |on: bool, name: &'static str, allow: bool| {
-                if on { accent_pill(name, set(Some(allow))).into_element() } else { pill(name, set(Some(allow))).into_element() }
-            };
-            line(format!("{} · {}", p.site, p.label))
-                .child(mark(p.allowed, "Allow", true))
-                .child(mark(!p.allowed, "Block", false))
-                .child(pill("Forget", set(None)))
-                .into_element()
-        })
-        .collect();
-    view().flex_col().children(rows)
+    group().children(rows.into_iter().enumerate().map(|(ix, p)| {
+        let (origin, kind) = (p.origin.clone(), p.kind.clone());
+        let set = move |allow: Option<bool>| {
+            let (origin, kind) = (origin.clone(), kind.clone());
+            act(ui, move |b| b.set_permission(&origin, &kind, allow))
+        };
+        let forget = set.clone();
+        list_row(ix, p.site.clone(), p.label.clone())
+            .child(segmented(vec![(true, "Allow".to_owned()), (false, "Block".to_owned())], p.allowed, move |allow| set(Some(allow))))
+            .child(row_action(icons::TRASH, format!("Forget {} for {}", p.label, p.site), move || forget(None)))
+            .into_element()
+    }))
 }
 
 fn overrides(ui: Ui) -> View {
     let rows = read(ui, Browser::site_overrides).unwrap_or_default();
     if rows.is_empty() {
-        return view().child(note("No site overrides. Use the Shield button in the address bar to set one for a site."));
+        return group().child(empty(icons::SHIELD, "No site overrides. Set one with the Shield button in the address bar.", None));
     }
-    let rows: Vec<AnyElement> = rows
-        .into_iter()
-        .map(|(host, level)| {
-            line(engine::view_policy::title(&host))
-                .child(small(capitalised(level.as_str())))
-                .child(pill("Remove", move || remove_override(ui, host.clone())))
-                .into_element()
-        })
-        .collect();
-    view().flex_col().children(rows)
+    group().children(rows.into_iter().enumerate().map(|(ix, (host, level))| {
+        let name = engine::view_policy::title(&host);
+        list_row(ix, name.clone(), capitalised(level.as_str()))
+            .child(row_action(icons::TRASH, format!("Remove the override for {name}"), move || remove_override(ui, host.clone())))
+            .into_element()
+    }))
 }
 
 fn remove_override(ui: Ui, host: String) {
@@ -357,18 +363,14 @@ fn remove_override(ui: Ui, host: String) {
 
 fn zooms(ui: Ui, rows: Vec<(String, f64)>) -> View {
     if rows.is_empty() {
-        return view().child(note("No saved zoom levels. Zooming in or out remembers the zoom for the site; Actual Size forgets it."));
+        return group().child(empty(icons::ZOOM_IN, "No saved zoom levels. Zooming remembers the zoom for the site; Actual Size forgets it.", None));
     }
-    let rows: Vec<AnyElement> = rows
-        .into_iter()
-        .map(|(host, zoom)| {
-            line(engine::view_policy::title(&host))
-                .child(small(format!("{:.0} %", zoom * 100.)))
-                .child(pill("Remove", move || remove_zoom(ui, Some(host.clone()))))
-                .into_element()
-        })
-        .collect();
-    view().flex_col().children(rows)
+    group().children(rows.into_iter().enumerate().map(|(ix, (host, zoom))| {
+        let name = engine::view_policy::title(&host);
+        list_row(ix, name.clone(), format!("{:.0} %", zoom * 100.))
+            .child(row_action(icons::TRASH, format!("Forget the zoom of {name}"), move || remove_zoom(ui, Some(host.clone()))))
+            .into_element()
+    }))
 }
 
 fn remove_zoom(ui: Ui, host: Option<String>) {
@@ -422,8 +424,19 @@ fn delete_profile_data(ui: Ui) {
     }
 }
 
-fn data_row(name: &str, action: AnyElement) -> View {
-    group_row().child(label(name.to_owned()).flex_1()).child(action)
+fn data_row(name: &str, detail: &str, action: AnyElement) -> View {
+    view()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .min_h(px(40.))
+        .border_b_1()
+        .border_color(Theme::separator())
+        .child(view().flex_1().min_w(px(200.)).child(label(name.to_owned())).when(!detail.is_empty(), |v| v.child(small(detail.to_owned()))))
+        .child(action)
 }
 
 fn overview(ui: Ui) -> View {
@@ -435,13 +448,15 @@ fn overview(ui: Ui) -> View {
     let mut out = view().flex_col();
     if crate::desktop::is_default_browser() == Some(false) {
         let text = view().flex_col().flex_1().child(label("Tarn isn't your default browser")).child(small("Links from other apps open in another browser."));
-        out = out.child(section("Default browser")).child(group().child(group_row().child(text).child(accent_pill("Make Default", move || make_default(ui)))));
+        out = out
+            .child(section_with("Default browser", ""))
+            .child(group().child(group_row().child(text).child(accent_pill("Make Default", move || make_default(ui)))));
     }
     let change = pill("Change…", move || {
         ui.settings_pane.set(Pane::Privacy);
         act(ui, |_| {});
     });
-    out.child(section("Shield")).child(group().child(group_row().child(label("Site overrides").flex_1()).child(small(overrides)).child(change)))
+    out.child(section_with("Shield", "")).child(group().child(list_row(0, "Site overrides", overrides).child(change)))
 }
 
 fn make_default(ui: Ui) {
@@ -605,19 +620,20 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
             None => body.child(note("No profile is open.")),
         },
         Pane::General => body
-            .child(section("Downloads"))
-            .child(group().child(switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS))))
-            .child(note("New files go into Images, Videos, Audio, Documents, Archives or Installers inside Downloads; other types stay at the top."))
-            .children(browser_core::import::available().then(|| section("Import")))
+            .child(section_with("Downloads", ""))
+            .child(group().child(described(
+                switch(sort, "Sort downloads into folders", toggle_off(SORT_DOWNLOADS)),
+                "Images, Videos, Audio, Documents, Archives and Installers inside Downloads.",
+            )))
+            .children(browser_core::import::available().then(|| section_with("Import", "")))
             .children(browser_core::import::available().then(|| {
-                group().child(group_row().child(label("Import browser data").flex_1()).child(pill("Import\u{2026}", move || super::import::open(ui))))
+                group().child(
+                    list_row(0, "Import browser data", "Sign-ins, history and bookmarks from Chrome, Edge, Brave, Chromium or Firefox")
+                        .child(pill("Import\u{2026}", move || super::import::open(ui))),
+                )
             }))
-            .children(
-                browser_core::import::available()
-                    .then(|| note("Sign-ins, history and bookmarks from Chrome, Edge, Brave, Chromium or Firefox, into this profile.")),
-            )
-            .child(section("About"))
-            .child(group().child(group_row().child(label("Tarn version").flex_1()).child(small(browser_core::VERSION))))
+            .child(section_with("About", ""))
+            .child(group().child(list_row(0, "Tarn version", browser_core::VERSION)))
             .child(
                 view()
                     .pt_2()
@@ -633,56 +649,77 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
         Pane::Appearance => body.child(view().pt_3().child(super::appearance::pane(ui))),
         Pane::Tabs => {
             let choices: Vec<(usize, String)> = ARCHIVE_AFTER.iter().enumerate().map(|(ix, (name, _))| (ix, (*name).to_owned())).collect();
-            body.child(section("Tabs"))
+            let choice =
+                |name: &str, note: &str, control: View| described(setting_row(name, control), note.to_owned()).border_b_1().border_color(Theme::separator());
+            body.child(section_with("Memory", "Sleeping tabs reload when you return; pinned tabs and tabs playing media stay awake."))
                 .child(
                     group()
-                        .child(group_row().child(label("Tabs kept awake").flex_1()).child(segmented(options(&LIVE_TABS), live_tabs, move |ix| {
-                            set_tab_choice(ui, |b| {
-                                b.set_live_tabs(ix);
-                                false
-                            })
-                        })))
-                        .child(
-                            group_row()
-                                .child(label("Sleep background tabs after").flex_1())
-                                .child(segmented(options(&prefs::sleep_after_options()), sleep_after, move |ix| set_tab_choice(ui, |b| b.set_sleep_after(ix)))),
-                        )
-                        .child(group_row().child(label("New tab opens").flex_1()).child(segmented(
-                            vec![(false, "Command card".to_owned()), (true, "Start page".to_owned())],
-                            start_page,
-                            move |on| act(ui, move |b| b.set_pref(NEW_TAB_START_PAGE, on)),
-                        )))
-                        .child(group_row().child(label("After closing a tab").flex_1()).child(segmented(
-                            vec![(false, "Next".to_owned()), (true, "Previous".to_owned())],
-                            previous,
-                            move |on| act(ui, move |b| b.set_pref(CLOSE_SELECTS_PREVIOUS, on)),
-                        )))
-                        .child(group_row().child(label("A tab dragged out of the window opens").flex_1()).child(segmented(
-                            vec![(true, "Temporary window".to_owned()), (false, "Full window".to_owned())],
-                            tear_off,
-                            move |on| act(ui, move |b| b.set_pref(TEAR_OFF_TEMPORARY, on)),
-                        )))
-                        .child(group_row().child(label("Close unused tabs after").flex_1()).child(segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix)))))
-                        .child(switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES))))),
+                        .child(choice(
+                            "Tabs kept awake",
+                            "Fewer saves memory.",
+                            segmented(options(&LIVE_TABS), live_tabs, move |ix| {
+                                set_tab_choice(ui, |b| {
+                                    b.set_live_tabs(ix);
+                                    false
+                                })
+                            }),
+                        ))
+                        .child(choice(
+                            "Sleep background tabs after",
+                            "After five minutes while memory is short.",
+                            segmented(options(&prefs::sleep_after_options()), sleep_after, move |ix| set_tab_choice(ui, |b| b.set_sleep_after(ix))),
+                        ))
+                        .child(choice(
+                            "Close unused tabs after",
+                            "Unpinned tabs move to History › Archived Tabs.",
+                            segmented(choices, archive, move |ix| act(ui, move |b| b.set_archive_after(ix))),
+                        )),
                 )
-                .child(note("Other tabs sleep and reload when you return, unless they are playing video or audio; fewer saves memory."))
-                .child(note("A tab left for this long sleeps and reloads when you return, after five minutes while memory is short. Pinned tabs and tabs playing video or audio stay awake."))
-                .child(note("New Tab shows the command card with the search field, or the start page. After closing a tab, the next or previous one in the list becomes active."))
-                .child(note("A temporary window lists only that tab's own temporary space, which goes with the window; a full window lists every space and profile. Pinned tabs and tiles open in a full window, except from a temporary one."))
-                .child(note("Unpinned tabs you have not opened for this long move to History › Archived Tabs."))
-                .child(note("Touchpad gestures: swipe with two fingers over the sidebar to switch spaces."))
+                .child(section_with("Opening and closing", ""))
+                .child(
+                    group()
+                        .child(choice(
+                            "New tab opens",
+                            "The command card with the search field, or the start page.",
+                            segmented(vec![(false, "Command card".to_owned()), (true, "Start page".to_owned())], start_page, move |on| {
+                                act(ui, move |b| b.set_pref(NEW_TAB_START_PAGE, on))
+                            }),
+                        ))
+                        .child(choice(
+                            "After closing a tab",
+                            "Which neighbour becomes active.",
+                            segmented(vec![(false, "Next".to_owned()), (true, "Previous".to_owned())], previous, move |on| {
+                                act(ui, move |b| b.set_pref(CLOSE_SELECTS_PREVIOUS, on))
+                            }),
+                        ))
+                        .child(choice(
+                            "A tab dragged out of the window opens",
+                            "A temporary window lists only its own temporary space and goes with the window. Pinned tabs and tiles open in a full window, except from a temporary one.",
+                            segmented(vec![(true, "Temporary window".to_owned()), (false, "Full window".to_owned())], tear_off, move |on| {
+                                act(ui, move |b| b.set_pref(TEAR_OFF_TEMPORARY, on))
+                            }),
+                        ))
+                        .child(described(
+                            switch(gestures, "Touchpad gestures", move || act(ui, |b| b.set_pref(GESTURES, !b.pref(GESTURES)))),
+                            "Swipe with two fingers over the sidebar to switch spaces.",
+                        )),
+                )
         }
         Pane::Search => {
             let engines: Vec<(usize, String)> = ENGINES.iter().enumerate().map(|(ix, e)| (ix, e.name.to_owned())).collect();
-            body.child(section("Search engine"))
-                .child(group().child(group_row().child(label("Search engine").flex_1()).child(segmented(engines, engine, move |ix| act(ui, move |b| b.set_search_engine(ix))))))
-                .child(section("Suggestions"))
-                .child(group().child(switch(suggestions, "Suggest open tabs and history", toggle(SUGGESTIONS))).child(switch(history_text, "Search the text of visited pages", toggle_off(HISTORY_TEXT))))
-                .child(note("Shown under the address field while you type. Nothing you type leaves this computer before you press Enter."))
-                .child(note("Search the text of visited pages keeps up to 4 KB of each page's text on this computer so history suggestions match what a page said. Never for the private space or Lockdown pages; cleared with history, and when you turn this off."))
-                .child(section("Shortcuts"))
-                .child(group().child(switch(shortcuts, "Search shortcuts", toggle_off(SEARCH_SHORTCUTS))))
-                .child(note(prefs::SEARCH_SHORTCUTS_NOTE))
+            body.child(section_with("Search engine", ""))
+                .child(group().child(setting_row("Search engine", segmented(engines, engine, move |ix| act(ui, move |b| b.set_search_engine(ix))))))
+                .child(section_with("Suggestions", "Nothing you type leaves this computer before you press Enter."))
+                .child(
+                    group()
+                        .child(described(switch(suggestions, "Suggest open tabs and history", toggle(SUGGESTIONS)), "Shown under the address field while you type."))
+                        .child(described(
+                            switch(history_text, "Search the text of visited pages", toggle_off(HISTORY_TEXT)),
+                            "Keeps up to 4 KB of each page's text on this computer. Never for the private space or Lockdown pages; cleared with history and when you turn this off.",
+                        )),
+                )
+                .child(section_with("Shortcuts", ""))
+                .child(group().child(described(switch(shortcuts, "Search shortcuts", toggle_off(SEARCH_SHORTCUTS)), prefs::SEARCH_SHORTCUTS_NOTE)))
         }
         Pane::Privacy => {
             let (localhost, zoom_rows) = read(ui, |b| (b.setting_on(LOCALHOST_FROM_APPS), b.site_zooms())).unwrap_or((true, Vec::new()));
@@ -694,58 +731,90 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 }
             };
             let (filter_updates, filter_status) = read(ui, Browser::filter_updates).unwrap_or_default();
-            body.child(section("Shield"))
+            let filter = |on: bool, name: &str, note: &str, toggle: Box<dyn Fn()>| described(switch(on, name, toggle), note.to_owned());
+            body.child(section_with("Shield", "Filter lists apply to pages loaded after a change; they need the signed list bundle."))
                 .child(
                     group()
                         .child(switch(on("ads"), "Block ads", toggle("block_ads")))
                         .child(switch(on("trackers"), "Block trackers", toggle("block_trackers")))
-                        .child(switch(on("annoyances"), "Block cookie banners", toggle("block_annoyances")))
-                        .child(switch(youtube, "Block YouTube ads", toggle(shield::groups::YOUTUBE_SETTING)))
-                        .child(switch(sets.contains(&Category::Popups), "Block pop-ups and ad redirects", toggle_set(Category::Popups)))
-                        .child(switch(sets.contains(&Category::Malware), "Block dangerous sites", toggle_set(Category::Malware)))
-                        .child(switch(sets.contains(&Category::Adult), "Block adult content", toggle_set(Category::Adult))),
+                        .child(filter(
+                            on("annoyances"),
+                            "Block cookie banners",
+                            "EasyList Cookie and uBlock Cookie Notices hide consent pop-ups. Nothing is accepted or refused for you.",
+                            Box::new(toggle("block_annoyances")),
+                        ))
+                        .child(filter(
+                            youtube,
+                            "Block YouTube ads",
+                            "Removes ads from YouTube's player data and hides ad slots. If videos stop playing, turn this off.",
+                            Box::new(toggle(shield::groups::YOUTUBE_SETTING)),
+                        ))
+                        .child(filter(
+                            sets.contains(&Category::Popups),
+                            "Block pop-ups and ad redirects",
+                            "Pages open windows only when you click, never to known pop-up ad sites, and cannot send you to one.",
+                            Box::new(toggle_set(Category::Popups)),
+                        ))
+                        .child(filter(
+                            sets.contains(&Category::Malware),
+                            "Block dangerous sites",
+                            "Malware, phishing and scam sites get a warning page.",
+                            Box::new(toggle_set(Category::Malware)),
+                        ))
+                        .child(filter(
+                            sets.contains(&Category::Adult),
+                            "Block adult content",
+                            "Adult sites get a warning page with no way past it.",
+                            Box::new(toggle_set(Category::Adult)),
+                        )),
                 )
-                .child(note("EasyList Cookie and uBlock Cookie Notices hide consent pop-ups and stop the scripts that show them. Nothing is accepted or refused for you."))
-                .child(note("Block YouTube ads removes ads from YouTube's player data before the player sees them and hides ad slots. YouTube changes often; if videos stop playing, turn this off."))
-                .child(note("Pages open windows only when you click, never to known pop-up ad sites, and cannot send you to one. Malware, phishing and scam lists stop dangerous sites with a warning page; adult sites get one with no way past it."))
-                .child(note("Filter lists apply to pages loaded after a change; they need the signed list bundle."))
-                .child(section("Links from other apps"))
-                .child(group().child(switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS))))
-                .child(note("A link to this computer (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and the page it shows may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here; Open Anyway on the notice still opens it. Links to other addresses on your network are refused; Open Anyway on the notice opens them. Applies to every profile."))
-                .child(section("Site overrides"))
-                .child(overrides(ui))
-                .child(section("Muted sites"))
-                .child(site_list(ui, muted, "No muted sites. Mute Site in a tab's panel or the command bar silences a site in this profile.", "Unmute", |b, host| b.unmute_site(host)))
-                .child(section("Sites without ad, tracker and cookie-banner blocking"))
-                .child(site_list(ui, paused, "Blocking runs on every site. Turn it off for one site with the Shield button in the address bar.", "Turn On", |b, host| b.set_site_paused(host, false)))
-                .child(section("Filter-list updates"))
+                .child(section_with("Filter-list updates", format!("GitHub, once a day. {filter_status}")))
                 .children(filter_updates.map(|on| group().child(switch(on, "Download filter-list updates", toggle(shield::update::SETTING)))))
-                .child(note(format!("GitHub, once a day. {filter_status}")))
+                .child(section_with("Links from other apps", "Applies to every profile."))
+                .child(group().child(described(
+                    switch(localhost, "Open localhost links from other apps", toggle(LOCALHOST_FROM_APPS)),
+                    "A link to this computer (localhost, 127.0.0.1) from a terminal, editor or other app opens like a typed address, and its page may lead elsewhere on your network as a typed one can. Off: Tarn refuses it, since a link in a mail could reach services running here. Links to other addresses on your network are refused. Open Anyway on the notice still opens a refused link.",
+                )))
+                .child(section_with("Site overrides", "Shield levels you set for single sites."))
+                .child(overrides(ui))
+                .child(section_with("Muted sites", ""))
+                .child(site_list(ui, muted, "No muted sites. Mute Site in a tab's panel or the command bar silences one.", icons::VOLUME_2, "Unmute", |b, host| b.unmute_site(host)))
+                .child(section_with("Sites without ad, tracker and cookie-banner blocking", ""))
+                .child(site_list(
+                    ui,
+                    paused,
+                    "Blocking runs on every site. Turn it off for one with the Shield button in the address bar.",
+                    icons::SHIELD_CHECK,
+                    "Turn blocking on for",
+                    |b, host| b.set_site_paused(host, false),
+                ))
                 .child(
                     view()
                         .flex_row()
-                        .items_center()
-                        .child(section("Site zoom levels").flex_1())
+                        .items_end()
+                        .child(section_with("Site zoom levels", "").flex_1())
                         .children(has_zooms.then(|| confirmed(ui, "zooms".to_owned(), "Reset All", move || remove_zoom(ui, None)))),
                 )
                 .child(zooms(ui, zoom_rows))
-                .child(section("Hidden elements"))
+                .child(section_with("Hidden elements", ""))
                 .child(hidden(ui, private))
-                .child(section("Your data"))
+                .child(section_with("Your data", "Files you downloaded stay in Downloads."))
                 .child(
                     group()
-                        .children((!private).then(|| data_row("Export this profile's data as JSON", pill("Export…", move || export_profile(ui)).into_element())))
+                        .children((!private).then(|| data_row("Export this profile's data", "As JSON", pill("Export…", move || export_profile(ui)).into_element())))
                         .child(data_row(
-                            "Clear browsing history, site icons, zoom levels, protected sites and hidden elements",
+                            "Clear browsing history",
+                            "Also site icons, zoom levels, protected sites and hidden elements",
                             super::clear_history_choice(ui, "Clear…"),
                         ))
-                        .child(data_row("Clear the download list", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
-                        .child(data_row("Clear cookies and website data", confirmed(ui, "data".to_owned(), "Clear", clear_data)))
-                        .child(data_row("Delete everything in this profile", confirmed(ui, "delete".to_owned(), "Delete", move || delete_profile_data(ui)))),
+                        .child(data_row("Clear the download list", "", confirmed(ui, "download list".to_owned(), "Clear", move || act(ui, |b| b.clear_downloads()))))
+                        .child(data_row("Clear cookies and website data", "", confirmed(ui, "data".to_owned(), "Clear", clear_data)))
+                        .child(data_row(
+                            "Delete everything in this profile",
+                            "Spaces, tabs, history, cookies, site data and site settings. Cookies and site data shared with another profile are deleted there too.",
+                            confirmed(ui, "delete".to_owned(), "Delete", move || delete_profile_data(ui)),
+                        )),
                 )
-                .child(note(
-                    "Delete everything removes spaces, tabs, history, cookies, site data and site settings of this profile. Cookies and site data shared with another profile are deleted there too. Files you downloaded stay in Downloads.",
-                ))
         }
         Pane::Profiles => body
             .child(view().flex_row().gap_2().pt_3().child(pill("Memory", move || super::show(ui, Panel::Memory))).child(accent_pill(
@@ -756,17 +825,31 @@ fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                 },
             )))
             .child(super::profiles::profiles_pane(ui))
-            .child(section("Space Rules"))
+            .child(section_with("Space Rules", "Sites whose new tabs open in a space you picked."))
             .child(rules(ui)),
-        Pane::Permissions => body
-            .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
-            .child(view().pt_2().child(permissions(ui))),
+        Pane::Permissions => {
+            body.child(section_with("Site answers", "A site you forget asks again next time; Lockdown sites never ask.")).child(permissions(ui))
+        }
         Pane::Shortcuts => body.child(view().pt_3().child(shortcut_rows(ui))),
         Pane::Snippets => body.child(view().pt_3().child(tarn_nsh_shared::snippets::pane(Notes(ui)))),
         Pane::Notes => body.child(view().pt_3().child(tarn_nsh_shared::notes::pane(Notes(ui)))),
         Pane::Ai => body.child(view().pt_3().child(tarn_nsh_shared::assistant::settings_pane(super::assistant::Host(ui), ui.chat))),
         Pane::Developer => super::devtools::pane(ui, body),
     })
+}
+
+fn setting_row(name: &str, control: View) -> View {
+    view()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .gap_x_3()
+        .gap_y_1()
+        .px_3()
+        .py_2()
+        .min_h(px(40.))
+        .child(label(name.to_owned()).flex_1().min_w(px(160.)))
+        .child(control)
 }
 
 fn options(names: &[&str]) -> Vec<(usize, String)> {

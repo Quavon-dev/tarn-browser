@@ -223,6 +223,36 @@ pub struct Snippet {
     pub body: String,
 }
 
+/// One turn of a saved assistant chat: a question (`you`) or an answer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTurn {
+    pub you: bool,
+    pub text: String,
+    pub by: Option<String>,
+    pub interrupted: bool,
+    /// A question a command sent; unknown counts as one, so a retry stays on the device where it can.
+    pub command: bool,
+}
+
+/// A saved assistant chat. `sources` are the addresses of content attached to it, each with the
+/// first turn that may hold text from it, so a send can still drop what a site now in Lockdown gave.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Chat {
+    pub id: Id,
+    pub profile_id: Id,
+    pub title: String,
+    pub turns: Vec<ChatTurn>,
+    pub sources: Vec<(String, usize)>,
+    pub updated: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTitle {
+    pub id: Id,
+    pub title: String,
+    pub updated: i64,
+}
+
 /// A note the user wrote in a profile; `updated` is in milliseconds since the epoch.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Note {

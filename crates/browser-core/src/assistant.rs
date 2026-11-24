@@ -14,6 +14,13 @@ pub const MIN_SEND_INTERVAL_MS: i64 = 2_000;
 const MAX_URL_BYTES: usize = 2048;
 const MAX_NOTICE_BYTES: usize = 300;
 const TAG: &str = "tarn-block";
+const WAIT: &str = "Wait a moment before sending again.";
+/// What an answer reads once it used content from a site now in Lockdown.
+pub const FORGOTTEN: &str = "Removed: this answer used content from a site now in Lockdown.";
+/// Why a new chat was not kept.
+pub const CHATS_FULL: &str = "This chat was not saved: the profile holds as many chats as it keeps. Delete some in the chat list or Settings › AI.";
+/// Why a chat stopped being kept.
+pub const NOT_SAVED: &str = "This chat could not be saved: it was deleted or reached its size limit. Start a new chat to keep going.";
 
 pub const ASK: &str = "{question}";
 
@@ -163,6 +170,8 @@ pub struct Turn {
     pub interrupted: bool,
     /// The model that gave an answer.
     pub by: Option<String>,
+    /// A question a command sent, which a local model answers where it can; a retry goes the same way.
+    pub command: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -214,6 +223,8 @@ struct Attached {
 #[derive(Clone, Debug)]
 pub struct Session {
     profile: Id,
+    /// The saved chat this session continues; none until its first answer is saved.
+    chat: Option<Id>,
     pills: Vec<Attached>,
     added: [usize; 4],
     history: Vec<Turn>,
@@ -230,6 +241,7 @@ impl Session {
     pub fn new(origin: Origin, ai_enabled: bool) -> Option<Self> {
         (ai_enabled && allowed(origin)).then_some(Self {
             profile: origin.profile,
+            chat: None,
             pills: Vec::new(),
             added: [0; 4],
             history: Vec::new(),
@@ -244,6 +256,157 @@ impl Session {
 
     pub fn profile(&self) -> Id {
         self.profile
+    }
+
+    /// The saved chat `saved` continued, under the rules of `new`. Its sources count as removed
+    /// pills, so a send still forgets what a site now in Lockdown gave to it, and what one that is
+    /// in Lockdown now (`level_of`) gave is forgotten before the chat shows, so it is never copied
+    /// or inserted either.
+    pub fn restore(origin: Origin, ai_enabled: bool, saved: &store::Chat, level_of: impl Fn(&url::Url) -> ShieldLevel) -> Option<Self> {
+        let mut session = Self::new(origin, ai_enabled).filter(|_| saved.profile_id == origin.profile)?;
+        session.chat = Some(saved.id);
+        session.history = saved
+            .turns
+            .iter()
+            .map(|t| Turn {
+                role: if t.you { Role::You } else { Role::Assistant },
+                text: t.text.clone(),
+                interrupted: t.interrupted,
+                by: t.by.clone(),
+                command: t.command,
+            })
+            .collect();
+        let len = session.history.len();
+        session.removed = saved.sources.iter().map(|(url, since)| (url.clone(), (*since).min(len))).collect();
+        session.forget_locked(&level_of);
+        Some(session)
+    }
+
+    /// Drops attached content whose site is in Lockdown now (`level_of`) and forgets what it, or
+    /// a removed source now in Lockdown, gave the chat; true when anything was forgotten.
+    fn forget_locked(&mut self, level_of: &impl Fn(&url::Url) -> ShieldLevel) -> bool {
+        let locked = |u: &str| url::Url::parse(u).map_or(true, |u| level_of(&u) == ShieldLevel::Lockdown);
+        let attached = self.pills.iter().filter(|a| a.pill.source().is_some_and(locked)).map(|a| a.since);
+        let Some(since) = attached.chain(self.removed.iter().filter(|(u, _)| locked(u)).map(|(_, s)| *s)).min() else { return false };
+        self.pills.retain(|a| !a.pill.source().is_some_and(locked));
+        self.removed.retain(|(u, _)| !locked(u));
+        self.forget_since(since);
+        true
+    }
+
+    /// The saved chat this session continues.
+    pub fn chat(&self) -> Option<Id> {
+        self.chat
+    }
+
+    /// Saves the chat in `store` once no answer is streaming and it holds a turn; the saved id.
+    /// What a site in Lockdown now (`level_of`) gave the chat is forgotten first, so it is never
+    /// written. The title is the first question's first line. Notes are never sources: they stay
+    /// in the profile. A chat whose every turn was taken back is deleted.
+    pub fn save_with(&mut self, store: &store::Store, level_of: impl Fn(&url::Url) -> ShieldLevel) -> Option<Id> {
+        if self.streaming.is_some() {
+            return None;
+        }
+        self.forget_locked(&level_of);
+        if self.history.is_empty() {
+            if let Some(id) = self.chat {
+                match store.delete_chat(self.profile, id) {
+                    Ok(()) => self.chat = None,
+                    Err(_) => self.notice = Some(NOT_SAVED.to_owned()),
+                }
+            }
+            return None;
+        }
+        let turns: Vec<store::ChatTurn> = self
+            .history
+            .iter()
+            .map(|t| store::ChatTurn { you: t.role == Role::You, text: t.text.clone(), by: t.by.clone(), interrupted: t.interrupted, command: t.command })
+            .collect();
+        let mut sources = self.removed.clone();
+        let asked = self.history.len();
+        for a in self.pills.iter().filter(|a| a.since < asked) {
+            if let Some(url) = a.pill.source().map(strip_url) {
+                match sources.iter_mut().find(|(u, _)| *u == url) {
+                    Some((_, since)) => *since = (*since).min(a.since),
+                    None => sources.push((url, a.since)),
+                }
+            }
+        }
+        let title = self.chat.is_none().then(|| chat_title(&self.history));
+        match store.save_chat(self.profile, self.chat, title.as_deref(), &turns, &sources) {
+            Ok(id) => {
+                self.chat = Some(id);
+                Some(id)
+            }
+            Err(_) => {
+                let full = self.chat.is_none() && store.chat_titles(self.profile).is_ok_and(|t| t.len() >= store::MAX_CHATS);
+                self.notice = Some(if full { CHATS_FULL } else { NOT_SAVED }.to_owned());
+                None
+            }
+        }
+    }
+
+    /// Whether the last question came from a command, so a retry goes where the command went.
+    pub fn last_was_command(&self) -> bool {
+        self.history.iter().rev().find(|t| t.role == Role::You).is_some_and(|t| t.command)
+    }
+
+    /// The last answer's text, for Copy and Insert; none while it streams or when there is none.
+    pub fn last_answer(&self) -> Option<&str> {
+        self.history
+            .last()
+            .filter(|t| t.role == Role::Assistant && !t.text.is_empty() && t.text != FORGOTTEN && self.streaming.is_none())
+            .map(|t| t.text.as_str())
+    }
+
+    /// Takes the last question back out of the chat, with its answer, so it can be edited and sent
+    /// again; none while an answer streams.
+    pub fn edit_last(&mut self) -> Option<String> {
+        if self.streaming.is_some() {
+            return None;
+        }
+        let at = self.history.iter().rposition(|t| t.role == Role::You)?;
+        let question = self.history[at].text.clone();
+        self.cut_at(at);
+        Some(question)
+    }
+
+    /// Sends the last question again in place of its answer, under the rules of `send`. The old
+    /// exchange is never sent with it; a send refused for where it comes from leaves it interrupted.
+    pub fn retry(&mut self, at_ms: i64, origin: Origin, ai_enabled: bool, level_of: impl Fn(&url::Url) -> ShieldLevel) -> Vec<Effect> {
+        if self.streaming.is_some() {
+            return Vec::new();
+        }
+        let Some(at) = self.history.iter().rposition(|t| t.role == Role::You) else { return Vec::new() };
+        if self.too_soon(at_ms) {
+            self.notice = Some(WAIT.to_owned());
+            return vec![Effect::Render];
+        }
+        let question = self.history[at].text.clone();
+        let before = self.history.len();
+        let command = self.history[at].command;
+        self.history[at..].iter_mut().for_each(|t| t.interrupted = true);
+        let effects = self.send(&question, ASK, at_ms, origin, ai_enabled, level_of);
+        if effects.iter().any(|e| matches!(e, Effect::Start { .. })) {
+            self.history[before].command = command;
+            self.history.drain(at..before);
+            self.pills.iter_mut().for_each(|a| a.since = a.since.min(at));
+            self.removed.iter_mut().for_each(|(_, since)| *since = (*since).min(at));
+        }
+        effects
+    }
+
+    fn too_soon(&self, at_ms: i64) -> bool {
+        // A clock set back must not block sending until it catches up.
+        self.last_sent.is_some_and(|last| (0..MIN_SEND_INTERVAL_MS).contains(&at_ms.saturating_sub(last)))
+    }
+
+    fn cut_at(&mut self, at: usize) {
+        self.history.truncate(at);
+        self.pills.iter_mut().for_each(|a| a.since = a.since.min(at));
+        self.removed.iter_mut().for_each(|(_, since)| *since = (*since).min(at));
+        self.notice = None;
+        self.refreshed(vec![Effect::Render]);
     }
 
     /// Whether `pill` is attached, so a command over it may be sent.
@@ -313,9 +476,8 @@ impl Session {
         if request.question.trim().is_empty() {
             return Vec::new();
         }
-        // A clock set back must not block sending until it catches up.
-        if self.last_sent.is_some_and(|last| (0..MIN_SEND_INTERVAL_MS).contains(&at_ms.saturating_sub(last))) {
-            self.notice = Some("Wait a moment before sending again.".to_owned());
+        if self.too_soon(at_ms) {
+            self.notice = Some(WAIT.to_owned());
             return vec![Effect::Render];
         }
         let id = self.next_id;
@@ -323,8 +485,8 @@ impl Session {
         self.last_sent = Some(at_ms);
         self.streaming = Some(id);
         self.notice = None;
-        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false, by: None });
-        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false, by: None });
+        self.history.push(Turn { role: Role::You, text: request.question.clone(), interrupted: false, by: None, command: template != ASK });
+        self.history.push(Turn { role: Role::Assistant, text: String::new(), interrupted: false, by: None, command: false });
         vec![Effect::Start { id, request }, Effect::Render]
     }
 
@@ -343,10 +505,10 @@ impl Session {
             Event::RemovePill(ix) => {
                 if ix < self.pills.len() {
                     let gone = self.pills.remove(ix);
-                    if let Some(url) = gone.pill.source().filter(|_| gone.since < self.history.len()) {
-                        match self.removed.iter_mut().find(|(u, _)| u == url) {
+                    if let Some(url) = gone.pill.source().filter(|_| gone.since < self.history.len()).map(strip_url) {
+                        match self.removed.iter_mut().find(|(u, _)| *u == url) {
                             Some((_, since)) => *since = (*since).min(gone.since),
-                            None => self.removed.push((url.to_owned(), gone.since)),
+                            None => self.removed.push((url, gone.since)),
                         }
                     }
                 }
@@ -415,10 +577,37 @@ impl Session {
         }
     }
 
-    /// Every exchange since `since` may hold text from content that may no longer be sent.
+    /// Every exchange since `since` may hold text from content that may no longer be sent, so it
+    /// is never sent again and its answers lose their text, which a save would otherwise keep.
     fn forget_since(&mut self, since: usize) {
-        self.history.iter_mut().skip(since).for_each(|t| t.interrupted = true);
+        for turn in self.history.iter_mut().skip(since) {
+            turn.interrupted = true;
+            if turn.role == Role::Assistant && !turn.text.is_empty() {
+                FORGOTTEN.clone_into(&mut turn.text);
+            }
+        }
     }
+}
+
+/// The saved chats whose title holds `query`, without case, in the store's order.
+pub fn find_chats<'a>(titles: &'a [store::ChatTitle], query: &str) -> Vec<&'a store::ChatTitle> {
+    let query = query.trim().to_lowercase();
+    titles.iter().filter(|c| c.title.to_lowercase().contains(&query)).collect()
+}
+
+/// What a client says when renaming a saved chat failed.
+pub fn rename_problem(error: &store::Error) -> String {
+    match error {
+        store::Error::Invalid(what) if *what == store::MISSING_CHAT => "This chat was deleted, so it cannot be renamed.".to_owned(),
+        _ => format!("A title has 1 to {} characters.", store::MAX_NOTE_TITLE),
+    }
+}
+
+/// A chat's title: its first question's first line, bounded, or "Chat".
+pub fn chat_title(history: &[Turn]) -> String {
+    let first = history.iter().find(|t| t.role == Role::You).map(|t| crate::notes::first_line(&t.text)).unwrap_or_default();
+    let title = crate::text::bounded_title(first);
+    if title.trim().is_empty() { "Chat".to_owned() } else { title }
 }
 
 /// The request for `template` over the session's pills and history. `{question}`, `{page}` and
@@ -560,6 +749,66 @@ pub mod commands {
         all(custom).into_iter().map(|(name, _)| name).take(engine::view_policy::MAX_MENU_COMMANDS).collect()
     }
 
+    /// The `/name` command `input` runs, by its index in `all`, and the question after the name;
+    /// the longest whole name wins, without case.
+    pub fn slash<'a>(input: &'a str, all: &[(String, String)]) -> Option<(usize, &'a str)> {
+        let typed = input.trim_start().strip_prefix('/')?;
+        all.iter()
+            .enumerate()
+            .filter_map(|(ix, (name, _))| {
+                let end = name_end(typed, name)?;
+                typed[end..].chars().next().is_none_or(char::is_whitespace).then_some((ix, name.chars().count(), end))
+            })
+            .max_by_key(|(_, chars, _)| *chars)
+            .map(|(ix, _, end)| (ix, typed[end..].trim()))
+    }
+
+    /// The commands the `/` menu offers while `input` is a `/` and the start of their name.
+    pub fn slash_menu(input: &str, all: &[(String, String)]) -> Vec<usize> {
+        let Some(typed) = input.trim_start().strip_prefix('/') else { return Vec::new() };
+        all.iter().enumerate().filter(|(_, (name, _))| name_end(name, typed).is_some()).map(|(ix, _)| ix).collect()
+    }
+
+    /// Where `name` ends in `text` when `text` starts with it, comparing characters without case:
+    /// the one rule for the menu, a send and a duplicate name.
+    fn name_end(text: &str, name: &str) -> Option<usize> {
+        let mut chars = text.char_indices();
+        for n in name.chars() {
+            let (_, t) = chars.next()?;
+            if !t.to_lowercase().eq(n.to_lowercase()) {
+                return None;
+            }
+        }
+        Some(chars.next().map_or(text.len(), |(at, _)| at))
+    }
+
+    fn same_name(a: &str, b: &str) -> bool {
+        name_end(a, b) == Some(a.len())
+    }
+
+    /// Why the profile's command `editing` (none for a new one) cannot be saved as `name` and
+    /// `template` among its `custom` commands, before the store is asked.
+    pub fn check(name: &str, template: &str, custom: &[store::AiCommand], editing: Option<store::Id>) -> Result<(), String> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err("Name the command.".into());
+        }
+        if name.len() > store::MAX_AI_NAME {
+            return Err(format!("A command name holds up to {} bytes.", store::MAX_AI_NAME));
+        }
+        if template.trim().is_empty() {
+            return Err("Write what the command asks.".into());
+        }
+        if template.len() > store::MAX_AI_TEMPLATE {
+            return Err(format!("A command's text holds up to {} bytes.", store::MAX_AI_TEMPLATE));
+        }
+        let taken = BUILT_IN.iter().any(|(n, _)| same_name(n, name)) || custom.iter().any(|c| Some(c.id) != editing && same_name(c.name.trim(), name));
+        if taken {
+            return Err(format!("A command named {name} already exists."));
+        }
+        Ok(())
+    }
+
     /// The template of the command `name` run on a selection, where `{page}` names the selection
     /// too, so Summarize from a selection summarizes that selection.
     pub fn for_selection(custom: &[store::AiCommand], name: &str) -> Option<String> {
@@ -609,6 +858,24 @@ pub mod settings {
 
     pub fn set_provider(store: &Store, provider: Provider) -> bool {
         store.set_setting(PROVIDER_KEY, provider.key()).is_ok()
+    }
+
+    pub const CLAUDE_MODEL_KEY: &str = "ai_claude_model";
+    /// The Claude models Settings and the chat offer, by id and name; the first is the default.
+    pub const CLAUDE_MODELS: [(&str, &str); 3] = [("claude-opus-5-5", "Opus 5.5"), ("claude-sonnet-5-5", "Sonnet 5.5"), ("claude-haiku-5-5", "Haiku 5.5")];
+
+    /// The chosen Claude model's index in `CLAUDE_MODELS`.
+    pub fn claude_model(store: &Store) -> usize {
+        let stored = store.setting(CLAUDE_MODEL_KEY).ok().flatten();
+        CLAUDE_MODELS.iter().position(|(id, _)| Some(*id) == stored.as_deref()).unwrap_or(0)
+    }
+
+    pub fn claude_model_id(store: &Store) -> String {
+        CLAUDE_MODELS[claude_model(store)].0.to_owned()
+    }
+
+    pub fn set_claude_model(store: &Store, ix: usize) -> bool {
+        CLAUDE_MODELS.get(ix).is_some_and(|(id, _)| store.set_setting(CLAUDE_MODEL_KEY, id).is_ok())
     }
 
     pub fn valid_model(name: &str) -> bool {
@@ -1149,6 +1416,213 @@ mod tests {
         assert!(message.starts_with(&format!("<tarn-block-{} kind=\"page\" label=\"Page 1\">\nURL: https://a.test/p", c.nonce)), "{message}");
         assert!(message.ends_with(&format!("</tarn-block-{}>\n\nwhy?", c.nonce)), "{message}");
         assert_eq!(compose(&session(), ASK, "why?").user_message(), "why?");
+    }
+
+    fn saved(s: &mut Session, store: &store::Store) -> Option<Id> {
+        s.save_with(store, |_| ShieldLevel::Standard)
+    }
+
+    fn answered(s: &mut Session, question: &str, answer: &str, at_ms: i64) {
+        let me = Origin { profile: s.profile(), ..ME };
+        let (id, _) = started(&s.send(question, ASK, at_ms, me, true, |_| ShieldLevel::Standard));
+        s.apply(Event::Chunk { id, text: answer.into() });
+        s.apply(Event::Done { id });
+    }
+
+    #[test]
+    fn a_chat_is_saved_and_restored_with_its_sources() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        let me = Origin { profile: store.create_profile("P", "u9", false).unwrap().id, ..ME };
+        let mut s = Session::new(me, true).unwrap();
+        assert!(saved(&mut s, store).is_none(), "an empty chat is not kept");
+        s.apply(Event::AddPill(me, page("body")));
+        answered(&mut s, "What is\nit?", "A page.", 0);
+        let id = saved(&mut s, store).unwrap();
+        assert_eq!(saved(&mut s, store), Some(id), "saving again replaces it");
+        let saved = store.chat(me.profile, id).unwrap().unwrap();
+        assert_eq!(saved.title, "What is");
+        assert_eq!(saved.sources, [("https://a.test/p".to_owned(), 0)]);
+        let open = |_: &url::Url| ShieldLevel::Standard;
+        assert!(Session::restore(ME, true, &saved, open).is_none(), "another profile's chat");
+        assert!(Session::restore(Origin { kind: ProfileKind::Private, ..me }, true, &saved, open).is_none());
+        let shut = Session::restore(me, true, &saved, |_| ShieldLevel::Lockdown).unwrap();
+        assert_eq!(view(&shut).rows[1].text, FORGOTTEN, "what a site now in Lockdown gave is not shown, copied or inserted");
+        assert_eq!(shut.last_answer(), None, "a removed answer is not copied or inserted");
+        let mut back = Session::restore(me, true, &saved, open).unwrap();
+        assert_eq!(back.chat(), Some(id));
+        assert_eq!(view(&back).rows.len(), 2);
+        let (_, next) = started(&back.send("More?", ASK, 0, me, true, |_| ShieldLevel::Standard));
+        assert_eq!(labels(&next), ["Question 1", "Answer 1"]);
+        let mut locked = Session::restore(me, true, &saved, open).unwrap();
+        assert!(!locked.send("More?", ASK, 0, me, true, |_| ShieldLevel::Lockdown).iter().any(|e| matches!(e, Effect::Start { .. })));
+        assert!(view(&locked).rows.iter().all(|r| r.interrupted), "what a site now in Lockdown gave is never sent again");
+    }
+
+    #[test]
+    fn retry_replaces_the_last_answer_and_edit_takes_the_question_back() {
+        let mut s = session();
+        assert!(s.retry(0, ME, true, |_| ShieldLevel::Standard).is_empty(), "nothing to retry");
+        answered(&mut s, "One?", "1", 0);
+        answered(&mut s, "Two?", "2", MIN_SEND_INTERVAL_MS);
+        assert_eq!(s.last_answer(), Some("2"));
+        assert_eq!(s.retry(MIN_SEND_INTERVAL_MS + 1, ME, true, |_| ShieldLevel::Standard), [Effect::Render], "too soon");
+        let effects = s.retry(2 * MIN_SEND_INTERVAL_MS, ME, true, |_| ShieldLevel::Standard);
+        let (id, request) = started(&effects);
+        assert_eq!(request.question, "Two?");
+        assert_eq!(labels(&request), ["Question 1", "Answer 1"], "the old answer is not sent");
+        assert_eq!(s.last_answer(), None, "it streams");
+        s.apply(Event::Chunk { id, text: "two".into() });
+        s.apply(Event::Done { id });
+        assert_eq!(view(&s).rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["One?", "1", "Two?", "two"]);
+        assert_eq!(s.edit_last().as_deref(), Some("Two?"));
+        assert_eq!(view(&s).rows.len(), 2);
+        let refused = s.retry(9 * MIN_SEND_INTERVAL_MS, Origin { level: ShieldLevel::Lockdown, ..ME }, true, |_| ShieldLevel::Standard);
+        assert!(!refused.iter().any(|e| matches!(e, Effect::Start { .. })));
+        assert!(view(&s).rows.iter().all(|r| r.interrupted), "a refused retry never sends the exchange later");
+    }
+
+    #[test]
+    fn answers_from_a_site_now_in_lockdown_lose_their_text_before_a_save() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        let me = Origin { profile: store.create_profile("P", "u8", false).unwrap().id, ..ME };
+        let mut s = Session::new(me, true).unwrap();
+        s.apply(Event::AddPill(me, page("secret page")));
+        answered(&mut s, "What?", "The secret is 42.", 0);
+        s.send("More?", ASK, MIN_SEND_INTERVAL_MS, me, true, |_| ShieldLevel::Lockdown);
+        let id = saved(&mut s, store).unwrap();
+        let saved = store.chat(me.profile, id).unwrap().unwrap();
+        assert_eq!(saved.turns.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(), ["What?", FORGOTTEN]);
+        assert!(saved.turns.iter().all(|t| t.interrupted));
+    }
+
+    #[test]
+    fn a_retry_goes_where_its_command_went_and_a_failed_save_is_said() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        let me = Origin { profile: store.create_profile("P", "u7", false).unwrap().id, ..ME };
+        let mut s = Session::new(me, true).unwrap();
+        s.apply(Event::AddPill(me, sel("text")));
+        let (id, _) = started(&s.send("", "Explain {selection}. {question}", 0, me, true, |_| ShieldLevel::Standard));
+        s.apply(Event::Chunk { id, text: "It means x.".into() });
+        s.apply(Event::Done { id });
+        assert!(s.last_was_command());
+        let (id, _) = started(&s.retry(MIN_SEND_INTERVAL_MS, me, true, |_| ShieldLevel::Standard));
+        assert!(s.last_was_command(), "a retried command still runs on the device where it can");
+        s.apply(Event::Done { id });
+        answered(&mut s, "Plain?", "Yes.", 2 * MIN_SEND_INTERVAL_MS);
+        assert!(!s.last_was_command());
+        let chat = saved(&mut s, store).unwrap();
+        store.delete_chat(me.profile, chat).unwrap();
+        assert_eq!(saved(&mut s, store), None);
+        assert_eq!(view(&s).notice.as_deref(), Some(NOT_SAVED));
+        let fresh = Session::new(me, true).map(|mut f| {
+            answered(&mut f, "New?", "Yes.", 0);
+            saved(&mut f, store).unwrap()
+        });
+        assert_ne!(fresh, Some(chat), "a deleted chat's id is never given again");
+        answered(&mut s, "Stale?", "Late.", 9 * MIN_SEND_INTERVAL_MS);
+        assert_eq!(saved(&mut s, store), None, "a window still holding the deleted chat cannot save it");
+        let kept = store.chat(me.profile, fresh.unwrap()).unwrap().unwrap();
+        assert_eq!(kept.turns.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(), ["New?", "Yes."], "the new chat is untouched");
+        let mut one = Session::new(me, true).unwrap();
+        answered(&mut one, "Only?", "Yes.", 0);
+        let only = saved(&mut one, store).unwrap();
+        one.edit_last();
+        assert_eq!(saved(&mut one, store), None);
+        assert!(store.chat(me.profile, only).unwrap().is_none(), "a chat whose every turn was taken back is deleted");
+    }
+
+    #[test]
+    fn a_slash_runs_the_longest_whole_command_name() {
+        use commands::{slash, slash_menu};
+        let all = [("Summarize", "s"), ("Translate", "t"), ("Translate Formal", "f")].map(|(n, t)| (n.to_owned(), t.to_owned())).to_vec();
+        assert_eq!(slash("/summarize", &all), Some((0, "")));
+        assert_eq!(slash(" /Translate  into German ", &all), Some((1, "into German")));
+        assert_eq!(slash("/translate formal hi", &all), Some((2, "hi")));
+        assert_eq!(slash("/Summarized", &all), None, "a name ends at white space");
+        assert_eq!(slash("/tr", &all), None, "a part of a name runs nothing");
+        assert_eq!(slash("Summarize", &all), None);
+        assert_eq!(slash("/é", &all), None);
+        assert_eq!(slash_menu("/", &all), [0, 1, 2]);
+        assert_eq!(slash_menu("/TRANS", &all), [1, 2]);
+        assert!(slash_menu("/translate x", &all).is_empty());
+        assert!(slash_menu("why", &all).is_empty());
+        let mine = [("Écrire".to_owned(), "e".to_owned())];
+        assert_eq!(slash_menu("/éc", &mine), [0], "case without ASCII");
+        assert_eq!(slash("/écrire vite", &mine), Some((0, "vite")), "the menu's match also runs");
+        let custom = [store::AiCommand { id: 1, profile_id: 1, name: "Écrire".into(), template: "x".into() }];
+        assert!(commands::check("écrire", "y", &custom, None).is_err(), "the same name in another case");
+    }
+
+    #[test]
+    fn a_restored_command_retries_on_its_route_and_a_save_forgets_lockdown_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        let me = Origin { profile: store.create_profile("P", "u6", false).unwrap().id, ..ME };
+        let open = |_: &url::Url| ShieldLevel::Standard;
+        let mut s = Session::new(me, true).unwrap();
+        s.apply(Event::AddPill(me, sel("text")));
+        let (id, _) = started(&s.send("", "Explain {selection}. {question}", 0, me, true, open));
+        s.apply(Event::Chunk { id, text: "It means x.".into() });
+        s.apply(Event::Done { id });
+        answered(&mut s, "Plain?", "Yes.", MIN_SEND_INTERVAL_MS);
+        let chat = s.save_with(store, open).unwrap();
+        let mut back = Session::restore(me, true, &store.chat(me.profile, chat).unwrap().unwrap(), open).unwrap();
+        assert!(!back.last_was_command());
+        back.edit_last();
+        assert!(back.last_was_command(), "the command before keeps its route");
+        let preview: Vec<String> = view(&back).will_send.into_iter().map(|(label, _)| label).collect();
+        assert_eq!(preview, ["Question 1", "Answer 1"], "the preview follows the cut");
+        let mut live = Session::new(me, true).unwrap();
+        live.apply(Event::AddPill(me, page("secret page")));
+        answered(&mut live, "What?", "The secret is 42.", 0);
+        let id = live.save_with(store, |_| ShieldLevel::Lockdown).unwrap();
+        assert_eq!(store.chat(me.profile, id).unwrap().unwrap().turns[1].text, FORGOTTEN, "a save forgets what a site now in Lockdown gave");
+    }
+
+    #[test]
+    fn a_command_needs_a_free_name_and_some_text() {
+        use commands::check;
+        let mine = store::AiCommand { id: 4, profile_id: 1, name: "Tone".into(), template: "x".into() };
+        let custom = [mine];
+        assert!(check(" ", "x", &custom, None).is_err());
+        assert!(check("summarize", "x", &custom, None).is_err(), "built-in names are taken without case");
+        assert!(check("TONE", "x", &custom, None).is_err());
+        assert_eq!(check("Tone", "y", &custom, Some(4)), Ok(()), "an edit keeps its own name");
+        assert!(check("Haiku", "  ", &custom, None).is_err());
+        assert!(check(&"a".repeat(store::MAX_AI_NAME + 1), "x", &custom, None).is_err());
+        assert!(check("Haiku", &"x".repeat(store::MAX_AI_TEMPLATE + 1), &custom, None).is_err());
+        assert_eq!(check("Haiku", "Rewrite {selection} as a haiku.", &custom, None), Ok(()));
+    }
+
+    #[test]
+    fn chats_are_found_by_any_part_of_their_title() {
+        let chat = |id, title: &str| store::ChatTitle { id, title: title.to_owned(), updated: 0 };
+        let chats = [chat(1, "Trip to Lisbon"), chat(2, "Rust lifetimes")];
+        let ids = |q| find_chats(&chats, q).into_iter().map(|c| c.id).collect::<Vec<_>>();
+        assert_eq!(ids(""), [1, 2]);
+        assert_eq!(ids(" LIS "), [1]);
+        assert!(ids("zzz").is_empty());
+    }
+
+    #[test]
+    fn the_claude_model_falls_back_to_the_first() {
+        use settings::*;
+        let dir = tempfile::tempdir().unwrap();
+        let core = crate::TestCore::open(dir.path(), false);
+        let store = &core.disk;
+        assert_eq!(claude_model_id(store), CLAUDE_MODELS[0].0);
+        assert!(set_claude_model(store, 2));
+        assert_eq!((claude_model(store), claude_model_id(store)), (2, CLAUDE_MODELS[2].0.to_owned()));
+        assert!(!set_claude_model(store, 3));
+        store.set_setting(CLAUDE_MODEL_KEY, "gpt").unwrap();
+        assert_eq!(claude_model(store), 0);
     }
 
     #[test]

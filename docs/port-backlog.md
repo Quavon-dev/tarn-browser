@@ -21,6 +21,19 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Insert an assistant answer into the page (2026-11-24)
+
+What it does: the chat's Insert into Page types the last answer into the page's focused field, as
+Insert Snippet does, refused under Lockdown.
+Shared API: `browser_core::assistant::Session::last_answer`, then each client's Insert Snippet path
+(`page_scripts::insert_text_script`, `snippets::inserted`).
+Reference: `crates/app/src/assistant.rs` (`insert_last_answer`), `crates/app/src/snippets.rs`.
+
+- [ ] Linux — a bubble action in `nsh-shared/src/assistant.rs` through a new `Host` method that
+  `linux/src/browser/snippets.rs` answers with its Insert Snippet request.
+- [ ] iOS — the same `Host` method answered by `mobile/app/src/snippets.rs`.
+- [ ] Android — as iOS; the insert script runs in the page's world there (threat model S1).
+
 ### Portable download (2026-11-24)
 
 What it does: a download that runs without installing and keeps all its data in a `Data` folder

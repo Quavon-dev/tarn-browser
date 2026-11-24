@@ -97,6 +97,7 @@ mod ureq_transport {
             )
             .http_status_as_error(false)
             .timeout_connect(Some(Duration::from_secs(10)))
+            .timeout_recv_response(Some(Duration::from_secs(60)))
             .timeout_global(Some(timeout))
             .build()
             .into()
