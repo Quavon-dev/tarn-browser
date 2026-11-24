@@ -680,6 +680,7 @@ pub fn App() -> impl IntoElement {
     };
     follow();
     set_interval(Duration::from_secs(60), follow);
+    set_interval(Duration::from_secs(60), move || ui.run_quietly(|s| s.drop_back_forward_caches(Instant::now())));
     set_interval(engine::lifecycle::PING_EVERY, move || {
         let active = untracked(lifecycle) == nsh_core::platform::Lifecycle::Active;
         ui.run_quietly(|s| s.ping_page(Instant::now(), active));

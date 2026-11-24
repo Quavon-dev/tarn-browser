@@ -21,6 +21,20 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Ask before sending a form again (2026-11-24)
+
+What it does: the user's own Back, Forward or Reload to a page a form was sent for, no longer kept, asks
+"would get your form again" with Send Again or Cancel instead of sending the form (an order, a
+message) silently; a page's `history.back()` never sends it and shows `nav_policy::RESEND_STOPPED`.
+Shared API: `engine::PromptKind::ResendForm`, `browser_core::prompts::RESEND_ASK` and
+`meaning("resend form")`.
+Reference: `crates/engine/src/delegates.rs` (`ask_to_resend`), `crates/app/src/content.rs`,
+`mobile/ios/src/handler.rs`, `mobile/app/src/ui/prompt.rs`. Windows (Chromium) shows its own
+resubmission page; Android's WebView never sends the form again.
+
+- [ ] Linux — hold the `NavigationType::FormResubmitted` decision in `linux/src/webview/mod.rs`
+  (`allow_navigation`) behind a `resend form` prompt in `linux/src/browser`.
+
 ### Agent control in the user's profile or tabs (2026-11-24)
 
 What it does: two more opt-in settings in Settings › AI let the user approve an agent to open its

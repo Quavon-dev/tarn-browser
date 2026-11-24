@@ -19,6 +19,7 @@ fn blocked_message(reason: &str) -> &'static str {
         "local_network" => engine::nav_policy::LOCAL_NETWORK_BLOCKED,
         "shield" => "Shield blocked this address.",
         "nav_policy" => "Tarn does not open this kind of address.",
+        "resend" => engine::nav_policy::RESEND_STOPPED,
         _ => "Shield needs to open this site in a new view; open it from the address bar.",
     }
 }

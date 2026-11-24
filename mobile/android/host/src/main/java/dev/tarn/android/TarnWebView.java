@@ -227,6 +227,9 @@ final class TarnWebView implements NshComponent {
                 web.clearMatches();
             }
             case "zoom" -> zoom(map.get("factor"));
+            case "dropBackForwardCache" -> {
+                // Android WebView has no call to drop its back/forward cache.
+            }
             default -> {
                 if (!Hooks.command(name, web)) Hooks.log("unknown command " + name);
             }

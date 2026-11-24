@@ -250,6 +250,13 @@ impl WebView {
         both!(self, v => v.process_id())
     }
 
+    /// Ends the processes kept for the view's earlier pages; the shown page and its history stay.
+    /// Chromium evicts its own back/forward cache under memory pressure and after a timeout, and CEF
+    /// cannot flush one browser's.
+    pub fn drop_back_forward_cache(&self) {
+        webkit_only!(self, v => v.drop_back_forward_cache(), ())
+    }
+
     pub fn set_muted(&self, muted: bool) {
         both!(self, v => v.set_muted(muted))
     }
