@@ -131,8 +131,24 @@ define_class!(
             let policy = match self.inner() {
                 Some(inner) => {
                     let policy = inner.decide(web, action, preferences, self.ivars().level);
+                    // SAFETY: plain property reads on the live navigation action and its frame, on the main thread.
+                    let resend = unsafe { action.navigationType() == WKNavigationType::FormResubmitted && action.targetFrame().is_none_or(|f| f.isMainFrame()) };
                     if policy != WKNavigationActionPolicy::Allow {
                         inner.end_popup();
+                    } else if resend {
+                        // SAFETY: the request of a live navigation action, read on the main thread.
+                        let url = ns_url(unsafe { action.request() }.URL());
+                        let (handler, preferences, web, action, weak) = (handler.copy(), preferences.retain(), web.retain(), action.retain(), Rc::downgrade(&inner));
+                        let reply = RcBlock::new(move |send: Bool| {
+                            let inner = weak.upgrade().filter(|_| send.as_bool());
+                            if inner.as_ref().is_some_and(|i| i.defer_frame(&web, &action, &preferences, &handler)) {
+                                return;
+                            }
+                            let policy = if inner.is_some() { WKNavigationActionPolicy::Allow } else { WKNavigationActionPolicy::Cancel };
+                            handler.call((policy, NonNull::from(&*preferences)));
+                        });
+                        inner.ask("resend form", url, json!({}), Pending::Confirm(reply), false);
+                        return;
                     } else if inner.defer_frame(web, action, preferences, handler) {
                         return;
                     }

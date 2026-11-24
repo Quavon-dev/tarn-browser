@@ -15,7 +15,7 @@ and the web view contract in `shared-core.md`.
 | Engine bindings: the web view contract over each platform's engine | `crates/engine` (WebKit, Chromium/CEF), `linux/src/webview` (WebKitGTK), `mobile/ios` (WKWebView), `mobile/android` (Android System WebView) | every client |
 | Platform services: updater, XPC | `crates/platform` | macOS, Windows |
 | Import from other browsers | `crates/import` | macOS |
-| AI integration and its CLI helper | `crates/ai`, `crates/cli-bridge` | `ai` is linked by `linux/` and `mobile/android`; no client UI uses it yet |
+| AI integration and its CLI helper | `crates/ai`, `crates/cli-bridge` | `ai`: every client (the assistant, off until the user enables AI); `cli-bridge` is not built into any client |
 | Sync file format | `crates/sync` | not built into any client |
 | Release and filter-list pipelines | `.github/workflows/`, `crates/filter-bundle` | GitHub Actions |
 
@@ -33,7 +33,7 @@ and the web view contract in `shared-core.md`.
 | Other browsers' profiles | Untrusted data | Read on the user's request by the importer (bookmarks, history, cookies) | S27 |
 | GitHub release pipeline (maintainers, CI) | Trusted, gated by review and signing | Builds, signs and publishes releases, update feeds and filter bundles | S4, S13, S20 |
 | Update and filter-list sources | Untrusted transport, signed content | Serve the Sparkle feed, the Windows feed and the filter bundle over HTTPS; the app accepts them only with a valid signature | S4, S20 |
-| AI provider (Anthropic, or a local Ollama) | Untrusted output | Planned, not built into any client: would receive only the page content the user sends | S2, S3, S17 |
+| AI provider (Anthropic, or a local Ollama) | Untrusted output | Receives only what the user sends once AI is enabled: the question, the earlier turns of that chat and what the user attached (`PRIVACY.md`, "AI request") | S2, S3, S17 |
 | Operating system and engine vendors | Trusted platform | Supply WebKit, WebKitGTK, Android System WebView and the OS; Tarn bundles only Chromium (CEF) | "Who patches what" |
 | Local programs | Untrusted | Nothing to connect to: no listening socket, debugging port or local API | S22 |
 

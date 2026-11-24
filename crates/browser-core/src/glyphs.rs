@@ -6,7 +6,7 @@ pub fn glyph(kind: &str) -> &'static str {
         "notifications" => "bell",
         "credentials" | "certificate" => "key-round",
         "extension" => "shield",
-        "alert" | "confirm" | "download" | "malicious download" => "triangle-alert",
+        "alert" | "confirm" | "download" | "malicious download" | "resend form" => "triangle-alert",
         "external" => "external-link",
         _ => "info",
     }

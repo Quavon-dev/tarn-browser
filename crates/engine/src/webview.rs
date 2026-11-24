@@ -178,8 +178,17 @@ struct Queued {
 }
 
 impl WebView {
-    /// `filtered` picks the profile's rule set with ad, tracker and cookie-banner blocking, off for paused sites.
-    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
+    /// `features.filtered` picks the profile's rule set with ad, tracker and cookie-banner blocking, off for paused sites.
+    pub fn new(
+        host: &Host,
+        data: &DataStore,
+        level: ShieldLevel,
+        features: crate::Features,
+        inspectable: bool,
+        site_for: SiteFor,
+        sink: Rc<dyn Fn(Event)>,
+    ) -> Self {
+        let filtered = features.filtered;
         let mtm = host.view.mtm();
         // SAFETY: all calls below configure freshly created objects on the main thread. The
         // configuration gets no script message handler, so page scripts cannot reach the shell.
@@ -187,7 +196,7 @@ impl WebView {
             let config = WKWebViewConfiguration::new(mtm);
             config.setWebsiteDataStore(&data.store);
             config.setUserContentController(data.controller(level, filtered));
-            if level != ShieldLevel::Lockdown {
+            if features.extensions && level != ShieldLevel::Lockdown {
                 config.setWebExtensionController(data.extension_controller().as_deref());
             }
             if let Some(name) = safari_application_name() {
@@ -468,6 +477,15 @@ impl WebView {
         self.read_isolated(&crate::page_scripts::insert_text_script(text), done);
     }
 
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        *objc2::DefinedClass::ivars(&*self._delegate).agent_gate.borrow_mut() = gate;
+    }
+
+    /// Runs an agent's snapshot, action or wait (`agent_scripts`); empty under Lockdown.
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        self.read_isolated(source, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         match icon_links_script(origin) {
             Some(script) => self.run_isolated(&script, done),
@@ -625,6 +643,15 @@ impl WebView {
         // while the page has no process.
         let pid: i32 = unsafe { msg_send![&*self.view, _webProcessIdentifier] };
         (pid > 0).then_some(pid)
+    }
+
+    /// Ends the processes WebKit keeps for this view's earlier pages; the shown page and its history
+    /// stay, and Back loads the page again. There is no public API for it.
+    pub fn drop_back_forward_cache(&self) {
+        if self.view.respondsToSelector(sel!(_clearBackForwardCache)) {
+            // SAFETY: the selector exists on this WKWebView (checked above), takes no argument and returns nothing.
+            let () = unsafe { msg_send![&*self.view, _clearBackForwardCache] };
+        }
     }
 
     /// WebKit has no public way to mute a page. Its private `_setPageMuted:` is used where it

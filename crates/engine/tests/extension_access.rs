@@ -140,7 +140,8 @@ setInterval(async () => {
         };
         let site_for: engine::SiteFor = Rc::new(|_| Site::new(ShieldLevel::Standard));
         let open = |url: &str| {
-            let view = WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), sink.clone());
+            let view =
+                WebView::new(&host, &data, ShieldLevel::Standard, engine::Features { filtered: true, extensions: true }, false, site_for.clone(), sink.clone());
             view.set_frame(0., 0., 800., 600.);
             view.load(&url::Url::parse(url).unwrap());
             view

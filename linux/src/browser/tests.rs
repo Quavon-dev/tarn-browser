@@ -244,6 +244,39 @@ fn a_blocked_popup_keeps_the_opener_loading_and_offers_a_new_tab() {
 }
 
 #[test]
+fn an_agent_window_refuses_pop_ups_peeks_tear_off_and_permissions_and_burns_on_close() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Browser::open_core(dir.path());
+    let themes = themes::Themes::open(&core.disk, &dir.path().join("filters"));
+    let mut b = Browser::new_agent(core, SavedWindow::default(), themes).unwrap();
+    let key = active(&b);
+    let profile = b.model.agent_profile.unwrap();
+    assert_eq!(b.agent_sites, Some(Vec::new()), "the gate starts closed");
+    let tabs = b.model.tabs.len();
+    b.on_event(key, "popup", &json!({ "url": "https://pop.test/", "link": true }));
+    assert_eq!(b.model.tabs.len(), tabs, "no pop-up or Ctrl-click tab");
+    b.on_event(key, link_peek::PEEK_EVENT, &json!({ "url": "https://peek.test/" }));
+    assert!(b.link_peek.is_none(), "no peek");
+    b.on_event(key, "blocked", &json!({ "url": "https://pop.test/", "reason": "shield", "popup": true }));
+    assert!(matches!(b.notice, Some(Notice::Message(_))), "a blocked pop-up offers no new tab: {:?}", b.notice);
+    b.open_blocked_popup();
+    assert_eq!(b.model.tabs.len(), tabs);
+    assert!(b.tear_off(key).is_none(), "no tear-off");
+    b.on_event(key, "prompt", &json!({ "id": 1, "kind": "camera", "origin": "https://cam.test" }));
+    assert!(b.pages[&key].prompts.is_empty(), "a permission prompt never shows");
+    let (to, name, args) = b.outbox.pop().unwrap();
+    assert_eq!((to, name, args), (key, "answer", json!({ "id": 1, "accept": false })), "and is denied");
+    let second = b.open_link_tab("https://b.test/", false).unwrap();
+    assert!(b.pages[&second].link, "the agent's tab loads as a link");
+    b.load_link_in(second, "http://localhost:3000/", true);
+    assert!(!b.pages[&second].link, "a loopback address loads as typed");
+    b.close_window();
+    assert!(b.model.agent_profile.is_none(), "closing burns the agent's profile");
+    assert!(b.core.store(true).tab(second.id).is_err() && b.core.store(true).spaces(profile).unwrap().is_empty());
+    assert!(!b.released.is_empty(), "and releases its website data");
+}
+
+#[test]
 fn a_crashed_page_reloads_once_until_a_page_finishes() {
     let (_dir, mut b) = browser();
     let key = active(&b);

@@ -9,8 +9,22 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Added
 
 - A video playing with sound moves into Picture in Picture when you switch to another tab, and
-  back into its page when you return; a window you opened yourself in that tab stays. Settings › Tabs turns it
-  off. macOS (WebKit tabs) and Windows.
+  back into its page when you return; a window you opened yourself in that tab stays.
+  Settings › Tabs turns it off. macOS (WebKit tabs) and Windows.
+- Agent control: turn on Settings › AI › Let AI agents control Tarn and add Tarn to Claude Code or
+  Codex (`tarn --mcp`), and the agent can browse for you in a window of its own that keeps nothing.
+  You allow the agent (look only, or act), each site it uses and each click on a page holding a
+  filled password or payment field; it never types passwords. Pause and Stop sit in the bar at the
+  top of its window. On macOS, Windows and Linux.
+- Agent control in your profile or your tabs: two more switches in Settings › AI, both off by
+  default. With Let agents use your profile on, you may approve an agent with Use My Logins: it
+  opens its own tabs in your front window's profile, signed in, without extensions, passkeys or
+  history. With Let agents use your tabs on, Use My Tabs lets it work in your open tabs outside
+  private spaces and in WebKit tabs, with a bar and Stop in every window. Each site still needs
+  your approval. In both modes Tarn asks before a form is submitted while the agent acts (a page
+  that sends with `form.submit()`, a script request or a delayed submit is asked only while a
+  password or payment field holds a value), and hides from the agent what it did not type itself,
+  such as a login a password manager filled. On macOS.
 - Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
   Settings › AI deletes them all. An answer can be copied and retried and its question edited;
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude
@@ -114,6 +128,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Less memory with many tabs on macOS and iOS, without sleeping any sooner: a WebKit tab off screen
+  for a minute or two ends the web processes WebKit keeps for its earlier pages. The page you left,
+  what you typed into it and its history stay; Back loads the earlier page again instead of showing
+  it instantly. Back, Forward or Reload to a page a form was sent for asks before sending the form again
+  (Send Again or Cancel); a page's script or a swipe never sends it.
 - Less work while idle, for battery, on every client: the start page's fog and search bar effect
   hold their frame after a minute without input in the window, stop their timers, and move on from
   that frame at the next input; while Tarn is not the active app it no longer checks every two

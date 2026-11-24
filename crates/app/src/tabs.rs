@@ -218,13 +218,14 @@ impl Browser {
         self.seen.retain(|k, _| keys.contains(k));
         let closed = self.seen.len() < seen;
         self.typed_in.retain(|k| keys.contains(k));
-        let mut background = Vec::new();
+        let (mut background, mut live) = (Vec::new(), Vec::new());
         for key in keys {
             let pinned = match self.model.tab(key) {
                 Some(t) => t.kind != TabKind::Ephemeral,
                 None => self.store(key.private).tab(key.id).is_ok_and(|t| t.kind != TabKind::Ephemeral),
             };
             let on_screen = self.model.active == Some(key) || self.in_split(key);
+            live.push((key, on_screen));
             let seen = self.seen.entry(key).or_insert(now);
             if on_screen {
                 *seen = now;
@@ -235,6 +236,11 @@ impl Browser {
             background.push((key, engine::lifecycle::budget_idle(idle, pinned)));
             if !pinned && !self.typed_in.contains(&key) && max_idle.is_some_and(|max| idle >= max) {
                 self.sleep_unless_playing(key, cx);
+            }
+        }
+        for key in self.back_forward.due(live, now) {
+            if let Some(view) = self.views.get(&key) {
+                view.drop_back_forward_cache();
             }
         }
         self.sample_processes();

@@ -188,7 +188,7 @@ macOS is the lead client; every feature is meant to reach all five.
 | **Android** | Native Shell | System WebView | Android 9 or later |
 
 Shared by all of them: `browser-core` (state and decisions), `engine`, `shield` (blocking and
-policy), `store` and `sync`. Contract: [`docs/shared-core.md`](docs/shared-core.md); security
+policy), `store` and `ai`. Contract: [`docs/shared-core.md`](docs/shared-core.md); security
 model and per-platform differences: [`docs/threat-model.md`](docs/threat-model.md).
 
 ## Build and run
@@ -370,7 +370,12 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for ten minutes sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). On macOS and Windows, a background tab whose
+playing media stay awake; off when sleeping is Never). On macOS and iOS, a WebKit tab off screen for
+a minute or two drops the processes WebKit keeps for its earlier pages: the page you left, what you
+typed into it and its history stay, and Back loads the earlier page again (also when sleeping is
+Never). Back, Forward or Reload to a page a form was sent for that is no longer kept asks before sending the
+form again; a page's own `history.back()` or a swipe never sends it and leaves a notice instead (macOS
+and iOS; Chromium tabs show their own page for it). On macOS and Windows, a background tab whose
 page has form input you typed stays awake until you sleep it yourself (a page can use this to keep
 its own tab awake, as with media), and a tab that slept scrolls back to where you left it; neither
 applies under Lockdown, where no script of Tarn's runs on the page. Chromium tabs count by their
@@ -410,9 +415,12 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 | `mobile/` | same, plus `cargo clippy --target aarch64-apple-ios-sim --all-targets --locked -- -D warnings` |
 | `linux/` | same, plus `linux/scripts/display-tests.sh` |
 | Android build | `mobile/android/build.sh` |
+| Windows (Git Bash, MSVC) | `export CEF_PATH="$(cygpath -w "$(scripts/fetch-cef.sh windows64)")"; cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked` |
 
 `cargo deny check` runs where a workspace has a `deny.toml`. `unsafe` code is allowed only in
-`crates/engine` (and later `crates/platform`); every other crate is `#![forbid(unsafe_code)]`.
+`crates/engine` and `crates/platform`, plus one export in `crates/app-dll`, and in the platform
+bindings `mobile/ios` and `mobile/android/rust`; the other root crates, `linux/` and `nsh-shared/`
+forbid it.
 Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
 and read [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
 [`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this

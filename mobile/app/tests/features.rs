@@ -865,3 +865,35 @@ fn a_selection_and_a_loaded_tab_reach_the_assistant_and_a_sleeping_tab_is_never_
     assert!(shell.read_tab_for_assistant(first).is_empty(), "a sleeping tab is never woken to be read");
     assert!(shell.notice.is_some());
 }
+
+#[test]
+fn a_tab_off_screen_for_a_minute_drops_its_back_forward_cache_once() {
+    use std::time::{Duration, Instant};
+    let dropped = |effects: Vec<Effect>| -> Vec<TabKey> {
+        effects
+            .into_iter()
+            .filter_map(|e| match e {
+                Effect::Command(key, "dropBackForwardCache", _) => Some(key),
+                _ => None,
+            })
+            .collect()
+    };
+    let at = |start: Instant, s: u64| start + Duration::from_secs(s);
+    let (_dir, mut shell) = open();
+    shell.set_wide(true);
+    let left = shell.new_tab(Some("https://left.test/")).unwrap();
+    let pane = shell.new_tab(Some("https://pane.test/")).unwrap();
+    let shown = shell.new_tab(Some("https://shown.test/")).unwrap();
+    shell.activate(pane);
+    shell.split_with(shown);
+    let start = Instant::now();
+    assert!(dropped(shell.drop_back_forward_caches(start)).is_empty());
+    let first = dropped(shell.drop_back_forward_caches(at(start, 60)));
+    assert!(first.contains(&left) && !first.contains(&shown) && !first.contains(&pane), "not the split's panes: {first:?}");
+    assert!(dropped(shell.drop_back_forward_caches(at(start, 120))).is_empty(), "once while it stays off screen");
+    shell.activate(left);
+    shell.activate(shown);
+    let back = Instant::now();
+    assert!(!dropped(shell.drop_back_forward_caches(back + Duration::from_secs(59))).contains(&left), "left between two looks, it waits a minute");
+    assert!(dropped(shell.drop_back_forward_caches(back + Duration::from_secs(60))).contains(&left));
+}

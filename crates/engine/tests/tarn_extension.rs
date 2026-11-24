@@ -80,7 +80,7 @@ mod window {
         };
         let site_for: engine::SiteFor = Rc::new(|_| Site::new(ShieldLevel::Standard));
         let open_at = |url: &str, level: ShieldLevel| {
-            let view = Rc::new(WebView::new(&host, &data, level, true, false, site_for.clone(), sink.clone()));
+            let view = Rc::new(WebView::new(&host, &data, level, engine::Features { filtered: true, extensions: true }, false, site_for.clone(), sink.clone()));
             view.set_frame(0., 0., 800., 600.);
             view.set_extension_gate(Rc::new(|_, frame| {
                 let (host, query) = (frame.url.host_str(), frame.url.query());
@@ -122,14 +122,30 @@ mod window {
         assert_eq!(requested(&format!("127.0.0.1:{port} /blocked.js")), 0, "the rule blocks the granted page's script");
         assert_eq!(requested(&format!("localhost:{port} /blocked.js")), 1, "and not the other's");
 
-        let ungated = Rc::new(WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), sink.clone()));
+        let ungated = Rc::new(WebView::new(
+            &host,
+            &data,
+            ShieldLevel::Standard,
+            engine::Features { filtered: true, extensions: true },
+            false,
+            site_for.clone(),
+            sink.clone(),
+        ));
         ungated.set_frame(0., 0., 800., 600.);
         ungated.load(&Url::parse(&format!("http://127.0.0.1:{port}/page")).unwrap());
         spin(5.0, &|| ungated.title().contains("|main:"));
         assert_eq!(ungated.title(), "PAGE|main:undefinedundefinedundefinedundefinedundefined", "a view of the profile without the gate runs nothing");
 
         let slow = Url::parse(&format!("http://127.0.0.1:{port}/slow")).unwrap();
-        let peek = Rc::new(WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), sink.clone()));
+        let peek = Rc::new(WebView::new(
+            &host,
+            &data,
+            ShieldLevel::Standard,
+            engine::Features { filtered: true, extensions: true },
+            false,
+            site_for.clone(),
+            sink.clone(),
+        ));
         peek.set_frame(0., 0., 800., 600.);
         peek.load(&slow);
         spin(0.3, &|| false);
@@ -330,7 +346,8 @@ mod window {
             })
         };
         let link = "https://extensions.tarnbrowser.com/install/helper";
-        let store = WebView::new(&host, &data, ShieldLevel::Standard, true, false, site_for.clone(), store_sink);
+        let store =
+            WebView::new(&host, &data, ShieldLevel::Standard, engine::Features { filtered: true, extensions: true }, false, site_for.clone(), store_sink);
         store.set_frame(0., 0., 800., 600.);
         for page in ["store?click", "store?assign", "store-redirect"] {
             failed.borrow_mut().clear();

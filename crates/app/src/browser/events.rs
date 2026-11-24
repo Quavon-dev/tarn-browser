@@ -191,6 +191,12 @@ impl Browser {
                     }
                 }
             }
+            Event::AgentHeld(url) => crate::agent::held_navigation(key, url, cx),
+            Event::Prompt(prompt)
+                if self.model.agent_profile.is_some() && (prompt.kind.is_permission() || matches!(prompt.kind, PromptKind::ClientCertificate { .. })) =>
+            {
+                drop(prompt)
+            }
             Event::Prompt(prompt) => {
                 // A prompt shows with the shell's origin chip, never over a full-screen page.
                 if self.model.active == Some(key) {
@@ -202,19 +208,26 @@ impl Browser {
             Event::ShieldLevelChanged(url) => self.rebuild_view(key, &url, cx),
             Event::RebuildForLink(url) => self.rebuild_view_for_link(key, &url, cx),
             Event::PeekLink(url, from) => {
-                if self.model.active == Some(key) {
+                if self.model.active == Some(key) && self.model.agent_profile.is_none() && crate::agent::gated(key, cx).is_none() {
                     self.open_link_peek(key, url, from, window, cx);
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
             Event::OpenTab { url, from, background, split } => {
-                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
+                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown() && self.model.agent_profile.is_none()) else { return cx.notify() };
+                let gate = crate::agent::gated(key, cx);
+                if gate.as_ref().is_some_and(|gate| !crate::agent::may_open(gate, &url, cx)) {
+                    return cx.notify();
+                }
                 let engine = opener.web_engine.or(self.saved.web_engine);
-                let routed = self.routed_space(&url);
+                let routed = if gate.is_some() { None } else { self.routed_space(&url) };
                 if let Some(ix) = routed {
                     self.switch_space(ix, window, cx);
                 }
                 if let Some(tab) = self.model.open_tab(&self.core, url.as_str(), engine, Opened::Link(key)) {
+                    if gate.is_some() {
+                        crate::agent::touch(tab, cx);
+                    }
                     self.reload_space();
                     self.link_loads.insert(tab, from.clone());
                     if split && routed.is_none() {
@@ -335,7 +348,7 @@ impl Browser {
     }
 
     pub(super) fn record_visit(&mut self, key: TabKey, url: &Url, title: &str, typed: bool) {
-        if let Some(profile_id) = self.profile_of(key)
+        if let Some(profile_id) = self.profile_of(key).filter(|_| self.model.agent_profile.is_none())
             && matches!(url.scheme(), "http" | "https")
             && self.core.keeps_records(key.private, profile_id)
         {
@@ -541,7 +554,13 @@ impl Browser {
         match (accept, silence) {
             (_, true) => {
                 prompt.decline_and_silence_page();
-                self.drop_prompts(key, cx);
+                let queue = self.prompts.get_mut(&key);
+                if queue.is_none_or(|q| {
+                    q.retain(|p| p.kind == PromptKind::ResendForm);
+                    q.is_empty()
+                }) {
+                    self.drop_prompts(key, cx);
+                }
             }
             (true, _) => {
                 let text = self.prompt_input.read(cx).text().to_owned();
@@ -597,12 +616,12 @@ impl Browser {
         }
     }
 
-    /// A permission prompt's Allow and Remember, Keep Anyway on a malware warning and a certificate choice ignore clicks for a
+    /// A permission prompt's Allow and Remember, Keep Anyway on a malware warning, Send Again on a form resend and a certificate choice ignore clicks for a
     /// moment after they appear, so a page cannot time a click to land on them.
     pub(crate) fn prompt_guarded(&self) -> bool {
-        self.active_prompt()
-            .is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. } | PromptKind::ClientCertificate { .. }))
-            && !self.layout_stable()
+        self.active_prompt().is_some_and(|p| {
+            p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. } | PromptKind::ResendForm | PromptKind::ClientCertificate { .. })
+        }) && !self.layout_stable()
     }
 
     pub(super) fn on_prompt_input_event(&mut self, input: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -700,11 +719,17 @@ impl Browser {
 
     pub(super) fn adopt_popup(&mut self, opener: TabKey, popup: Popup, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else { return };
-        if self.model.tab(opener).is_none() || self.model.burner_shown() {
+        if self.model.tab(opener).is_none() || self.model.burner_shown() || self.model.agent_profile.is_some() {
+            return;
+        }
+        let gate = crate::agent::gated(opener, cx);
+        if let Some(gate) = &gate
+            && !popup.url.as_ref().is_some_and(|url| crate::agent::may_open(gate, url, cx))
+        {
             return;
         }
         // A script's window.open keeps its opener, which sign-in and payment pop-ups need, so only links are routed.
-        if popup.link && popup.url.clone().is_some_and(|url| self.open_routed(&url, window, cx)) {
+        if gate.is_none() && popup.link && popup.url.clone().is_some_and(|url| self.open_routed(&url, window, cx)) {
             return;
         }
         let Some(space) = self.model.current_space() else { return };
@@ -714,6 +739,9 @@ impl Browser {
             return;
         };
         let key = TabKey { private, id: tab.id };
+        if gate.is_some() {
+            crate::agent::touch(key, cx);
+        }
         // On macOS only WebKit views adopt pop-ups, so an opener with an engine of its own ran in WebKit.
         if cfg!(target_os = "macos") {
             self.store(private).set_tab_web_engine(tab.id, self.model.tab(opener).and_then(|t| t.web_engine).map(|_| WebEngine::WebKit)).ok();
@@ -726,6 +754,7 @@ impl Browser {
         view.set_corner_radius(page_corner());
         view.set_dark(!ui::theme::Theme::is_light());
         self.view_prefs(&view);
+        crate::agent::gate_view(key, &view, cx);
         self.views.insert(key, Rc::new(view));
         self.link_loads.insert(key, None);
         self.attach_tarn(key);

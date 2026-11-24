@@ -780,16 +780,22 @@ impl Browser {
         self.switch_space(next, window, cx);
     }
 
-    pub(crate) fn apply_view_prefs(&self) {
-        self.views.values().for_each(|view| self.view_prefs(view));
+    pub(crate) fn apply_view_prefs(&self, cx: &gpui::App) {
+        for (key, view) in &self.views {
+            self.view_prefs(view);
+            crate::agent::gate_view(*key, view, cx);
+        }
         if let Some(peek) = &self.link_peek.view {
-            peek.set_passkeys(self.pref(Pref::Passkeys));
+            peek.set_passkeys(self.pref(Pref::Passkeys) && self.model.agent_profile.is_none());
         }
     }
 
     pub(crate) fn view_prefs(&self, view: &engine::WebView) {
         view.set_gestures(self.pref(Pref::Gestures));
-        view.set_passkeys(self.pref(Pref::Passkeys));
+        view.set_passkeys(self.pref(Pref::Passkeys) && self.model.agent_profile.is_none());
+        if self.agent_gate.is_some() {
+            view.set_agent_gate(self.agent_gate.clone());
+        }
     }
 
     /// The mouse's back and forward buttons, which web views ignore.

@@ -75,6 +75,10 @@ fn body(ui: Ui, prompt: PromptRequest) -> AnyElement {
             .child(accent_pill("OK", move || answer(ui, true, false, None, None, None)))
             .child(pill("Cancel", move || answer(ui, false, false, None, None, None)))
             .into_element(),
+        "resend form" => buttons
+            .child(pill("Send Again", move || answer(ui, true, false, None, None, None)).text_color(Secure::danger))
+            .child(accent_pill("Cancel", move || answer(ui, false, false, None, None, None)))
+            .into_element(),
         "text" => {
             let value = signal(prompt.default.clone().unwrap_or_default());
             view()

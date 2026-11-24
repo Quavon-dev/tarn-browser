@@ -19,7 +19,16 @@ impl WebView {
     /// is enforced through the data store's Shield, which the shell keeps current with
     /// `DataStore::set_shield`.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, _site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
+    pub fn new(
+        host: &Host,
+        data: &DataStore,
+        level: ShieldLevel,
+        features: crate::Features,
+        inspectable: bool,
+        _site_for: SiteFor,
+        sink: Rc<dyn Fn(Event)>,
+    ) -> Self {
+        let filtered = features.filtered;
         WebView { view: crate::chromium::WebView::for_store(host, data, level == ShieldLevel::Lockdown, filtered, inspectable, sink), filtered }
     }
 
@@ -130,6 +139,14 @@ impl WebView {
         self.view.insert_text(text, done);
     }
 
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        self.view.set_agent_gate(gate);
+    }
+
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        self.view.agent(source, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         self.view.icon_links(origin, done);
     }
@@ -178,6 +195,10 @@ impl WebView {
     pub fn process_id(&self) -> Option<i32> {
         self.view.process_id()
     }
+
+    /// Chromium evicts its own back/forward cache under memory pressure and after a timeout; CEF
+    /// cannot flush one browser's.
+    pub fn drop_back_forward_cache(&self) {}
 
     pub fn is_muted(&self) -> bool {
         self.view.is_muted()

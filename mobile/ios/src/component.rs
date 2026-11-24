@@ -107,6 +107,9 @@ pub struct Inner {
     opened_files: RefCell<std::collections::HashSet<Url>>,
     opener: RefCell<Option<Url>>,
     shell_history: Cell<bool>,
+    /// The shell's own Back or Forward just went through, so WebKit's following `FormResubmitted` is
+    /// the user's too; a Reload of a form's page arrives as `FormResubmitted` with `shell_history` set.
+    resend_credit: Cell<bool>,
     find_text: RefCell<String>,
     popups: RefCell<view_policy::Burst>,
     downloads: RefCell<view_policy::Burst>,
@@ -349,8 +352,10 @@ impl Inner {
         if !main {
             return WKNavigationActionPolicy::Allow;
         }
-        let stepped = self.shell_history.take();
-        let history = stepped && kind == WKNavigationType::BackForward;
+        let resend = kind == WKNavigationType::FormResubmitted;
+        let stepped = if resend { self.resend_credit.take() | self.shell_history.take() } else { self.shell_history.take() };
+        self.resend_credit.set(stepped && kind == WKNavigationType::BackForward);
+        let history = stepped && (kind == WKNavigationType::BackForward || resend);
         let shell_file = self.shell_file.take();
         let Some(url) = raw.as_deref().and_then(|s| Url::parse(s).ok()) else {
             self.emit("blocked", json!({ "url": raw, "reason": "nav_policy" }));
@@ -381,6 +386,11 @@ impl Inner {
         let site = Site::new(self.props.borrow().site(&url));
         let policy = site.level.max(view).policy();
         let user_started = (from_shell && opener.is_none()) || history;
+        // Only the user's own Back or Forward asks to send a form again; a page's `history.back()` cannot.
+        if resend && !user_started {
+            self.emit("blocked", json!({ "url": url.as_str(), "reason": "resend" }));
+            return WKNavigationActionPolicy::Cancel;
+        }
         if nav_policy::into_private_network(&url, opener.or_else(|| web.current_url()).as_ref(), user_started, policy.block_private_network) {
             self.emit("blocked", json!({ "url": url.as_str(), "reason": "local_network" }));
             self.emit("shielded", json!({ "kind": "local_network", "url": url.as_str() }));
@@ -512,6 +522,11 @@ impl Inner {
                     // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
                     let _: () = unsafe { msg_send![&**web, _hideFindUI] };
                 }
+            }
+            // WebKit has no public way to end the processes it keeps for earlier pages; its private `_clearBackForwardCache` does.
+            "dropBackForwardCache" if web.respondsToSelector(sel!(_clearBackForwardCache)) => {
+                // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
+                let _: () = unsafe { msg_send![&**web, _clearBackForwardCache] };
             }
             _ => {}
         }
@@ -715,6 +730,7 @@ pub fn register(components: &Components) {
                 opened_files: RefCell::default(),
                 opener: RefCell::new(None),
                 shell_history: Cell::new(false),
+                resend_credit: Cell::new(false),
                 find_text: RefCell::default(),
                 popups: RefCell::default(),
                 downloads: RefCell::default(),

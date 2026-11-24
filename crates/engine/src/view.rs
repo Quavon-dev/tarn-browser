@@ -35,8 +35,16 @@ macro_rules! webkit_only {
 }
 
 impl WebView {
-    pub fn new(host: &Host, data: &DataStore, level: ShieldLevel, filtered: bool, inspectable: bool, site_for: SiteFor, sink: Rc<dyn Fn(Event)>) -> Self {
-        WebView::WebKit(webview::WebView::new(host, data, level, filtered, inspectable, site_for, sink))
+    pub fn new(
+        host: &Host,
+        data: &DataStore,
+        level: ShieldLevel,
+        features: crate::Features,
+        inspectable: bool,
+        site_for: SiteFor,
+        sink: Rc<dyn Fn(Event)>,
+    ) -> Self {
+        WebView::WebKit(webview::WebView::new(host, data, level, features, inspectable, site_for, sink))
     }
 
     /// A Chromium view for the profile with this UUID, Chromium's data under `root`; `data` is the
@@ -155,6 +163,18 @@ impl WebView {
         both!(self, v => v.insert_text(text, done))
     }
 
+    /// Holds page-started main-frame navigations the gate refuses (`Event::AgentHeld`), for the
+    /// tabs of an agent's window (S31).
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        both!(self, v => v.set_agent_gate(gate))
+    }
+
+    /// Runs an AI agent's script (`agent_scripts`, S31) in the isolated world, not as a gesture on
+    /// Chromium (WebKit counts every isolated-world script as one, S23); empty under Lockdown.
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        both!(self, v => v.agent(source, done))
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         both!(self, v => v.icon_links(origin, done))
     }
@@ -228,6 +248,13 @@ impl WebView {
     /// The page's own process; in Chromium the renderer of the top document, once it said which.
     pub fn process_id(&self) -> Option<i32> {
         both!(self, v => v.process_id())
+    }
+
+    /// Ends the processes kept for the view's earlier pages; the shown page and its history stay.
+    /// Chromium evicts its own back/forward cache under memory pressure and after a timeout, and CEF
+    /// cannot flush one browser's.
+    pub fn drop_back_forward_cache(&self) {
+        webkit_only!(self, v => v.drop_back_forward_cache(), ())
     }
 
     pub fn set_muted(&self, muted: bool) {

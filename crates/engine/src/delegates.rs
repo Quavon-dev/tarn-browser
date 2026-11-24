@@ -161,6 +161,7 @@ pub(crate) struct DelegateState {
     pub shell_load: RefCell<Option<(Url, bool)>>,
     /// Files this view showed through `load_file`; only they get Open File's credit (S6).
     pub opened_files: RefCell<std::collections::HashSet<Url>>,
+    pub agent_gate: RefCell<Option<crate::agent_scripts::Gate>>,
     /// Whether the main-frame navigation in flight was started by the main frame or the shell;
     /// a download response for one started by an iframe is cancelled.
     pub main_initiated: Cell<bool>,
@@ -170,6 +171,10 @@ pub(crate) struct DelegateState {
     /// Where a back, forward or reload the shell asked for may go; a script's `history.back()` or
     /// `location.reload()` reaches WebKit with the same navigation type.
     pub history_step: RefCell<Vec<Url>>,
+    /// The page the shell's own Back or Forward went to, so WebKit's following `FormResubmitted`
+    /// decision for it counts as the user's too; a Reload of a form's page arrives as
+    /// `FormResubmitted` with `history_step` set.
+    pub resend_credit: RefCell<Option<Url>>,
     /// Shared with popups the page opens, so a chain of popups stays within one budget.
     pub recent_prompts: Rc<RefCell<VecDeque<Instant>>>,
     pub recent_popups: Rc<RefCell<VecDeque<Instant>>>,
@@ -218,9 +223,11 @@ impl DelegateState {
             downloads,
             shell_load: RefCell::default(),
             opened_files: RefCell::default(),
+            agent_gate: RefCell::default(),
             main_initiated: Cell::new(true),
             user_navigation: Cell::new(false),
             history_step: RefCell::default(),
+            resend_credit: RefCell::default(),
             provisional: Cell::new(None),
             user_load: RefCell::default(),
             recent_prompts: Rc::default(),
@@ -314,6 +321,13 @@ fn store_link_activated(action: &WKNavigationAction, shell_load: bool, page_link
 pub(crate) fn to_url(url: Option<Retained<NSURL>>) -> Option<Url> {
     let s = url?.absoluteString()?.to_string();
     Url::parse(&s).ok()
+}
+
+#[derive(Clone, Copy)]
+struct Go {
+    javascript: bool,
+    user_started: bool,
+    new_page: bool,
 }
 
 define_class!(
@@ -511,12 +525,23 @@ define_class!(
                 handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 return;
             }
+            if (!from_shell || link) && state.agent_gate.borrow().as_ref().is_some_and(|gate| !gate(&url)) {
+                self.emit(Event::AgentHeld(url));
+                handler.call((WKNavigationActionPolicy::Cancel, prefs));
+                return;
+            }
             // SAFETY: plain property reads on the live action.
             let (kind, modifiers) = unsafe { (action.navigationType(), action.modifierFlags()) };
             // WebKit reports a script's `a.click()`, `form.submit()`, `history.back()` or
             // `location.reload()` with the same types as the user's, so only the shell's own loads
             // and history steps count as the user's.
-            let history_step = matches!(kind, WKNavigationType::BackForward | WKNavigationType::Reload) && history_step.contains(&url);
+            let history_step = if kind == WKNavigationType::FormResubmitted {
+                state.resend_credit.take().is_some_and(|u| u == url) || history_step.contains(&url)
+            } else {
+                let step = matches!(kind, WKNavigationType::BackForward | WKNavigationType::Reload) && history_step.contains(&url);
+                state.resend_credit.replace(step.then(|| url.clone()));
+                step
+            };
             let opened = state.opened_files.borrow().contains(&url);
             let source = if nav_policy::file_open(&url, opened && ((from_shell && !link) || history_step)) { Source::FileOpen } else { Source::Link };
             match nav_policy::decide(&url, source) {
@@ -590,15 +615,11 @@ define_class!(
                     handler.call((WKNavigationActionPolicy::Cancel, prefs));
                 }
                 nav_policy::LevelAction::Continue { javascript } => {
-                    // A refused navigation leaves the pending load, and whose it is, as it was.
-                    state.user_navigation.set(user_started);
-                    // The view's `make-https` rule rewrites it; a redirect hop or history step is the same page.
-                    if !redirect && !history_step && nav_policy::upgrades_to_https(&url, state.level.policy().https_only) {
-                        self.emit(Event::Protected(Protection::HttpsUpgrade, url.host_str().map(str::to_owned)));
+                    let go = Go { javascript, user_started, new_page: !redirect && !history_step };
+                    if kind == WKNavigationType::FormResubmitted {
+                        return self.ask_to_resend(web_view, url, preferences, go, handler);
                     }
-                    // SAFETY: the preferences object is owned by WebKit and mutable until we answer.
-                    unsafe { preferences.setAllowsContentJavaScript(javascript) };
-                    crate::tarn_webkit::gate_frame(web_view, &url, true);
+                    self.continue_load(web_view, &url, preferences, go);
                     handler.call((WKNavigationActionPolicy::Allow, prefs));
                 }
             }
@@ -902,6 +923,7 @@ define_class!(
                 web_origin: RefCell::new(state.web_origin.borrow().clone()),
                 // Until its first commit a popup shows the opener-writable blank document, whatever it was asked to load (S5).
                 committed_url: RefCell::new(Url::parse("about:blank").ok()),
+                agent_gate: RefCell::new(state.agent_gate.borrow().clone()),
                 ..DelegateState::new(Rc::new(|_| {}), state.site_for.clone(), state.level, state.filtered, state.downloads.clone(), true)
             };
             // SAFETY: main thread; WebKit requires the returned view to use this configuration.
@@ -1135,6 +1157,53 @@ impl Delegate {
         unsafe { download.setDelegate(Some(ProtocolObject::from_ref(&*state.downloads))) };
         let source = DownloadSource { site_for: state.site_for.clone(), page: state.committed_url.borrow().clone(), tab: Weak::new(self) };
         state.downloads.ivars().sources.borrow_mut().insert(download_key(download), source);
+    }
+
+    fn continue_load(&self, web_view: &WKWebView, url: &Url, preferences: &WKWebpagePreferences, go: Go) {
+        let state = self.ivars();
+        // A refused navigation leaves the pending load, and whose it is, as it was.
+        state.user_navigation.set(go.user_started);
+        // The view's `make-https` rule rewrites it; a redirect hop or history step is the same page.
+        if go.new_page && nav_policy::upgrades_to_https(url, state.level.policy().https_only) {
+            self.emit(Event::Protected(Protection::HttpsUpgrade, url.host_str().map(str::to_owned)));
+        }
+        // SAFETY: the preferences object is owned by WebKit and mutable until we answer.
+        unsafe { preferences.setAllowsContentJavaScript(go.javascript) };
+        crate::tarn_webkit::gate_frame(web_view, url, true);
+    }
+
+    /// Back or Forward to a page a form was sent for, no longer kept, would send the form again; it
+    /// does only once the user confirms.
+    fn ask_to_resend(
+        &self,
+        web_view: &WKWebView,
+        url: Url,
+        preferences: &WKWebpagePreferences,
+        go: Go,
+        handler: &DynBlock<dyn Fn(WKNavigationActionPolicy, NonNull<WKWebpagePreferences>)>,
+    ) {
+        let (handler, preferences, view, delegate) = (handler.copy(), preferences.retain(), web_view.retain(), Weak::new(self));
+        // Only the user's own history step asks; a page's `history.back()` or a gesture cannot make Tarn ask about another site's form.
+        let Some(origin) = serialized_origin(&url).filter(|_| go.user_started) else {
+            self.emit(Event::Blocked { url, message: nav_policy::RESEND_STOPPED.to_owned(), category: None });
+            handler.call((WKNavigationActionPolicy::Cancel, NonNull::from(&*preferences)));
+            return;
+        };
+        let reply = RcBlock::new(move |send: Bool| {
+            let sent = send.as_bool() && delegate.load().inspect(|d| d.continue_load(&view, &url, &preferences, go)).is_some();
+            let policy = if sent { WKNavigationActionPolicy::Allow } else { WKNavigationActionPolicy::Cancel };
+            handler.call((policy, NonNull::from(&*preferences)));
+        });
+        let (message, suppress) = (String::new(), Rc::default());
+        self.emit(Event::Prompt(Prompt {
+            origin,
+            top_origin: None,
+            insecure: false,
+            message,
+            kind: PromptKind::ResendForm,
+            reply: Some(Reply::Confirm(reply)),
+            suppress,
+        }));
     }
 
     /// Asks whether to keep a download from a host on the malware list; it is cancelled unless kept.

@@ -161,6 +161,7 @@ pub struct Shell<D: Platform> {
     pub(crate) visits: HashMap<TabKey, Id>,
     pub(crate) crashed: HashSet<TabKey>,
     pub hang: engine::lifecycle::Hang<TabKey>,
+    back_forward: engine::lifecycle::BackForwardTrim<TabKey>,
     pub(crate) seq: u64,
     pub themes: crate::themes::Themes,
     pub ext: crate::extensions::Runtime,
@@ -230,6 +231,7 @@ impl<D: Platform> Shell<D> {
             visits: HashMap::new(),
             crashed: HashSet::new(),
             hang: Default::default(),
+            back_forward: Default::default(),
             seq: 0,
             themes,
             ext: crate::extensions::Runtime::default(),
@@ -358,6 +360,8 @@ impl<D: Platform> Shell<D> {
             return;
         }
         let _span = (self.model.active != Some(key)).then(|| engine::startup::span(engine::startup::TAB_SWITCH));
+        let now = std::time::Instant::now();
+        self.visible_tabs().into_iter().for_each(|k| self.back_forward.shown(k, now));
         self.model.active = Some(key);
         if self.external.as_ref().is_some_and(|(k, _)| *k != key) {
             self.external = None;
@@ -986,6 +990,13 @@ impl<D: Platform> Shell<D> {
 
     pub fn active_command(&self, name: &'static str, args: Value) -> Vec<Effect> {
         self.model.active.map(|k| vec![Effect::Command(k, name, args)]).unwrap_or_default()
+    }
+
+    /// Each live tab off screen for `engine::lifecycle::BACK_FORWARD_IDLE` drops the pages kept for Back.
+    pub fn drop_back_forward_caches(&mut self, now: std::time::Instant) -> Vec<Effect> {
+        let shown = self.visible_tabs();
+        let live: Vec<(TabKey, bool)> = self.model.lifecycle.live().map(|k| (k, shown.contains(&k))).collect();
+        self.back_forward.due(live, now).into_iter().map(|k| Effect::Command(k, "dropBackForwardCache", Value::Null)).collect()
     }
 
     /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY` while `active`.

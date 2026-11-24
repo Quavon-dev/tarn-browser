@@ -1,7 +1,7 @@
 //! Decides which tabs keep a live web view. The active tab and the most recently used ones stay
 //! live up to `max_live`; the rest are hibernated to their saved interaction state.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 use std::time::{Duration, Instant};
 
@@ -121,6 +121,47 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
         sleep.push(tab);
     }
     sleep
+}
+
+/// How long a tab stays off screen before it drops the processes kept for its earlier pages.
+pub const BACK_FORWARD_IDLE: Duration = Duration::from_secs(60);
+
+/// Which live tabs drop their back/forward cache: each once per stay off screen, after `BACK_FORWARD_IDLE`.
+pub struct BackForwardTrim<T> {
+    shown: HashMap<T, Instant>,
+    dropped: HashSet<T>,
+}
+
+impl<T> Default for BackForwardTrim<T> {
+    fn default() -> Self {
+        BackForwardTrim { shown: HashMap::new(), dropped: HashSet::new() }
+    }
+}
+
+impl<T: Copy + Eq + Hash> BackForwardTrim<T> {
+    /// Records that `tab` is on screen now, as a shell does for the tabs it is about to leave.
+    pub fn shown(&mut self, tab: T, now: Instant) {
+        self.shown.insert(tab, now);
+        self.dropped.remove(&tab);
+    }
+
+    /// `live` gives each live tab and whether it is on screen; tabs not among them are forgotten.
+    pub fn due(&mut self, live: impl IntoIterator<Item = (T, bool)>, now: Instant) -> Vec<T> {
+        let live: HashMap<T, bool> = live.into_iter().collect();
+        self.shown.retain(|t, _| live.contains_key(t));
+        self.dropped.retain(|t| live.contains_key(t));
+        let mut due = Vec::new();
+        for (tab, on_screen) in live {
+            let shown = self.shown.entry(tab).or_insert(now);
+            if on_screen {
+                *shown = now;
+                self.dropped.remove(&tab);
+            } else if now.saturating_duration_since(*shown) >= BACK_FORWARD_IDLE && self.dropped.insert(tab) {
+                due.push(tab);
+            }
+        }
+        due
+    }
 }
 
 pub fn release_memory(closed: bool, was_active: bool, active: bool) -> bool {
@@ -258,6 +299,25 @@ mod tests {
         assert_eq!(over_budget(awake, 1_600), [2, 5]);
         assert_eq!(over_budget(awake, 0), [2, 5, 1], "playing and recently used tabs stay awake");
         assert!(over_budget(awake, 2_900).is_empty());
+    }
+
+    #[test]
+    fn a_tab_drops_its_back_forward_cache_once_per_stay_off_screen() {
+        let (mut trim, t0) = (BackForwardTrim::default(), Instant::now());
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        assert!(trim.due([(1, true), (2, false)], t0).is_empty());
+        assert!(trim.due([(1, true), (2, false)], at(59)).is_empty(), "not before a minute");
+        assert_eq!(trim.due([(1, false), (2, false)], at(60)), [2], "1 was on screen until the last look");
+        assert!(trim.due([(1, false), (2, false)], at(90)).is_empty(), "once per stay");
+        assert_eq!(trim.due([(1, false), (2, false)], at(120)), [1]);
+        trim.due([(1, false), (2, true)], at(130));
+        assert_eq!(trim.due([(1, false), (2, false)], at(190)), [2], "shown again, it drops again");
+        assert!(trim.due([(1, false)], at(200)).is_empty());
+        assert!(trim.due([(1, false), (2, false)], at(260)).is_empty(), "a tab that slept and woke starts afresh");
+        assert_eq!(trim.due([(1, false), (2, false)], at(320)), [2]);
+        trim.shown(1, at(330));
+        assert!(trim.due([(1, false), (2, false)], at(380)).is_empty(), "left between two looks, it waits a full minute");
+        assert_eq!(trim.due([(1, false), (2, false)], at(390)), [1]);
     }
 
     #[test]

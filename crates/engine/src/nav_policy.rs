@@ -8,6 +8,12 @@ use url::Url;
 /// The shell's verdict for a URL, asked on each navigation so per-site choices and domain sets apply.
 pub type SiteFor = Rc<dyn Fn(&Url) -> Site>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Features {
+    pub filtered: bool,
+    pub extensions: bool,
+}
+
 /// What the shell decided about a site, asked on every navigation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Site {
@@ -237,6 +243,10 @@ pub fn chromium_store_link(redirect: bool, shell_load: bool, link_load: bool, us
 pub fn into_private_network(target: &Url, from: Option<&Url>, user_started: bool, block_private_network: bool) -> bool {
     !user_started && block_private_network && shield::rules::local_target(target) && !from.is_some_and(local_page)
 }
+
+/// The notice when a form would be sent again without the user's own Back, Forward or Reload; a
+/// page's script or a swipe does not count.
+pub const RESEND_STOPPED: &str = "A form was not sent again. Use Back, Forward or Reload to be asked whether to send it.";
 
 /// The notice for a navigation `into_private_network` refused; shells offer to open it anyway.
 pub const LOCAL_NETWORK_BLOCKED: &str = "An address on your local network was blocked.";

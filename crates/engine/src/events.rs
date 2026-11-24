@@ -96,6 +96,9 @@ pub enum Event {
         split: bool,
     },
     StoreInstall(String),
+    /// A page-started navigation of an agent's tab to a site the agent may not use yet, cancelled
+    /// before any request (`WebView::set_agent_gate`).
+    AgentHeld(Url),
     /// A link to another app's scheme; the shell must ask before handing it off. `origin` is the
     /// frame that started it, `None` for the shell's own loads and opaque origins.
     ExternalScheme {
