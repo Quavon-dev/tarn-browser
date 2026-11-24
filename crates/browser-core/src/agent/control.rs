@@ -470,7 +470,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
     }
 
     fn execute(&mut self, call: Call<C>, tab: Option<K>, page: Option<Url>, confirmed: bool, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
-        let origin = page.as_ref().map_or_else(|| "null".to_owned(), |p| p.origin().ascii_serialization());
+        let origin = guard(page.as_ref());
         let script = |s: AgentScript| Op::Script(bound(s.source(), &origin));
         let act = |target: u32, act: Act| script(AgentScript::Act { target, act, confirmed });
         let op = match &call.tool {
@@ -552,10 +552,20 @@ fn allowed_here<K: Copy + PartialEq>(session: Option<&Session<K>>, page: Option<
     page.and_then(super::site_of).is_none_or(|site| session.is_some_and(|s| s.site_allowed(&site) == Some(true)))
 }
 
-/// `source` that runs only in a document of `origin` and answers nothing elsewhere; a page
-/// without an origin of its own gets "null", which matches only documents without a site.
-fn bound(source: String, origin: &str) -> String {
-    format!("if (location.origin !== {}) return '';\n{source}", engine::handover::js_string(origin))
+/// The condition a document must meet to run a script checked for `page`: its origin, or for a
+/// page without one ("null", shared by every opaque document) that exact address as well.
+fn guard(page: Option<&Url>) -> String {
+    let js = engine::handover::js_string;
+    match page.map(|p| (p, p.origin().ascii_serialization())) {
+        Some((_, origin)) if origin != "null" => format!("location.origin === {}", js(&origin)),
+        Some((page, _)) => format!("location.origin === \"null\" && location.href === {}", js(page.as_str())),
+        None => "location.origin === \"null\" && location.href === \"about:blank\"".to_owned(),
+    }
+}
+
+/// `source` that runs only where `guard` holds and answers nothing elsewhere.
+fn bound(source: String, guard: &str) -> String {
+    format!("if (!({guard})) return '';\n{source}")
 }
 
 fn page_of<K: PartialEq>(tabs: &[Page<K>], key: K) -> Option<Url> {
@@ -785,7 +795,7 @@ mod tests {
         assert_eq!(runs(&e), vec![(*run + 1, Some(3), Op::Screenshot)]);
         let e = c.raw(*run + 1, Raw::Png(Some("iVBOR".into())), &ctx(&tabs, 6200));
         let [(_, Some(3), Op::Script(check))] = &runs(&e)[..] else { panic!("the capture is checked again: {e:?}") };
-        assert!(check.starts_with("if (location.origin !== \"https://a.test\")"), "{check}");
+        assert!(check.starts_with("if (!(location.origin === \"https://a.test\"))"), "{check}");
         let e = c.raw(*run + 1, Raw::Script("0".into()), &ctx(&tabs, 6300));
         assert_eq!(replies(&e)[0].1, Outcome::Image("iVBOR".into()));
         c.call(1, None, Tool::Screenshot { tab: 1 }, "u", &ctx(&tabs, 8000));
@@ -857,7 +867,7 @@ mod tests {
         c.call(1, None, Tool::TabsList, "l", &ctx(&tabs, 2000));
         let e = c.call(1, None, Tool::Snapshot { tab: 1 }, "s", &ctx(&tabs, 4000));
         let [(_, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
-        assert!(src.starts_with("if (location.origin !== \"null\")"), "{src}");
+        assert!(src.starts_with("if (!(location.origin === \"null\" && location.href === \"about:blank\"))"), "{src}");
     }
 
     #[test]
