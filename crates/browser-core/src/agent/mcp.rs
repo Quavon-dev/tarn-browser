@@ -58,13 +58,19 @@ pub fn handle(line: &str) -> (Option<String>, Incoming) {
         .and_then(Value::as_str)
         .map(super::client_name);
     let Some(method) = msg.get("method").and_then(Value::as_str) else { return (client, Incoming::Ignore) };
-    let Some(id) = msg.get("id").filter(|id| id.is_string() || id.is_i64() || id.is_u64()).cloned() else {
+    let valid_id = |id: &Value| id.is_string() || id.is_i64() || id.is_u64();
+    let version = msg.get("jsonrpc").and_then(Value::as_str) == Some("2.0");
+    let Some(id) = msg.get("id").filter(|id| valid_id(id)).cloned() else {
         if msg.contains_key("id") {
             return (client, Incoming::Reply(error(&Value::Null, -32600, "Invalid request id", None)));
         }
-        let cancel = (method == "notifications/cancelled").then(|| params.and_then(|p| p.get("requestId")).cloned()).flatten();
+        let cancel =
+            (version && method == "notifications/cancelled").then(|| params.and_then(|p| p.get("requestId")).filter(|id| valid_id(id)).cloned()).flatten();
         return (client, cancel.map_or(Incoming::Ignore, Incoming::Cancel));
     };
+    if !version {
+        return (client, Incoming::Reply(error(&id, -32600, "Invalid Request: jsonrpc must be \"2.0\"", None)));
+    }
     let requested = meta.and_then(|m| m.get(VERSION_KEY));
     let modern = requested.is_some();
     if let Some(v) = requested
@@ -207,7 +213,12 @@ fn parse_tool(name: &str, args: &Map<String, Value>) -> Result<Tool, String> {
         "scroll" => Tool::Scroll {
             tab: tab()?,
             target: args.get("element").map(|_| num("element")).transpose()?,
-            down: args.get("direction").and_then(Value::as_str) != Some("up"),
+            down: match args.get("direction") {
+                None => true,
+                Some(d) if d == "down" => true,
+                Some(d) if d == "up" => false,
+                Some(_) => return Err("`direction` must be \"up\" or \"down\"".into()),
+            },
         },
         "wait_for" => Tool::WaitFor {
             tab: tab()?,
@@ -393,6 +404,7 @@ mod tests {
         for (name, args) in [
             ("click", r#"{"tab":1}"#),
             ("click", r#"{"tab":-1,"element":1}"#),
+            ("scroll", r#"{"tab":1,"direction":"left"}"#),
             ("press_key", r#"{"tab":1,"key":"Meta"}"#),
             ("nope", "{}"),
             ("type", &format!(r#"{{"tab":1,"element":1,"text":"{}"}}"#, "a".repeat(MAX_TEXT_BYTES + 1))),
@@ -443,6 +455,14 @@ mod tests {
         let mut out = Vec::new();
         serve(input.as_bytes(), &mut out, |_, _| Outcome::Text(String::new())).unwrap();
         assert_eq!(String::from_utf8(out).unwrap().lines().count(), 1);
+    }
+
+    #[test]
+    fn only_json_rpc_2_0_is_served() {
+        assert_eq!(reply(r#"{"jsonrpc":"1.0","id":4,"method":"tools/list"}"#)["error"]["code"], -32600);
+        assert_eq!(reply(r#"{"id":4,"method":"tools/list"}"#)["error"]["code"], -32600);
+        assert_eq!(handle(r#"{"jsonrpc":"1.0","method":"notifications/cancelled","params":{"requestId":7}}"#).1, Incoming::Ignore);
+        assert_eq!(handle(r#"{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":{"x":1}}}"#).1, Incoming::Ignore);
     }
 
     #[test]

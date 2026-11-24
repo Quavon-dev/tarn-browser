@@ -46,6 +46,7 @@ st.secret = st.secret || new WeakSet();
 st.password = st.password || new WeakSet();
 const sensitive = el => {
     if (!el || !/^(input|select)$/.test(el.localName)) return false;
+    if (el.type === 'password') st.password.add(el);
     if (st.secret.has(el)) return true;
     const auto = el.getAttribute('autocomplete') || '', named = (el.getAttribute('name') || '') + ' ' + el.id;
     const password = el.type === 'password' || /(^|\s)(current|new)-password/i.test(auto) || /pass|pwd/i.test(named);
@@ -70,6 +71,8 @@ const SEL = 'a[href],button,input:not([type=hidden]),select,textarea,summary,[co
 const found = [];
 const walk = root => { for (const el of root.querySelectorAll(SEL)) found.push(el); for (const host of root.querySelectorAll('*')) if (host.shadowRoot) walk(host.shadowRoot); };
 walk(document);
+const onScreen = el => { const r = el.getBoundingClientRect(); return r.bottom >= 0 && r.top <= innerHeight && r.right >= 0 && r.left <= innerWidth; };
+found.sort((a, b) => onScreen(b) - onScreen(a));
 const clean = (s, n) => (s || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
 const roles = { a: 'link', button: 'button', select: 'combobox', textarea: 'textbox', summary: 'button' };
 const inputRoles = { checkbox: 'checkbox', radio: 'radio', submit: 'button', button: 'button', reset: 'button', image: 'button', range: 'slider', file: 'file' };
@@ -137,6 +140,7 @@ switch (act.kind) {
         el.focus();
         if (el.isContentEditable) { document.execCommand('selectAll'); document.execCommand('insertText', false, act.text); }
         else setValue(el, act.text);
+        if (act.submit && !confirmed && filledSensitive()) return 'confirm';
         if (act.submit && !submit(el)) { fire(el, 'keydown', { key: 'Enter', code: 'Enter' }); fire(el, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
     }

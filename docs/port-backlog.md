@@ -30,6 +30,8 @@ Shared API: `browser_core::agent::{mcp, control}` (`mcp::serve`, `control::Contr
 `engine::agent_socket`, `engine::agent_scripts`, `tabs::Model::open_agent` and `burn_agent`.
 Reference: `crates/app/src/agent.rs`, `linux/src/ui/agent.rs`.
 
+- [x] Linux — `linux/src/ui/agent.rs`; the gate holds clicks and form submissions only (see
+  `docs/nsh-plan.md`).
 - [ ] iOS — no local process can reach an app's socket while it is in the background; needs a
   design (for example an agent inside the app) before any port.
 - [ ] Android — a socket in the app's private storage is out of reach of other apps; needs an

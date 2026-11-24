@@ -705,6 +705,7 @@ impl Browser {
             WindowStart::Burner => browser.model.open_burner(&browser.core).inspect(|_| browser.burner_return = back),
             WindowStart::Agent => {
                 browser.core.disk.delete_window(browser.saved.id).ok();
+                browser.saved.id = 0;
                 browser.model.open_agent(&browser.core)
             }
         };

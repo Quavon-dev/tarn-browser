@@ -293,7 +293,7 @@ impl SettingsWindow {
                 )
                 .child(note(browser_core::assistant::SENT));
         if !on {
-            return page.child(self.chats(s, id, cx)).into_any_element();
+            return page.child(self.chats(s, id, cx)).child(agent).into_any_element();
         }
         let providers = wide_row(
             true,

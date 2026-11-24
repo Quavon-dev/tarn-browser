@@ -65,9 +65,15 @@ impl Server {
     }
 }
 
-/// FNV-1a of the data folder's lowercased path, which names its Tarn the same in every build.
+/// FNV-1a of the data folder's lowercased path, which names its Tarn the same in every build;
+/// Windows paths ignore case.
+#[cfg(windows)]
 pub(crate) fn data_dir_hash(data_dir: &str) -> u64 {
-    data_dir.to_lowercase().bytes().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+    fnv(data_dir.to_lowercase().as_bytes())
+}
+
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 /// Whether the server answers `line`: everything but a notification (a method without an id)
@@ -143,7 +149,7 @@ mod imp {
         if fits(&inside) {
             return Ok(inside);
         }
-        let hash = super::data_dir_hash(&data_dir.to_string_lossy());
+        let hash = super::fnv(std::os::unix::ffi::OsStrExt::as_bytes(data_dir.as_os_str()));
         let temporary = std::env::temp_dir().join(format!("tarn-agent-{hash:016x}.sock"));
         if fits(&temporary) { Ok(temporary) } else { Err(io::Error::other("no path short enough for the agent socket")) }
     }
@@ -231,7 +237,7 @@ mod imp {
     use std::path::Path;
     use std::sync::Mutex;
 
-    use windows_sys::Win32::Foundation::{ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE, LocalFree};
+    use windows_sys::Win32::Foundation::{ERROR_NO_DATA, ERROR_PIPE_BUSY, ERROR_PIPE_CONNECTED, GetLastError, INVALID_HANDLE_VALUE, LocalFree};
     use windows_sys::Win32::Security::Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
     use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
     use windows_sys::Win32::Storage::FileSystem::{FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION};
@@ -290,24 +296,42 @@ mod imp {
 
         pub fn accept(&self) -> io::Result<Stream> {
             let mut next = self.next.lock().map_err(|_| io::Error::other("poisoned"))?;
-            let handle = match next.take() {
-                Some(handle) => handle,
-                None => instance(&self.name, false)?,
-            };
-            // SAFETY: a pipe instance this listener made; blocks until a client connects.
-            let connected = unsafe { ConnectNamedPipe(handle.as_raw_handle(), std::ptr::null_mut()) } != 0;
-            // SAFETY: reads the calling thread's last error, set by the call above.
-            if !connected && unsafe { GetLastError() } != ERROR_PIPE_CONNECTED {
-                return Err(io::Error::last_os_error());
+            loop {
+                let handle = match next.take() {
+                    Some(handle) => handle,
+                    None => instance(&self.name, false)?,
+                };
+                // SAFETY: a pipe instance this listener made; blocks until a client connects.
+                let connected = unsafe { ConnectNamedPipe(handle.as_raw_handle(), std::ptr::null_mut()) } != 0;
+                // SAFETY: reads the calling thread's last error, set by the call above.
+                let error = if connected { 0 } else { unsafe { GetLastError() } };
+                // A client that came and went before the connect leaves a dead instance; take the next.
+                if error == ERROR_NO_DATA {
+                    continue;
+                }
+                if error != 0 && error != ERROR_PIPE_CONNECTED {
+                    return Err(io::Error::from_raw_os_error(error as i32));
+                }
+                *next = instance(&self.name, false).ok();
+                return Ok(File::from(handle));
             }
-            *next = instance(&self.name, false).ok();
-            Ok(File::from(handle))
         }
     }
 
     /// Only a pipe this very executable serves, so another program that made it first is refused.
     pub fn connect(data_dir: &Path) -> io::Result<Stream> {
-        let pipe = OpenOptions::new().read(true).write(true).security_qos_flags(SECURITY_IDENTIFICATION).open(name(data_dir))?;
+        let open = || OpenOptions::new().read(true).write(true).security_qos_flags(SECURITY_IDENTIFICATION).open(name(data_dir));
+        let mut pipe = open();
+        for _ in 0..50 {
+            match &pipe {
+                Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    pipe = open();
+                }
+                _ => break,
+            }
+        }
+        let pipe = pipe?;
         let mut pid = 0;
         // SAFETY: a pipe handle `pipe` owns and a valid out-parameter.
         let known = unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle(), &mut pid) } != 0;

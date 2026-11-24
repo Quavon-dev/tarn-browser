@@ -76,8 +76,8 @@ pub(crate) fn set_enabled(on: bool, cx: &mut App) {
 }
 
 /// A button of the agent bar, run after the window's own update, which the agent's work needs.
-pub(crate) fn answer(choice: Choice, cx: &mut App) {
-    cx.defer(move |cx| with_ctx(cx, |ctl, ctx| ctl.answer(choice, ctx)));
+pub(crate) fn answer(choice: Choice, prompt: u64, cx: &mut App) {
+    cx.defer(move |cx| with_ctx(cx, |ctl, ctx| ctl.answer(choice, prompt, ctx)));
 }
 
 /// A page-started navigation in the agent's window to a site without a grant (`Event::AgentHeld`).
@@ -214,20 +214,25 @@ fn run_op(run: u64, tab: Option<TabKey>, op: Op, cx: &mut App) {
             if let Op::Open(url) = &op {
                 return Some(Raw::Opened(b.open_link_tab(url, typed(url), window, cx)));
             }
-            let key = tab?;
+            let Some(key) = tab.filter(|k| b.model.tab(*k).is_some()) else { return Some(Raw::Unavailable) };
             if let Op::Load(url) = &op {
                 b.load_link_in(key, url, typed(url), window, cx);
-                return None;
+                return Some(Raw::Done);
             }
             if op == Op::Close {
                 b.close_tab(key, window, cx);
-                return None;
+                return Some(Raw::Done);
             }
             let Some(view) = b.agent_view(key, window, cx) else { return Some(Raw::Unavailable) };
             match op {
-                Op::Back => view.back(),
-                Op::Forward => view.forward(),
-                Op::Reload => view.reload(),
+                Op::Back | Op::Forward | Op::Reload => {
+                    match op {
+                        Op::Back => view.back(),
+                        Op::Forward => view.forward(),
+                        _ => view.reload(),
+                    }
+                    return Some(Raw::Done);
+                }
                 Op::Script(source) => view.agent(&source, move |raw| send(Raw::Script(raw))),
                 Op::Text => match b.tab_url(key).and_then(|u| Url::parse(&u).ok()) {
                     Some(page) => view.page_text(&page, MAX_TEXT_CHARS, move |_, text| send(Raw::Text(text))),
@@ -288,11 +293,12 @@ pub(crate) fn banner(window: &Window, cx: &mut Context<Browser>, push: &mut impl
     }
     let Some(banner) = agent.ctl.banner() else { return };
     let text = ui::text::bounded_title(&banner.text);
+    let prompt = banner.prompt;
     let buttons = banner.buttons.into_iter().map(|(label, choice, primary)| {
         let waits = banner.asking && !matches!(choice, Choice::Stop | Choice::Deny | Choice::Pause);
         secure_button(label, label, primary).on_click(cx.listener(move |b, _, _, cx| {
             if !waits || b.layout_stable() {
-                answer(choice, cx);
+                answer(choice, prompt, cx);
             }
         }))
     });

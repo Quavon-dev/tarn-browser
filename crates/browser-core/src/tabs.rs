@@ -1562,6 +1562,8 @@ mod tests {
         let a = model.new_tab(&core, "https://a.test/", None).unwrap();
         let b = model.new_tab(&core, "https://b.test/", None).unwrap();
         assert!(a.private && b.private && a != b, "an agent window holds several tabs");
+        model.reload_space(&core);
+        assert!(model.tab(a).is_some());
         assert_eq!(model.tear_off_label(a, true), None, "no tab leaves the agent's window");
         other.reload_spaces(&core);
         assert_eq!(other.spaces.len(), spaces, "another window never lists it");
