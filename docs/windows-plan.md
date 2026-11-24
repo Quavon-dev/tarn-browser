@@ -35,7 +35,9 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   thumbprint), so the signing step must sign `tarn.exe` and `tarn.dll` together and with one
   certificate, after `package-windows.sh` has edited `tarn.exe`. `cargo run` keeps the plain
   `tarn.exe`, which has no launcher and so starts Chromium with `--no-sandbox` (development only).
-  The launcher still carries CEF's icon until Tarn has a Windows icon to put in its place. On each CEF update, check that `bootstrap.exe` carries no `CEF_INSTALLER_CONFIG` resource:
+  `package-windows.sh` writes `packaging/windows/tarn.ico` into the launcher's icon resources
+  (`scripts/set-exe-icon.ps1`): as group icon 1, which GPUI loads for the window and taskbar, and
+  over CEF's own, which Explorer shows. On each CEF update, check that `bootstrap.exe` carries no `CEF_INSTALLER_CONFIG` resource:
   CEF's launcher can download and install CEF itself when built with one (`USE_INSTALLER`).
 - **Engine surface** (`crates/engine/src/*_windows.rs`): `Host` (HWND, DPI-scaled placement),
   `WebView` (a Chrome-style CEF browser in a child window), `DataStore` (one Chromium profile per
@@ -220,8 +222,8 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
   thumbprint or Azure Trusted Signing, SHA-256 with RFC 3161 timestamp, `signtool verify /pa`) signs
   by hand once one is. Settings › General › Nightly builds switches to the `nightly` release's feed
   (`docs/release.md` "Update channels"). The installer, Start menu entry and uninstaller use `packaging/windows/tarn.ico`
-  (from `packaging/Tarn.icns`); `tarn.exe`, CEF's launcher, still carries CEF's icon and version
-  resources: replacing them needs a resource editor step the packaging does not have yet.
+  (from `packaging/Tarn.icns`), and so does `tarn.exe` (`scripts/set-exe-icon.ps1`, tested in the
+  `windows` CI job); it still carries CEF's version resources.
 - **Checked by hand:** pages load and render (example.com, DuckDuckGo, Wikipedia), typing in
   pages and in the address field with suggestions, Shield's per-profile request filter, tab
   titles, shortcuts from page focus, new and switched tabs, back, settings, window move,

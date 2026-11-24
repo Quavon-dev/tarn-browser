@@ -16,6 +16,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   start `tarn.exe`; profiles and site data stay in the `Data` folder beside it. It tells you when a new version
   is out instead of installing one; `install.ps1 -Portable -Path <folder>` unpacks or updates it,
   keeping `Data`.
+- Windows: `tarn.exe` shows the Tarn icon in Explorer, on the taskbar and in its windows instead
+  of the Chromium launcher's.
 - Sites that ask for a client certificate offer the certificates they accept and send only the
   one picked; Cancel sends none (macOS and Windows). Chromium tabs no longer send the first
   certificate without asking.

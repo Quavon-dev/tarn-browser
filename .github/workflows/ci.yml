@@ -149,6 +149,7 @@ jobs:
       - run: cargo build --locked -p app-dll
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/sign-windows.test.ps1
       - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-script.test.ps1
+      - run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/set-exe-icon.test.ps1
 
   nsh-shared:
     needs: changes
