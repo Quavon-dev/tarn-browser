@@ -62,8 +62,7 @@ impl Browser {
         self.model.reload_space(&self.core);
     }
 
-    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY`; while the app
-    /// is not `active` nothing is pinged and an unanswered ping is forgotten.
+    /// Pings the shown page, as `engine::lifecycle::Hang` asks, every `PING_EVERY` while `active`.
     pub fn ping_page(&mut self, now: std::time::Instant, active: bool) {
         match self.model.active.filter(|_| active) {
             Some(key) if self.hang.ping(key, now) => self.outbox.push((key, "ping", serde_json::json!({ "seq": 0 }))),

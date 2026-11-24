@@ -798,8 +798,6 @@ type FogKey = (usize, usize, u32, u32);
 
 type Input = Rc<std::cell::Cell<Option<Instant>>>;
 
-/// The window's last input, recorded by listeners the `Browser` always paints, so the start page
-/// counts input from before it appeared. `None` once the animations went idle.
 #[derive(Default)]
 pub(crate) struct Watch {
     input: Input,
@@ -817,8 +815,6 @@ impl Watch {
         SearchFx { reduce: false, motion: Motion::new(self.input.clone()) }
     }
 
-    /// Counts the start page appearing as input and returns the element that records the rest and
-    /// wakes `views` on the first input after idle; a pointer move counts once `effects::moved` says it travelled.
     pub(crate) fn element(&mut self, start: bool, views: [gpui::EntityId; 2], window: &Window, cx: &mut Context<Browser>) -> impl IntoElement + use<> {
         fn on<E: gpui::MouseEvent>(window: &mut Window, input: &Input, views: [gpui::EntityId; 2], counts: impl Fn(&E) -> bool + 'static) {
             let input = input.clone();
@@ -860,9 +856,6 @@ impl Watch {
     }
 }
 
-/// The clock of a start page animation. It runs while its window is the active one of the
-/// active app and has had input within `effects::IDLE`, so a frame redraws one window only and
-/// an untouched start page stops drawing; it holds its frame otherwise and continues from it.
 struct Motion {
     input: Input,
     clock: browser_core::effects::Clock,
@@ -875,7 +868,6 @@ impl Motion {
         Motion { input, clock: Default::default(), ticking: Default::default(), active: false }
     }
 
-    /// Animation time shown now, redrawing the view every `frame` while `run` and awake.
     fn elapsed<V: 'static>(&mut self, run: bool, frame: std::time::Duration, window: &Window, cx: &mut Context<V>) -> std::time::Duration {
         let now = Instant::now();
         let active = engine::app_active() && window.is_window_active();
@@ -900,9 +892,11 @@ impl Motion {
     }
 }
 
-/// The ASCII cloud bank behind the start card, redrawn every `fog::FRAME` on the `Motion` clock;
-/// its own view, so windows that observe the `Browser` are not notified. One still frame while
-/// motion is reduced or the theme asks for it; none when the theme turns it off.
+/// The ASCII cloud bank behind the start card, redrawn every `fog::FRAME`; its own view, so
+/// windows that observe the `Browser` are not notified. One still frame while motion is reduced
+/// or the theme asks for it; none when the theme turns it off. Paused unless its window is the
+/// active one of the active app, so a frame redraws one window only, and held after
+/// `effects::IDLE` without input.
 pub struct Fog {
     pub(crate) reduce: bool,
     /// The window's width left of the content area, which the fog does not cover.
@@ -976,8 +970,8 @@ fn start_shield(level: shield::ShieldLevel) -> Stateful<gpui::Div> {
 const SEARCH_ROW: f32 = 54.;
 
 /// The theme's search bar effect behind the start and command card (`browser_core::effects`),
-/// redrawn at `effects::FPS` on the `Motion` clock; its own view, like `Fog`. One still frame
-/// while motion is reduced.
+/// redrawn at `effects::FPS` while its window is the active one of the active app; its own view,
+/// like `Fog`, and held like it. One still frame while motion is reduced.
 pub struct SearchFx {
     pub(crate) reduce: bool,
     motion: Motion,

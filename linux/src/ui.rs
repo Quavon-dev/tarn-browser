@@ -65,6 +65,10 @@ const LIST_WIDTH: f32 = SIDEBAR_WIDTH - 2. - 16.;
 use crate::webview;
 
 const PLACEMENT: &str = "linux.window_placement";
+thread_local! {
+    static WAS_ACTIVE: Cell<bool> = const { Cell::new(true) };
+}
+
 const SCHEDULE_TICK: std::time::Duration = std::time::Duration::from_secs(60);
 const SAMPLE_TICK: std::time::Duration = std::time::Duration::from_secs(5);
 const RETIRE_DELAY: std::time::Duration = std::time::Duration::from_secs(3);
@@ -254,8 +258,8 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let groups = std::mem::take(&mut b.forgotten_groups);
         let regrouped = b.regrouped_space.take();
         let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
-        let snap = snapshot::snapshot(b, shown);
         b.heavy_shown = b.heavy_tabs();
+        let snap = snapshot::snapshot_with(b, shown, &b.heavy_shown);
         if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
             b.settle_downloads();
         }
@@ -334,7 +338,6 @@ fn send_commands(ui: Ui, commands: Vec<(TabKey, &'static str, serde_json::Value)
     }
 }
 
-/// Pings the shown page while the app is in front; the snapshot is rebuilt only when the hung-page card appears or goes.
 fn ping(ui: Ui) {
     let active = untracked(lifecycle) == nsh_core::platform::Lifecycle::Active;
     let sent = BROWSERS.with_borrow_mut(|windows| {
@@ -349,7 +352,6 @@ fn ping(ui: Ui) {
     }
 }
 
-/// A page's answer to `ping`; the snapshot is rebuilt only when the hung-page card goes.
 fn pong(ui: Ui, key: TabKey, data: &serde_json::Value) {
     let hung = BROWSERS.with_borrow_mut(|windows| {
         let b = windows.get_mut(&ui.window)?;
@@ -361,7 +363,6 @@ fn pong(ui: Ui, key: TabKey, data: &serde_json::Value) {
     }
 }
 
-/// Samples the page processes; the snapshot is rebuilt only when the heavy tabs change or the Memory panel shows the costs.
 fn sample(ui: Ui) {
     let changed = BROWSERS.with_borrow_mut(|windows| {
         let b = windows.get_mut(&ui.window)?;
@@ -3043,12 +3044,18 @@ fn browser_window(ui: Ui) -> AnyElement {
     if read(ui, Browser::devtools_on) == Some(true) {
         devtools::refresh_servers(ui);
     }
+    let live_before = Cell::new(0);
     drop(set_interval(SCHEDULE_TICK, move || {
         let windows = WINDOWS.with_borrow(|windows| windows.len());
+        let active = untracked(lifecycle) == nsh_core::platform::Lifecycle::Active;
         act_quietly(ui, |b| {
             b.schedule_tick();
             b.idle_tick(windows);
-        })
+        });
+        let live = read(ui, |b| b.model.lifecycle.live().count()).unwrap_or(0);
+        if engine::lifecycle::release_memory(live < live_before.replace(live), WAS_ACTIVE.replace(active), active) {
+            engine::trim::release_free();
+        }
     }));
     drop(set_interval(engine::lifecycle::PING_EVERY, move || ping(ui)));
     drop(set_interval(SAMPLE_TICK, move || {

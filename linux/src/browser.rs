@@ -149,7 +149,6 @@ pub struct Browser {
     pub processes: HashMap<TabKey, i32>,
     pub samples: crate::memory::Samples,
     pub used: HashMap<TabKey, std::time::Instant>,
-    /// The heavy tabs the snapshot last showed.
     pub heavy_shown: HashSet<TabKey>,
     pub playing: HashSet<TabKey>,
     pub player: browser_core::media::Player,

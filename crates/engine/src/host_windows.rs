@@ -59,6 +59,8 @@ impl Host {
         unsafe { SetFocus(self.hwnd) };
     }
 
+    pub fn double_buffer(&self) {}
+
     /// GPUI's pop-up windows have no frame on Windows.
     pub fn strip_frame(&self) {}
 

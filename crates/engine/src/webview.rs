@@ -75,6 +75,19 @@ impl Host {
         Some(Host { view })
     }
 
+    pub fn double_buffer(&self) {
+        let Some(layer) = self.view.layer() else { return };
+        if layer.respondsToSelector(sel!(setMaximumDrawableCount:)) {
+            // SAFETY: main thread; the layer answers the selector, which takes an NSUInteger.
+            let _: () = unsafe { msg_send![&*layer, setMaximumDrawableCount: 2usize] };
+        }
+        if layer.respondsToSelector(sel!(setAllowsNextDrawableTimeout:)) {
+            // SAFETY: as above; with a timeout GPUI skips a frame instead of blocking the main
+            // thread while both drawables are still in use.
+            let _: () = unsafe { msg_send![&*layer, setAllowsNextDrawableTimeout: true] };
+        }
+    }
+
     /// Gives keyboard focus back to the shell view, e.g. when the command bar opens.
     pub fn focus(&self) {
         if let Some(window) = self.view.window() {

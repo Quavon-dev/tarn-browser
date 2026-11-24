@@ -4,21 +4,17 @@ pub const STILL: f32 = 0.4;
 
 /// Frames per second the shells request while an effect is on screen in the active window.
 pub const FPS: f32 = 24.;
-/// Time without input in a window after which its start page animations hold their frame.
 pub const IDLE: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// Whether a start page animation keeps moving `since_input` after its window's last input.
 pub fn awake(since_input: std::time::Duration) -> bool {
     since_input < IDLE
 }
 
-/// Whether a pointer at `to`, last counted at `from`, has moved for `awake`: AppKit repeats the
-/// moves of a resting pointer a point apart, which must not keep an animation running.
+const APPKIT_RESTING_POINTER_JITTER: f32 = 4.;
+
 pub fn moved(from: (f32, f32), to: (f32, f32)) -> bool {
-    (from.0 - to.0).abs() + (from.1 - to.1).abs() >= 4.
+    (from.0 - to.0).abs() + (from.1 - to.1).abs() >= APPKIT_RESTING_POINTER_JITTER
 }
-/// Time a start page animation has run, counted only between consecutive awake ticks, so a tick
-/// after a pause or an idle spell adds nothing and the frame resumes where it was held.
 #[derive(Default)]
 pub struct Clock {
     held: std::time::Duration,
@@ -26,7 +22,6 @@ pub struct Clock {
 }
 
 impl Clock {
-    /// The time shown at `now` while `awake`; `None` while not, when the clock holds `held`.
     pub fn tick(&mut self, now: std::time::Instant, awake: bool) -> Option<std::time::Duration> {
         if !awake {
             self.last = None;

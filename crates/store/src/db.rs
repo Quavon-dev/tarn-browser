@@ -467,7 +467,6 @@ impl Store {
         self.count_many(profile_id, counter, &[(host, n)])
     }
 
-    /// `count` for several `(host, n)` pairs in one transaction, pruning once.
     pub fn count_many(&self, profile_id: Id, counter: Counter, items: &[(Option<&str>, i64)]) -> Result<()> {
         if items.is_empty() {
             return Ok(());

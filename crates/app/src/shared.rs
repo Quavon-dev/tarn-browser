@@ -242,13 +242,19 @@ pub(crate) fn start(cx: &mut App) -> bool {
     })
     .detach();
     cx.spawn(async move |cx| {
+        let mut was_active = true;
         loop {
             cx.background_executor().timer(MINUTE).await;
             let ticked = cx.update(|cx| {
+                let mut closed = false;
                 each(cx, |b, window, cx| {
-                    b.sleep_idle_tabs(cx);
+                    closed |= b.sleep_idle_tabs(cx);
                     b.follow_schedule(window, cx);
                 });
+                let active = engine::app_active();
+                if engine::lifecycle::release_memory(closed, std::mem::replace(&mut was_active, active), active) {
+                    platform::memory::release_free();
+                }
                 #[cfg(any(feature = "chromium", windows))]
                 count_chromium_blocks(&self::core(cx));
             });

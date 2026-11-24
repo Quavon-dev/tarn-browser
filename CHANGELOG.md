@@ -93,6 +93,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   the extension timer on Linux, iOS and Android does nothing without an installed extension;
   Chromium's Shield counts are written once a minute in one transaction, and only when something
   was blocked.
+- Less memory: on macOS a browser window keeps two screen buffers instead of three (16 MB less GPU
+  memory for a large window), and on macOS and Linux Tarn hands memory it freed back to the system
+  after tabs close or sleep and once when it leaves the front.
 - The sidebar's New Tab row has one Organize Tabs button (…) in place of four: New Tab Group, New
   Folder, Clean Up and Group with Assistant are in its menu, on every client.
 - Enter on an address Tarn cannot open shakes the field instead of going anywhere, on every

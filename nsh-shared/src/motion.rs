@@ -15,7 +15,6 @@ static TOUCHED: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Copy, Default)]
 struct Woke;
 
-/// Counts an input; the first after `effects::IDLE` wakes the animations that went to sleep.
 pub fn touched() {
     let asleep = !browser_core::effects::awake(since_input());
     TOUCHED.store(EPOCH.elapsed().as_millis() as u64, Ordering::Relaxed);
@@ -72,9 +71,6 @@ pub fn animates(reduced: bool, lifecycle: Lifecycle) -> bool {
     !reduced && lifecycle == Lifecycle::Active
 }
 
-/// Calls `tick` with the time the animation has run, every `period` while the app is active,
-/// `running` and the user has been active within `effects::IDLE`. The timer stops when the user
-/// goes idle and starts again at the next input, so an idle start page wakes nothing.
 pub fn while_active(period: Duration, running: impl Fn() -> bool + 'static, tick: impl Fn(Duration) + Clone + 'static) {
     let timer: Rc<RefCell<Option<Spawned<()>>>> = Rc::default();
     let clock = Rc::new(RefCell::new(browser_core::effects::Clock::default()));

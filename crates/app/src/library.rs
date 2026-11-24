@@ -353,12 +353,8 @@ impl LibraryWindow {
 
     fn sample_on_memory_page(&self, cx: &mut Context<Self>) {
         if self.page == Page::Memory {
-            self.browser
-                .update(cx, |b, cx| {
-                    b.sample_processes();
-                    cx.notify();
-                })
-                .ok();
+            self.browser.update(cx, |b, _| b.sample_processes()).ok();
+            cx.notify();
         }
     }
 

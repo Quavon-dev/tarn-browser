@@ -210,11 +210,13 @@ impl Browser {
     /// Keeps `seen` even when sleeping is Never, since the heavy marker ranks by it. Unless sleeping
     /// is Never, background tabs over their window's equal part of the memory budget sleep too, the
     /// heaviest first; pinned tabs only for the budget, once unused for `PINNED_IDLE`.
-    pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sleep_idle_tabs(&mut self, cx: &mut Context<Self>) -> bool {
         // Short of memory, a tab left for five minutes sleeps; the web processes are what holds the memory.
         let max_idle = browser_core::settings::max_idle(crate::prefs::sleep_after(&self.core.disk), platform::memory::pressure());
         let (now, keys, heavy) = (Instant::now(), self.views.keys().copied().collect::<Vec<_>>(), self.heavy.clone());
+        let seen = self.seen.len();
         self.seen.retain(|k, _| keys.contains(k));
+        let closed = self.seen.len() < seen;
         self.typed_in.retain(|k| keys.contains(k));
         let mut background = Vec::new();
         for key in keys {
@@ -249,6 +251,7 @@ impl Browser {
         if self.heavy != heavy {
             cx.notify();
         }
+        closed
     }
 
     /// Asks each awake background tab, in every space for the memory budget, whether it is playing,

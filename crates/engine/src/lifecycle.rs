@@ -123,6 +123,10 @@ pub fn over_budget<T>(awake: impl IntoIterator<Item = (T, u64, bool, Duration)>,
     sleep
 }
 
+pub fn release_memory(closed: bool, was_active: bool, active: bool) -> bool {
+    closed || (was_active && !active)
+}
+
 /// How long the shown page may leave a ping unanswered before the shell offers Wait or Reload.
 pub const HANG_AFTER: Duration = Duration::from_secs(8);
 /// How often the shell pings the shown page with `page_scripts::PING`, which the page's own busy
@@ -171,7 +175,6 @@ impl<T: Copy + Eq> Hang<T> {
         (now.saturating_duration_since(from) >= HANG_AFTER).then_some(self.tab).flatten()
     }
 
-    /// Whether the shown tab `active` is the hung one.
     pub fn hung_on(&self, active: Option<T>, now: Instant) -> bool {
         active.is_some() && self.hung(now) == active
     }
@@ -332,5 +335,13 @@ mod tests {
         lc.keep(1);
         assert_eq!(lc.live().collect::<Vec<_>>(), [3, 2, 1]);
         assert_eq!(lc.activate(2), [1]);
+    }
+
+    #[test]
+    fn memory_is_released_after_closing_tabs_and_once_on_leaving_the_front() {
+        assert!(super::release_memory(true, true, true));
+        assert!(super::release_memory(false, true, false));
+        assert!(!super::release_memory(false, false, false), "once per stay in the background");
+        assert!(!super::release_memory(false, true, true));
     }
 }

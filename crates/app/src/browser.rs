@@ -511,10 +511,12 @@ impl Browser {
         let sidebar_open = crate::prefs::sidebar_open(disk) && tab_placement == browser_core::layout::TabPlacement::Side;
         let sidebar_width = crate::prefs::sidebar_width(disk);
         let watch = crate::content::Watch::default();
+        let host = Host::from_window(window);
+        host.iter().for_each(Host::double_buffer);
         let mut browser = Browser {
             core,
             warning: None,
-            host: Host::from_window(window),
+            host,
             model: browser_core::tabs::Model::new(live_tabs),
             views: HashMap::new(),
             theme_generation: ui::theme::Theme::generation(),
