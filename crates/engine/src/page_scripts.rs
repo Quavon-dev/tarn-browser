@@ -419,20 +419,59 @@ pub fn json_text_script(origin: &Url, max_bytes: usize) -> Option<String> {
     ))
 }
 
-/// Toggles picture in picture for the page's playing or largest video: "pip", "exit", "none" or
-/// "refused". An async function body for the engine's isolated world.
-pub const PICTURE_IN_PICTURE: &str = r"const area = v => v.clientWidth * v.clientHeight;
-            const videos = Array.from(document.querySelectorAll('video')).filter(v => v.readyState > 0).sort((a, b) => area(b) - area(a));
-            const video = videos.find(v => !v.paused) || videos[0];
-            if (!video) return 'none';
-            if (document.pictureInPictureElement === video) { await document.exitPictureInPicture(); return 'exit'; }
-            if (video.webkitPresentationMode === 'picture-in-picture') { video.webkitSetPresentationMode('inline'); return 'exit'; }
-            try { await video.requestPictureInPicture(); return 'pip'; } catch (e) {}
+/// What `picture_in_picture_script` does with the page's video.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PipMode {
+    /// The user's command: the playing or largest video goes in, or back out.
+    Toggle,
+    /// The tab left the screen: only a playing, audible video of at least 200 by 200 CSS pixels
+    /// goes in, and nothing while a video of the page already is in.
+    Enter,
+    /// The tab is back on screen: the video in picture in picture goes back into the page.
+    Exit,
+}
+
+const PIP_ENTER_PICK: &str = "document.pictureInPictureElement || videos.some(shown) ? 'open' : videos.find(v => !v.paused && !v.ended && !v.muted && v.volume > 0 && v.videoWidth > 0 && v.clientWidth >= 200 && v.clientHeight >= 200)";
+const PIP_ENTER: &str = r"try { await video.requestPictureInPicture(); return 'pip'; } catch (e) {}
             if (!video.disablePictureInPicture && video.webkitSupportsPresentationMode && video.webkitSupportsPresentationMode('picture-in-picture')) {
                 video.webkitSetPresentationMode('picture-in-picture');
                 return 'pip';
             }
             return 'refused';";
+
+/// Picture in picture for the page's video, as `mode` says: "pip", "open" (one already in),
+/// "exit", "none" or "refused". An async function body for the engine's isolated world.
+pub fn picture_in_picture_script(mode: PipMode) -> String {
+    match mode {
+        PipMode::Toggle => pip_script("videos.find(v => !v.paused) || videos[0]", "return await leave(video);", PIP_ENTER),
+        PipMode::Enter => pip_script(PIP_ENTER_PICK, "return 'open';", PIP_ENTER),
+        PipMode::Exit => pip_script("videos.find(shown)", "return await leave(video);", ""),
+    }
+}
+
+/// `PipMode::Enter`'s choice without entering: "ready" when it would ask for picture in picture.
+/// Run without a gesture, so a page lends one only for a video Enter takes.
+pub fn picture_in_picture_ready_script() -> String {
+    pip_script(PIP_ENTER_PICK, "return 'open';", "return 'ready';")
+}
+
+fn pip_script(pick: &str, shown: &str, enter: &str) -> String {
+    format!(
+        r"const area = v => v.clientWidth * v.clientHeight;
+            const shown = v => document.pictureInPictureElement === v || v.webkitPresentationMode === 'picture-in-picture';
+            const leave = async v => {{
+                if (document.pictureInPictureElement === v) await document.exitPictureInPicture();
+                else v.webkitSetPresentationMode('inline');
+                return 'exit';
+            }};
+            const videos = Array.from(document.querySelectorAll('video')).filter(v => v.readyState > 0).sort((a, b) => area(b) - area(a));
+            const video = {pick};
+            if (video === 'open') return 'open';
+            if (!video) return 'none';
+            if (shown(video)) {shown}
+            {enter}"
+    )
+}
 
 /// `lifecycle::Hang`'s ping: it reads nothing, and answers only once the page's main thread is free.
 pub const PING: &str = "return '';";
@@ -627,6 +666,18 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn only_the_toggle_and_enter_ask_for_picture_in_picture() {
+        let [toggle, enter, exit] = [PipMode::Toggle, PipMode::Enter, PipMode::Exit].map(picture_in_picture_script);
+        assert!(toggle.contains("requestPictureInPicture") && toggle.contains("return await leave(video)"));
+        assert!(enter.contains("requestPictureInPicture") && enter.contains("!v.muted") && enter.contains("return 'open'"));
+        assert!(!enter.contains("return await leave(video)"), "entering never takes a video out");
+        assert!(!exit.contains("requestPictureInPicture") && !exit.contains("webkitSetPresentationMode('picture-in-picture')"));
+        let ready = picture_in_picture_ready_script();
+        assert!(ready.contains("document.pictureInPictureElement || videos.some(shown) ? 'open'") && ready.contains("return 'ready'"));
+        assert!(!ready.contains("requestPictureInPicture") && !ready.contains("webkitSetPresentationMode('picture-in-picture')"));
+    }
 
     const HOSTILE_CSS: &str = "</style><script>globalThis.pwned=1</script>\"'`${x}\\\u{2028}\nbody{}";
 

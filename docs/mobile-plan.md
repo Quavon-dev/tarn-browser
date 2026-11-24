@@ -321,6 +321,10 @@ decisions come from `browser_core::tarn_ext`.
 - **Gap: Ollama on iOS.** Ollama does not run on iOS, so nothing answers on `127.0.0.1` there;
   Settings › AI offers the Claude API only and names this reason (`mobile/app/src/platform.rs`
   `ASSISTANT`).
+- **Gap: Picture in Picture on Android.** Android System WebView does not support Picture in
+  Picture for a page's video; Android's own picture-in-picture mode
+  shrinks the whole activity, not one tab's video, so neither the command nor its automatic move on
+  a tab switch exists there.
 - **Gap: playing media on Android.** Android has no isolated world that runs as the user's gesture, so the
   `media` command's `play` is refused where the page's media needs one (`setMediaPlaybackRequiresUserGesture`);
   pause and seek work.

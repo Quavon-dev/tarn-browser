@@ -21,6 +21,20 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Picture in Picture on tab switch (2026-11-24)
+
+What it does: a video playing with sound moves into Picture in Picture when its tab leaves the
+screen, and back into the page when the tab returns; on by default, a switch in Settings › Tabs.
+Shared API: `browser_core::prefs::AUTO_PICTURE_IN_PICTURE`, `browser_core::media::AutoPip`,
+`engine::page_scripts::picture_in_picture_script(PipMode)`.
+Reference: `crates/app/src/mini_player.rs` (`settle_screen`, called on every render from
+`crates/app/src/content.rs`), which hands the tabs on screen to `AutoPip::screen`. Linux and
+Android are gaps (`docs/nsh-plan.md`, `docs/mobile-plan.md`).
+
+- [ ] iOS — a `pictureInPicture` command on the `tarn.webview` component in `mobile/ios` running
+  the script for `Enter`/`Exit` (WKWebView with `allowsPictureInPictureMediaPlayback`), called by
+  `mobile/app` when a tab leaves or returns to the screen, and the Settings switch.
+
 ### Ask before sending a form again (2026-11-24)
 
 What it does: the user's own Back, Forward or Reload to a page a form was sent for, no longer kept, asks

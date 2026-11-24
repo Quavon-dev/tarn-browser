@@ -8,6 +8,9 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- A video playing with sound moves into Picture in Picture when you switch to another tab, and
+  back into its page when you return; a window you opened yourself in that tab stays.
+  Settings › Tabs turns it off. macOS (WebKit tabs) and Windows.
 - Agent control: turn on Settings › AI › Let AI agents control Tarn and add Tarn to Claude Code or
   Codex (`tarn --mcp`), and the agent can browse for you in a window of its own that keeps nothing.
   You allow the agent (look only, or act), each site it uses and each click on a page holding a

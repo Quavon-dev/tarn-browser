@@ -232,8 +232,8 @@ impl WebView {
         self.view.pdf(done);
     }
 
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        self.view.picture_in_picture(done);
+    pub fn picture_in_picture(&self, mode: crate::page_scripts::PipMode, done: impl Fn(String) + 'static) {
+        self.view.picture_in_picture(mode, done);
     }
 
     pub fn title(&self) -> String {

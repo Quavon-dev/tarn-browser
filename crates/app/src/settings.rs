@@ -1127,6 +1127,14 @@ impl SettingsWindow {
                         },
                         s.prefs.get(Pref::Gestures),
                         cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::AutoPictureInPicture,
+                        "Picture in Picture when switching tabs",
+                        "A playing video with sound keeps playing in a floating window while you are in another tab, and goes back into its page when you return.",
+                        s.prefs.get(Pref::AutoPictureInPicture),
+                        cx,
                     )),
             )
             .into_any_element()

@@ -2,6 +2,7 @@
 //! ask `page_ops::MediaState` of a tab once the engine says it plays, and again every `POLL` only
 //! while the shown media plays, so nothing ticks while nothing plays.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use engine::page_scripts::MediaCommand;
@@ -111,6 +112,41 @@ impl Player {
     }
 }
 
+/// The tabs whose video Tarn moved into Picture in Picture when they left the screen, so only
+/// those come back out when the tab returns; one the user moved there stays.
+#[derive(Clone, Debug, Default)]
+pub struct AutoPip {
+    entered: HashSet<TabKey>,
+    screen: Vec<TabKey>,
+}
+
+impl AutoPip {
+    /// The tabs on screen are now `now`: answers those that left it, whose playing video should
+    /// move into Picture in Picture, and those Tarn moved there that are back, whose video
+    /// should come out.
+    pub fn screen(&mut self, now: Vec<TabKey>) -> (Vec<TabKey>, Vec<TabKey>) {
+        let left = self.screen.iter().copied().filter(|k| !now.contains(k)).collect();
+        let back = now.iter().copied().filter(|k| self.entered.remove(k)).collect();
+        self.screen = now;
+        (left, back)
+    }
+
+    /// `key`'s page answered `result` to `PipMode::Enter`; true when its video should come back out
+    /// at once, because the tab is `visible` again before the answer arrived.
+    pub fn answered(&mut self, key: TabKey, result: &str, visible: bool) -> bool {
+        let entered = result == "pip";
+        if entered && !visible {
+            self.entered.insert(key);
+        }
+        entered && visible
+    }
+
+    /// True once for a tab Tarn moved into Picture in Picture: on its return, or when it goes.
+    pub fn take(&mut self, key: TabKey) -> bool {
+        self.entered.remove(&key)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,6 +184,29 @@ mod tests {
         assert_eq!(player.tab(), Some(key(2)));
         assert!(!player.forget(key(1)));
         assert!(player.forget(key(2)) && player.tab().is_none());
+    }
+
+    #[test]
+    fn tabs_leave_and_return_once_each() {
+        let mut pip = AutoPip::default();
+        assert_eq!(pip.screen(vec![key(1), key(2)]), (vec![], vec![]));
+        assert_eq!(pip.screen(vec![key(1), key(2)]), (vec![], vec![]), "nothing changed");
+        assert_eq!(pip.screen(vec![key(3)]), (vec![key(1), key(2)], vec![]), "a whole split leaves");
+        pip.answered(key(1), "pip", false);
+        assert_eq!(pip.screen(vec![key(1)]), (vec![key(3)], vec![key(1)]));
+        assert_eq!(pip.screen(vec![key(1), key(2)]), (vec![], vec![]), "back out only once");
+    }
+
+    #[test]
+    fn only_video_tarn_moved_comes_back_out() {
+        let mut pip = AutoPip::default();
+        assert!(!pip.answered(key(1), "pip", false));
+        assert!(!pip.answered(key(2), "open", false), "the user's own window is not Tarn's");
+        assert!(!pip.answered(key(3), "refused", false));
+        assert!(pip.take(key(1)) && !pip.take(key(1)), "back out once");
+        assert!(!pip.take(key(2)) && !pip.take(key(3)));
+        assert!(pip.answered(key(4), "pip", true), "back on screen before the answer: out at once");
+        assert!(!pip.take(key(4)));
     }
 
     #[test]
