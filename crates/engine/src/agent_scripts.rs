@@ -52,6 +52,7 @@ pub enum AgentScript<'a> {
 const COMMON: &str = r"const st = window.__tarnAgent || (window.__tarnAgent = { next: 1, map: new Map(), doc: Math.random().toString(36).slice(2) + Date.now().toString(36) });
 st.secret = st.secret || new WeakSet();
 st.password = st.password || new WeakSet();
+if (!st.hiding) { st.hiding = true; addEventListener('pagehide', () => { st.doc = Math.random().toString(36).slice(2) + Date.now().toString(36); }, true); }
 const sensitive = el => {
     if (!el || !/^(input|select)$/.test(el.localName)) return false;
     if (el.type === 'password') st.password.add(el);
@@ -109,10 +110,12 @@ for (const el of found) {
 if (filledSensitive()) lines.push('Note: a password or payment field holds a value; Tarn asks the user before any click, submit or Enter here.');
 return lines.join('\n');";
 
-const ACT: &str = r"const el = target === 0 ? (document.activeElement || document.body) : (st.map.get(target) && st.map.get(target).deref());
-if (target !== 0 && (!el || !el.isConnected)) return 'stale';
+const ACT: &str = r"const asked = st.typed && st.typed.deref();
+const el = target === 0 ? (confirmed ? asked : (document.activeElement || document.body)) : (st.map.get(target) && st.map.get(target).deref());
+if (!el || !el.isConnected || (target === 0 && confirmed && el !== document.activeElement)) return 'stale';
 const secretFilled = filledSensitive();
 const guard = () => !confirmed && secretFilled;
+const ask = () => { st.typed = new WeakRef(el); return 'confirm'; };
 const flash = el => { if (!el.style) return; const before = el.style.outline; el.style.outline = '3px solid #ff9500'; setTimeout(() => { el.style.outline = before; }, 700); };
 const center = el => { const r = el.getBoundingClientRect(); return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }; };
 const fire = (el, type, init) => el.dispatchEvent(new (type.startsWith('pointer') ? PointerEvent : type.startsWith('key') ? KeyboardEvent : MouseEvent)(type, Object.assign({ bubbles: true, cancelable: true, composed: true, view: window }, init)));
@@ -127,7 +130,7 @@ const editable = el => el.isContentEditable || el.localName === 'textarea' || (e
 const focusables = () => [...document.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,[tabindex]:not([tabindex=\x22-1\x22]),[contenteditable=true]')].filter(e => !e.disabled && e.getBoundingClientRect().width > 0);
 switch (act.kind) {
     case 'click': {
-        if (guard()) return 'confirm';
+        if (guard()) return ask();
         el.scrollIntoView({ block: 'center', inline: 'center' });
         flash(el);
         const at = center(el);
@@ -142,7 +145,7 @@ switch (act.kind) {
     case 'type': {
         if (sensitive(el) && st.password.has(el)) return 'refused:password';
         if (!editable(el) || el.readOnly || el.disabled) return 'error:not a text field';
-        if (act.submit && guard()) return 'confirm';
+        if (act.submit && guard()) return ask();
         el.scrollIntoView({ block: 'center' });
         flash(el);
         el.focus();
@@ -155,13 +158,13 @@ switch (act.kind) {
     case 'submit': {
         const typed = st.typed && st.typed.deref();
         if (!typed || !typed.isConnected || typed !== el) return 'stale';
-        if (guard()) return 'confirm';
+        if (guard()) return ask();
         if (!submit(typed)) { fire(typed, 'keydown', { key: 'Enter', code: 'Enter' }); fire(typed, 'keyup', { key: 'Enter', code: 'Enter' }); }
         return 'ok';
     }
     case 'select': {
         if (el.localName !== 'select') return 'error:not a select element';
-        if (guard()) return 'confirm';
+        if (guard()) return ask();
         const want = act.value.trim().toLowerCase();
         const option = [...el.options].find(o => o.value === act.value) || [...el.options].find(o => o.label.trim().toLowerCase() === want);
         if (!option) return 'error:no such option';
@@ -171,7 +174,7 @@ switch (act.kind) {
     }
     case 'key': {
         const key = act.key;
-        if (key === 'Enter' && guard()) return 'confirm';
+        if (key === 'Enter' && guard()) return ask();
         if (sensitive(el) && st.password.has(el) && key === 'Backspace') return 'refused:password';
         const init = { key, code: key };
         const go = fire(el, 'keydown', init);

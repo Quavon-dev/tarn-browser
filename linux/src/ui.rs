@@ -2917,7 +2917,7 @@ fn themes(core: &Core<Data>) -> crate::browser::themes::Themes {
 }
 
 /// Opens an AI agent's window (S31); false when its throwaway profile could not be made.
-fn open_agent_window() -> bool {
+fn open_agent_window(opening: u64) -> bool {
     let core = core();
     let Some(browser) = Browser::new_agent(core.clone(), SavedWindow::default(), themes(&core)) else { return false };
     let browser = Cell::new(Some(browser));
@@ -2928,7 +2928,7 @@ fn open_agent_window() -> bool {
             Some(browser) => {
                 let ui = ui_for(next_window(), browser);
                 let shown = browser_window(ui);
-                agent::opened(ui);
+                agent::opened(ui, opening);
                 shown
             }
             None => view().into_element(),

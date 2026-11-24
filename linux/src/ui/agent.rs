@@ -54,6 +54,8 @@ struct Agent {
     localhost: bool,
     ctl: Controller<TabKey, Reply>,
     window: Option<Ui>,
+    /// Counts the agent windows asked for; one that mounts for an older count closes at once.
+    opening: u64,
     /// What the session last said the gate lets through, for a window that opens after it.
     sites: Option<Option<Vec<String>>>,
     scripts: HashMap<u64, Wait>,
@@ -167,12 +169,17 @@ fn apply(effects: Vec<Effect<TabKey, Reply>>) {
         match effect {
             Effect::Reply(reply, outcome) => drop(reply.send(outcome)),
             Effect::OpenWindow => {
-                if !super::open_agent_window() {
+                let opening = with(|a| {
+                    a.opening += 1;
+                    a.opening
+                });
+                if !super::open_agent_window(opening) {
                     let effects = with(|a| a.ctl.stop("Tarn could not open a window for the agent.", false, false));
                     apply(effects);
                 }
             }
             Effect::CloseWindow => {
+                with(|a| a.opening += 1);
                 if let Some(ui) = with(|a| a.window.take().inspect(|_| forget_runs(a)))
                     && let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned())
                 {
@@ -221,8 +228,8 @@ fn sync_banner() {
 }
 
 /// The agent's window has opened (`open_agent_window`).
-pub(super) fn opened(ui: Ui) {
-    if !with(|a| a.ctl.active()) {
+pub(super) fn opened(ui: Ui, opening: u64) {
+    if !with(|a| a.ctl.active() && a.opening == opening) {
         if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
             super::close_agent_window(ui, &here);
         }
