@@ -204,13 +204,23 @@ Security and privacy
    remove a mitigation, a status or a rule from the docs. Validate untrusted input where it
    enters. A security fix or a change to a protection lands on every client ("Rules", rule 8).
    Exception, decided by the maintainers: releases and nightly builds are signed in CI (Developer
-   ID, notarisation, the update key), in the `release-signing` and `nightly-signing` environments
-   as `docs/threat-model.md` S4 describes, in place of keeping signing keys off CI. A release may
-   also start on GitHub (`start-release.yml`): its `sign` job creates the `v*` tag with the update
-   app once a maintainer has approved the `release-signing` deployment, in place of a maintainer's
-   signed tag. Mobile store signing and uploads may run in protected store-publishing environments,
-   separately from builds, after release checksum and provenance verification. Store credentials
-   never reach build jobs, pull requests or nightly builds.
+   ID, notarisation, the update key and the Android sideload APK key), in the `release-signing`
+   and `nightly-signing` environments as `docs/threat-model.md` S4 describes, in place of keeping
+   signing keys off CI. Pass the Android sideload key only to the dedicated signing job, which
+   runs no build code and verifies the APK against the pinned signing certificate
+   before uploading it. A release may also start on GitHub (`start-release.yml`): its `sign` job
+   creates the `v*` tag with the update app once a maintainer has approved the `release-signing`
+   deployment, in place of a maintainer's signed tag. Mobile store signing and uploads may run in
+   protected store-publishing environments, separately from builds, after release checksum and
+   provenance verification. Store credentials never reach build jobs, pull requests or nightly builds.
+   Exception for local agent control (threat model S22): desktop Tarn may expose one local-only
+   IPC listener per running data directory for agent control. It is off by default, opens only
+   after the user opts in, and accepts connections only from the same OS user account. Each
+   connection needs explicit approval in Tarn before receiving browser data or controlling a
+   tab. It may use only a dedicated throwaway profile at Strict with per-site approval. Turning
+   the setting off closes the listener and ends the session, including profile cleanup. This
+   exception permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge
+   or new outbound request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
@@ -234,6 +244,11 @@ The person's machine
     Exception: when the person explicitly requests store-publishing setup, create and transfer
     the required credentials directly to protected publishing environments without printing them,
     committing them or retaining working copies. Do not inspect unrelated credentials.
+    When the person explicitly requests Android sideload signing setup, create a dedicated key,
+    transfer its credentials directly to `release-signing` and `nightly-signing`, and place a
+    recoverable backup in offline storage designated by the person. Do not print or commit the
+    credentials, retain temporary working copies or inspect unrelated credentials. The public
+    certificate fingerprint may be shared and pinned in the workflow and `SECURITY.md`.
 14. **No release actions.** Do not run `scripts/notarize.sh`, `scripts/dmg.sh`,
     `scripts/appcast.sh`, `scripts/windows-feed.sh` or `scripts/publish-release.sh`, create or move
     tags, or start a release, nightly or signing workflow.
