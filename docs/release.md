@@ -294,7 +294,9 @@ verified check. The same step carries the latest release's `install.ps1` over, w
 that release's Windows files by tag and SHA-256, so the install command keeps working (it is
 attested with that release, not in this release's `SHA256SUMS`); when
 `publish` gives the latest release a newer Windows feed, it copies that release's `install.ps1`
-along. Windows still needs its own release within 28 days of
+along, unless the latest release's names a newer tag. Either way the script must first match the
+`SHA256SUMS` attested for the tag it names, by `release.yml` run from that tag or `main` on a
+GitHub-hosted runner (`scripts/attestation.sh`). Windows still needs its own release within 28 days of
 each Chromium update, since the staleness gate also closes Chromium by its age.
 `scripts/sign-windows.ps1 -Check` checks a release feed by hand; the authority is the client's own verification (`crates/platform/src/updater/windows.rs`). `scripts/sign-windows.test.ps1` (run by the
 `windows` CI job) checks the Ed25519 verification against RFC 8032's test vectors and the feed

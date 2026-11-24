@@ -84,7 +84,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - run: for d in . nsh-shared mobile linux; do (cd "$d" && cargo fmt --all --check); done
-      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh && scripts/check-dco.test.sh
+      - run: scripts/check-workflows.sh && scripts/check-workflows.test.sh && scripts/ci-changes.test.sh && scripts/check-dco.test.sh && scripts/attestation.test.sh
       - run: python3 scripts/mobile-store.test.py
       - run: scripts/third-party-licenses.sh --check
       - run: cargo clippy $CRATES --all-targets --locked -- -D warnings

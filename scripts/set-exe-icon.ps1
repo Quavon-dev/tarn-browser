@@ -17,13 +17,13 @@ public static class TarnIcon {
     delegate bool EnumName(IntPtr module, IntPtr type, IntPtr name, IntPtr param);
     delegate bool EnumLanguage(IntPtr module, IntPtr type, IntPtr name, ushort language, IntPtr param);
     [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr BeginUpdateResource(string file, bool deleteExisting);
-    [DllImport("kernel32", SetLastError = true)] static extern bool UpdateResource(IntPtr update, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool UpdateResource(IntPtr update, IntPtr type, IntPtr name, ushort language, byte[] data, uint size);
     [DllImport("kernel32", SetLastError = true)] static extern bool EndUpdateResource(IntPtr update, bool discard);
     [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr LoadLibraryEx(string file, IntPtr reserved, uint flags);
     [DllImport("kernel32", SetLastError = true)] static extern bool FreeLibrary(IntPtr module);
-    [DllImport("kernel32", SetLastError = true)] static extern bool EnumResourceNames(IntPtr module, IntPtr type, EnumName callback, IntPtr param);
-    [DllImport("kernel32", SetLastError = true)] static extern bool EnumResourceLanguages(IntPtr module, IntPtr type, IntPtr name, EnumLanguage callback, IntPtr param);
-    [DllImport("kernel32", SetLastError = true)] static extern IntPtr FindResourceEx(IntPtr module, IntPtr type, IntPtr name, ushort language);
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool EnumResourceNames(IntPtr module, IntPtr type, EnumName callback, IntPtr param);
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern bool EnumResourceLanguages(IntPtr module, IntPtr type, IntPtr name, EnumLanguage callback, IntPtr param);
+    [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr FindResourceEx(IntPtr module, IntPtr type, IntPtr name, ushort language);
     [DllImport("kernel32", SetLastError = true)] static extern IntPtr LoadResource(IntPtr module, IntPtr info);
     [DllImport("kernel32", SetLastError = true)] static extern IntPtr LockResource(IntPtr data);
     [DllImport("kernel32", SetLastError = true)] static extern uint SizeofResource(IntPtr module, IntPtr info);

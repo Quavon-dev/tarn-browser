@@ -743,6 +743,18 @@ jobs:
           sha256sum --strict -c SHA256SUMS
           extra="$(comm -23 <(find . -maxdepth 1 -type f ! -name SHA256SUMS | sort) <(awk '{print $2}' SHA256SUMS | sort))"
           [[ -z "$extra" ]] || { echo "dist holds files SHA256SUMS does not list: $extra" >&2; exit 1; }
+      - if: ${{ !inputs.nightly }}
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.commit }}
+          path: source
+          persist-credentials: false
+          sparse-checkout: |
+            CHANGELOG.md
+            packaging/cef.lock
+            packaging/updates.conf
+            scripts/attestation.sh
+          sparse-checkout-cone-mode: false
       # Windows checks windows-update.json in the latest release; a macOS-only release carries the last
       # signed one over unchanged, so its signature still holds and Windows keeps a verified feed, and
       # the last install.ps1, so the install command keeps working.
@@ -762,7 +774,10 @@ jobs:
           fi
           # install.ps1 names the earlier release's Windows files by tag and SHA-256, so it stays valid as well.
           if grep -qx install.ps1 <<<"$assets"; then
-            gh release download --pattern install.ps1 --dir dist
+            mkdir -p carried
+            gh release download --pattern install.ps1 --dir carried
+            source/scripts/attestation.sh script carried/install.ps1 >/dev/null
+            mv carried/install.ps1 dist/
           fi
       - if: inputs.nightly
         env:
@@ -782,17 +797,6 @@ jobs:
             --notes "Nightly build of $COMMIT: the latest changes, before they are tested in a release. Settings › General › Nightly builds updates to it on macOS and Windows."
           [[ "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" == "$COMMIT" ]] \
             || { echo "$TAG does not name $COMMIT" >&2; gh release delete "$TAG" --yes; exit 1; }
-      - if: ${{ !inputs.nightly }}
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.commit }}
-          path: source
-          persist-credentials: false
-          sparse-checkout: |
-            CHANGELOG.md
-            packaging/cef.lock
-            packaging/updates.conf
-          sparse-checkout-cone-mode: false
       - if: ${{ !inputs.nightly }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -889,20 +893,19 @@ jobs:
             # Apart from the feed, so a re-run repairs a script an earlier run failed to copy.
             if gh release view "$best" --json assets --jq '.assets[].name' | grep -qx install.ps1; then
               gh release download "$best" --pattern install.ps1 --dir "pair/$best" --clobber
-              # Only the script the release it names attested, since users run it with irm | iex.
-              origin="$(sed -n "s/^\$Tag = '\(.*\)'\$/\1/p" "pair/$best/install.ps1")"
-              [[ "$origin" =~ ^v[0-9]+(\.[0-9]+){1,3}$ ]] || { echo "install.ps1 of $best names no release tag" >&2; exit 1; }
-              mkdir -p "sums/$origin" script
-              gh release download "$origin" --pattern SHA256SUMS --dir "sums/$origin" --clobber
-              gh attestation verify "sums/$origin/SHA256SUMS" --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-                --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 --format json \
-                | jq -e --arg tag "$origin" 'any(.[]; .verificationResult.statement.predicate.tag == $tag)' >/dev/null \
-                || { echo "SHA256SUMS of $origin is not attested for that tag" >&2; exit 1; }
-              [[ "$(awk '$2 == "./install.ps1" { print $1 }' "sums/$origin/SHA256SUMS")" == "$(sha256sum "pair/$best/install.ps1" | cut -d' ' -f1)" ]] \
-                || { echo "install.ps1 of $best is not the one $origin attested" >&2; exit 1; }
-              if ! { gh release view "$highest" --json assets --jq '.assets[].name' | grep -qx install.ps1 \
-                && gh release download "$highest" --pattern install.ps1 --dir script --clobber \
-                && cmp -s "pair/$best/install.ps1" script/install.ps1; }; then
+              origin="$(source/scripts/attestation.sh script "pair/$best/install.ps1")"
+              listed="$(gh release view "$highest" --json assets --jq '.assets[].name')"
+              if grep -qx install.ps1 <<<"$listed"; then
+                mkdir -p script
+                gh release download "$highest" --pattern install.ps1 --dir script --clobber
+                current="$(source/scripts/attestation.sh tag script/install.ps1)"
+                [[ -n "$current" ]] || { echo "install.ps1 of $highest names no release tag" >&2; exit 1; }
+                # Never replace a script that names a newer release than the one offered.
+                if ! cmp -s "pair/$best/install.ps1" script/install.ps1 \
+                  && [[ "$(printf '%s\n%s\n' "${current#v}" "${origin#v}" | sort -V | tail -n1)" == "${origin#v}" ]]; then
+                  gh release upload "$highest" "pair/$best/install.ps1" --clobber
+                fi
+              else
                 gh release upload "$highest" "pair/$best/install.ps1" --clobber
               fi
             else
@@ -939,6 +942,7 @@ jobs:
           persist-credentials: false
           sparse-checkout: |
             scripts/homebrew-cask.sh
+            scripts/attestation.sh
             packaging/homebrew/tarn.rb.in
           sparse-checkout-cone-mode: false
       - id: cask
@@ -950,10 +954,7 @@ jobs:
           # The latest release, not necessarily this run's: a queued newer run may have been replaced.
           latest="$(gh release view --json tagName --jq .tagName)"
           gh release download "$latest" --pattern SHA256SUMS --dir sums
-          gh attestation verify sums/SHA256SUMS --repo "$GH_REPO" --signer-workflow "$GH_REPO/.github/workflows/release.yml" \
-            --predicate-type https://github.com/Quavon-dev/tarn-browser/attestations/release/v1 --format json \
-            | jq -e --arg tag "$latest" 'any(.[]; .verificationResult.statement.predicate.tag == $tag)' >/dev/null \
-            || { echo "SHA256SUMS of $latest is not attested for that tag" >&2; exit 1; }
+          source/scripts/attestation.sh sums sums/SHA256SUMS "$latest"
           sha="$(awk -v dmg="./Tarn-${latest}.dmg" '$2 == dmg { print $1 }' sums/SHA256SUMS)"
           source/scripts/homebrew-cask.sh "$latest" "$sha" "$GH_REPO" > tarn.rb
           echo "tag=$latest" >> "$GITHUB_OUTPUT"
