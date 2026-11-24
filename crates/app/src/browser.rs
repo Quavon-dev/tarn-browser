@@ -336,6 +336,8 @@ pub struct Browser {
     /// When Reload was last asked for, so its arrow spins at least `SPIN` even for a cached page.
     pub(crate) reload_spin: Option<(TabKey, Instant)>,
     pub(crate) hang: engine::lifecycle::Hang<TabKey>,
+    /// Set in an AI agent's window: holds its tabs' navigations to sites the agent may not use.
+    pub(crate) agent_gate: Option<engine::agent_scripts::Gate>,
     /// A display frame is booked to redraw the spinners.
     spinning: bool,
     /// The profile whose bookmarks `bookmarks` holds; `reload_bookmarks` refreshes them.
@@ -451,6 +453,7 @@ pub(crate) enum WindowStart {
     Saved,
     Private,
     Burner,
+    Agent,
 }
 
 impl Browser {
@@ -566,6 +569,7 @@ impl Browser {
             space_switched_at: None,
             reload_spin: None,
             hang: Default::default(),
+            agent_gate: None,
             spinning: false,
             bookmarks_of: None,
             burner_return: None,
@@ -699,6 +703,10 @@ impl Browser {
             WindowStart::Saved => Some(restore),
             WindowStart::Private => browser.model.private_space(&browser.core),
             WindowStart::Burner => browser.model.open_burner(&browser.core).inspect(|_| browser.burner_return = back),
+            WindowStart::Agent => {
+                browser.core.disk.delete_window(browser.saved.id).ok();
+                browser.model.open_agent(&browser.core)
+            }
         };
         window.focus(&browser.focus);
         let Some(restore) = restore else {
@@ -741,12 +749,52 @@ impl Browser {
             }
             if !from_app || typed {
                 self.new_tab(&url, window, cx);
-            } else if let Some(key) = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine) {
+            } else {
+                self.open_link_tab(&url, false, window, cx);
+            }
+        }
+    }
+
+    /// A new tab whose first load counts as a link, so Shield judges every hop of it (S10), or as
+    /// typed for a loopback address `nav_policy::app_link_typed` lets through.
+    pub(crate) fn open_link_tab(&mut self, url: &Url, typed: bool, window: &mut Window, cx: &mut Context<Self>) -> Option<TabKey> {
+        let key = self.model.new_tab(&self.core, url.as_str(), self.saved.web_engine)?;
+        if !typed {
+            self.link_loads.insert(key, None);
+        }
+        self.reload_space();
+        self.activate(key, window, cx);
+        Some(key)
+    }
+
+    /// Shows `key` and loads `url` there as a link, or as typed as `open_link_tab` says.
+    pub(crate) fn load_link_in(&mut self, key: TabKey, url: &Url, typed: bool, window: &mut Window, cx: &mut Context<Self>) {
+        if self.model.tab(key).is_none() {
+            return;
+        }
+        self.activate(key, window, cx);
+        if typed {
+            return self.navigate(url, window, cx);
+        }
+        self.pages.entry(key).or_default().retry = Some(url.clone());
+        match self.views.get(&key) {
+            Some(view) => view.load_link(url, None),
+            None => {
+                self.store(key.private).update_tab_page(key.id, url.as_str(), "").ok();
                 self.link_loads.insert(key, None);
                 self.reload_space();
                 self.activate(key, window, cx);
             }
         }
+    }
+
+    /// The live view of an agent's tab, shown first so it is awake.
+    pub(crate) fn agent_view(&mut self, key: TabKey, window: &mut Window, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
+        self.model.tab(key)?;
+        if !self.views.contains_key(&key) || self.model.active != Some(key) {
+            self.activate(key, window, cx);
+        }
+        self.views.get(&key).cloned()
     }
 
     /// Asks for a local file and shows it in a new tab (Open File).
@@ -805,6 +853,10 @@ impl Browser {
     }
 
     pub(crate) fn closing(&mut self, cx: &mut App) {
+        if let Some(profile) = self.model.burn_agent(&self.core) {
+            self.views.clear();
+            self.forget_favicons((true, profile));
+        }
         self.model.release_confined(&self.core);
         crate::shared::window_closed(&self.core, self.saved.id, cx);
     }

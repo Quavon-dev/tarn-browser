@@ -468,6 +468,15 @@ impl WebView {
         self.read_isolated(&crate::page_scripts::insert_text_script(text), done);
     }
 
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        *objc2::DefinedClass::ivars(&*self._delegate).agent_gate.borrow_mut() = gate;
+    }
+
+    /// Runs an agent's snapshot, action or wait (`agent_scripts`); empty under Lockdown.
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        self.read_isolated(source, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         match icon_links_script(origin) {
             Some(script) => self.run_isolated(&script, done),

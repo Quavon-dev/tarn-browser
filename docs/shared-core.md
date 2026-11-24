@@ -54,6 +54,11 @@ Every shell's web view offers the same operations and reports the same events. T
   Capture Area draws its rectangle in the shell over a still snapshot of the page
   (`capture::drag_area`), with no script on the page, and so does the developer Measure tool
   (`browser_core::measure`, offered with `palette::State::developer`, where Web Inspector is);
+- `agent` and `set_agent_gate` (S31): `agent` runs an agent script (`engine::agent_scripts`,
+  built by `browser_core::agent::control`) in the isolated world, never as the user's gesture,
+  and answers its text, empty under Lockdown; `set_agent_gate`
+  holds a page-started main-frame navigation the gate refuses, cancelled before any request, and
+  reports `AgentHeld`. NSH components do not have them yet (`docs/port-backlog.md`);
 - `insert_text`: Insert Snippet types a `store::Snippet`'s text into the page's focused text field
   (`page_scripts::insert_text_script`, isolated world, Android's page world, nothing under
   Lockdown) and answers whether it did (`browser_core::snippets::inserted`). Every shell remembers

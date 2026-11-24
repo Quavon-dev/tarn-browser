@@ -790,6 +790,7 @@ impl Browser {
     pub(crate) fn view_prefs(&self, view: &engine::WebView) {
         view.set_gestures(self.pref(Pref::Gestures));
         view.set_passkeys(self.pref(Pref::Passkeys));
+        view.set_agent_gate(self.agent_gate.clone());
     }
 
     /// The mouse's back and forward buttons, which web views ignore.

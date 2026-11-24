@@ -13,6 +13,7 @@ use shield::matcher::Matcher;
 use store::{Id, Profile, Store, WebEngine};
 use url::Url;
 
+pub mod agent;
 pub mod assistant;
 pub mod bookmarks;
 pub mod capture;

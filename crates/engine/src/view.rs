@@ -155,6 +155,18 @@ impl WebView {
         both!(self, v => v.insert_text(text, done))
     }
 
+    /// Holds page-started main-frame navigations the gate refuses (`Event::AgentHeld`), for the
+    /// tabs of an agent's window (S31).
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        both!(self, v => v.set_agent_gate(gate))
+    }
+
+    /// Runs an AI agent's script (`agent_scripts`, S31) in the isolated world, never as the user's
+    /// gesture; empty under Lockdown.
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        both!(self, v => v.agent(source, done))
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         both!(self, v => v.icon_links(origin, done))
     }

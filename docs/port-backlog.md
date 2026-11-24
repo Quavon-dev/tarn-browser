@@ -21,6 +21,23 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Agent control (2026-11-24)
+
+What it does: an AI agent on the same device browses for the user in a throwaway window of its
+own over a local MCP socket, off by default, with the user approving the agent, each site and each
+click on a page holding a filled password or payment field (threat model S31).
+Shared API: `browser_core::agent::{mcp, control}` (`mcp::serve`, `control::Controller`),
+`engine::agent_socket`, `engine::agent_scripts`, `tabs::Model::open_agent` and `burn_agent`.
+Reference: `crates/app/src/agent.rs`.
+
+- [ ] Linux — `linux/src/ui/agent.rs` over `agent_socket::Server` and `control::Controller`, the
+  `agent` command, `agentSites` prop and `agentHeld` event in `linux/src/webview`.
+
+- [ ] iOS — no local process can reach an app's socket while it is in the background; needs a
+  design (for example an agent inside the app) before any port.
+- [ ] Android — a socket in the app's private storage is out of reach of other apps; needs an
+  agent on the device that can reach it, then the `agent` command and gate in `TarnWebView`.
+
 ### Insert an assistant answer into the page (2026-11-24)
 
 What it does: the chat's Insert into Page types the last answer into the page's focused field, as

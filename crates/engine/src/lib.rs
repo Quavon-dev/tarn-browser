@@ -1,3 +1,5 @@
+pub mod agent_scripts;
+pub mod agent_socket;
 #[cfg(unix)]
 pub mod chromium_owner;
 pub mod content_rules;

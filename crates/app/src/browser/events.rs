@@ -191,6 +191,12 @@ impl Browser {
                     }
                 }
             }
+            Event::AgentHeld(url) => crate::agent::held_navigation(key, url, cx),
+            Event::Prompt(prompt)
+                if self.model.agent_profile.is_some() && (prompt.kind.is_permission() || matches!(prompt.kind, PromptKind::ClientCertificate { .. })) =>
+            {
+                drop(prompt)
+            }
             Event::Prompt(prompt) => {
                 // A prompt shows with the shell's origin chip, never over a full-screen page.
                 if self.model.active == Some(key) {
@@ -202,13 +208,13 @@ impl Browser {
             Event::ShieldLevelChanged(url) => self.rebuild_view(key, &url, cx),
             Event::RebuildForLink(url) => self.rebuild_view_for_link(key, &url, cx),
             Event::PeekLink(url, from) => {
-                if self.model.active == Some(key) {
+                if self.model.active == Some(key) && self.model.agent_profile.is_none() {
                     self.open_link_peek(key, url, from, window, cx);
                 }
             }
             // As a pop-up's tab: never in the burner, and its first load is the page's link, so S10 judges every hop.
             Event::OpenTab { url, from, background, split } => {
-                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown()) else { return cx.notify() };
+                let Some(opener) = self.model.tab(key).filter(|_| !self.model.burner_shown() && self.model.agent_profile.is_none()) else { return cx.notify() };
                 let engine = opener.web_engine.or(self.saved.web_engine);
                 let routed = self.routed_space(&url);
                 if let Some(ix) = routed {
@@ -699,7 +705,7 @@ impl Browser {
 
     pub(super) fn adopt_popup(&mut self, opener: TabKey, popup: Popup, window: &mut Window, cx: &mut Context<Self>) {
         let Some(host) = self.host.clone() else { return };
-        if self.model.tab(opener).is_none() || self.model.burner_shown() {
+        if self.model.tab(opener).is_none() || self.model.burner_shown() || self.model.agent_profile.is_some() {
             return;
         }
         // A script's window.open keeps its opener, which sign-in and payment pop-ups need, so only links are routed.

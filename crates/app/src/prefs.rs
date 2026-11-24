@@ -34,10 +34,11 @@ pub enum Pref {
     Passkeys,
     FeatureHints,
     CompactDensity,
+    AgentControl,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 26] = [
+    pub const ALL: [Pref; 27] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -64,6 +65,7 @@ impl Pref {
         Pref::Passkeys,
         Pref::FeatureHints,
         Pref::CompactDensity,
+        Pref::AgentControl,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -94,6 +96,7 @@ impl Pref {
             Pref::Passkeys => browser_core::settings::PASSKEYS,
             Pref::FeatureHints => browser_core::prefs::FEATURE_HINTS.key,
             Pref::CompactDensity => browser_core::prefs::COMPACT.key,
+            Pref::AgentControl => browser_core::agent::SETTING,
         }
     }
 
@@ -253,6 +256,9 @@ impl Browser {
             if pref == Pref::Gestures {
                 #[cfg(windows)]
                 engine::set_swipe_navigation(on);
+            }
+            if pref == Pref::AgentControl {
+                crate::agent::set_enabled(on, cx);
             }
             if matches!(pref, Pref::Gestures | Pref::Passkeys) {
                 self.apply_view_prefs();

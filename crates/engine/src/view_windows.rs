@@ -130,6 +130,14 @@ impl WebView {
         self.view.insert_text(text, done);
     }
 
+    pub fn set_agent_gate(&self, gate: Option<crate::agent_scripts::Gate>) {
+        self.view.set_agent_gate(gate);
+    }
+
+    pub fn agent(&self, source: &str, done: impl Fn(String) + 'static) {
+        self.view.agent(source, done);
+    }
+
     pub fn icon_links(&self, origin: &Url, done: impl Fn(String) + 'static) {
         self.view.icon_links(origin, done);
     }

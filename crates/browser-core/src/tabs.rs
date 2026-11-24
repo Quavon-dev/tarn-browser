@@ -89,9 +89,26 @@ pub struct Model {
     /// The private-store space of this window's burner tab; other windows' burners stay hidden.
     pub burner: Option<Id>,
     burner_profile: Option<Id>,
+    /// The throwaway profile of an AI agent's window (S31), whose one space the window is kept to.
+    pub agent_profile: Option<Id>,
     pub confined: Option<(bool, Id)>,
     /// Each tab a link opened, with the tab it opened from, in memory only.
     openers: HashMap<TabKey, TabKey>,
+}
+
+/// A new profile of the private store at Strict with one space, which keeps nothing.
+fn throwaway<D: WebsiteData>(core: &Core<D>, name: &str, temporary: bool) -> Option<(store::Profile, Space)> {
+    let store = core.store(true);
+    let profile = store.create_profile(name, &uuid::Uuid::new_v4().to_string(), true).ok()?;
+    let space = store
+        .set_profile_shield_level(profile.id, ShieldLevel::Strict)
+        .and_then(|_| if temporary { store.create_temporary_space(profile.id, name) } else { store.create_space(profile.id, name, "") });
+    let Ok(space) = space else {
+        store.delete_profile(profile.id).ok();
+        return None;
+    };
+    core.burners.borrow_mut().insert(profile.id);
+    Some((profile, space))
 }
 
 /// How a new tab was opened, which decides where `Model::insert_index` puts it.
@@ -122,6 +139,7 @@ impl Model {
             restore_tab: None,
             burner: None,
             burner_profile: None,
+            agent_profile: None,
             confined: None,
             openers: HashMap::new(),
         }
@@ -137,18 +155,29 @@ impl Model {
         if self.confined.is_some() {
             return None;
         }
-        let store = core.store(true);
-        let profile = store.create_profile("Burner", &uuid::Uuid::new_v4().to_string(), true).ok()?;
-        let space = store.set_profile_shield_level(profile.id, ShieldLevel::Strict).and_then(|_| store.create_space(profile.id, "Burner", ""));
-        let Ok(space) = space else {
-            store.delete_profile(profile.id).ok();
-            return None;
-        };
-        core.burners.borrow_mut().insert(profile.id);
+        let (profile, space) = throwaway(core, "Burner", false)?;
         self.burner = Some(space.id);
         self.burner_profile = Some(profile.id);
         self.reload_spaces(core);
         self.spaces.iter().position(|s| s.private && s.space.id == space.id)
+    }
+
+    /// A window for an AI agent: kept to the one space of a new throwaway profile at Strict,
+    /// hidden from other windows and keeping nothing, as a burner, but holding several tabs.
+    pub fn open_agent<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<usize> {
+        let (profile, space) = throwaway(core, "Agent", true)?;
+        self.agent_profile = Some(profile.id);
+        Some(self.confine(core, true, space.id))
+    }
+
+    /// Deletes everything of the agent's profile and drops its runtime with the data store, as `burn`.
+    pub fn burn_agent<D: WebsiteData>(&mut self, core: &Core<D>) -> Option<Id> {
+        let profile = self.agent_profile.take()?;
+        self.confined = None;
+        core.store(true).empty_profile(profile).ok();
+        core.profiles.borrow_mut().remove(&(true, profile));
+        self.reload_spaces(core);
+        Some(profile)
     }
 
     pub fn burner_tabs<D: WebsiteData>(&self, core: &Core<D>) -> Vec<TabKey> {
@@ -312,7 +341,7 @@ impl Model {
     }
 
     pub fn tears_into_temporary(&self, key: TabKey, temporary: bool) -> Option<bool> {
-        let tab = self.tab(key).filter(|_| !self.burner_shown() && (self.confined.is_none() || self.tabs.len() > 1))?;
+        let tab = self.tab(key).filter(|_| !self.burner_shown() && self.agent_profile.is_none() && (self.confined.is_none() || self.tabs.len() > 1))?;
         Some(self.confined.is_some() || temporary && tab.kind == TabKind::Ephemeral)
     }
 
@@ -1515,6 +1544,31 @@ mod tests {
         assert!(core.store(true).create_profile("Next", "u", true).unwrap().id != profile, "nor is its id reused");
         assert!(core.disk.history(core.disk.profiles().unwrap()[0].id, 10).unwrap().is_empty());
         assert_eq!(model.burn(&core), None);
+    }
+
+    #[test]
+    fn an_agent_window_is_kept_to_a_throwaway_space_and_burns_without_a_trace() {
+        let (_dir, core, mut model) = opened();
+        let mut other = Model::new(6);
+        other.reload_spaces(&core);
+        let spaces = other.spaces.len();
+        let ix = model.open_agent(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        assert_eq!(model.spaces.len(), 1, "the window shows only the agent's space");
+        let profile = model.current_space().unwrap().space.profile_id;
+        assert_eq!(model.agent_profile, Some(profile));
+        assert_eq!(core.store(true).profile(profile).unwrap().shield_level, ShieldLevel::Strict);
+        assert!(!core.keeps_records(true, profile));
+        let a = model.new_tab(&core, "https://a.test/", None).unwrap();
+        let b = model.new_tab(&core, "https://b.test/", None).unwrap();
+        assert!(a.private && b.private && a != b, "an agent window holds several tabs");
+        assert_eq!(model.tear_off_label(a, true), None, "no tab leaves the agent's window");
+        other.reload_spaces(&core);
+        assert_eq!(other.spaces.len(), spaces, "another window never lists it");
+        assert_eq!(model.burn_agent(&core), Some(profile));
+        assert!(model.confined.is_none() && model.agent_profile.is_none());
+        assert!(core.store(true).tab(a.id).is_err() && core.store(true).spaces(profile).unwrap().is_empty());
+        assert_eq!(model.burn_agent(&core), None);
     }
 
     #[test]

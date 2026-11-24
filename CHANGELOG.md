@@ -8,6 +8,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Agent control: turn on Settings › AI › Let AI agents control Tarn and add Tarn to Claude Code or
+  Codex (`tarn --mcp`), and the agent can browse for you in a window of its own that keeps nothing.
+  You allow the agent (look only, or act), each site it uses and each click on a page holding a
+  filled password or payment field; it never types passwords. Pause and Stop sit in the bar at the
+  top of its window. On macOS and Windows.
 - Assistant chats are kept: each profile lists its chats to search, open, rename and delete, and
   Settings › AI deletes them all. An answer can be copied and retried and its question edited;
   code blocks get Copy; `/` lists the commands; the chat header picks the provider and Claude

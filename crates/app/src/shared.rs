@@ -464,10 +464,12 @@ fn new_window_row(cx: &mut App) -> SavedWindow {
 /// A new window offset from the frontmost one on its screen, or centred when none is open.
 pub(crate) fn new_window(start: WindowStart, cx: &mut App) {
     // The window the action came from is leased until dispatch ends; its frame is read after.
-    cx.defer(move |cx| open_new_window(start, cx));
+    cx.defer(move |cx| {
+        open_new_window(start, cx);
+    });
 }
 
-fn open_new_window(start: WindowStart, cx: &mut App) {
+pub(crate) fn open_new_window(start: WindowStart, cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
     let front = cx.window_stack().unwrap_or_else(|| cx.windows()).into_iter().find_map(|w| w.downcast::<Browser>());
     let placed = front.and_then(|h| h.update(cx, |_, window, cx| (window_frame(window), window.display(cx).map(|d| d.id()))).ok());
     let (row, display) = match placed {
@@ -477,20 +479,21 @@ fn open_new_window(start: WindowStart, cx: &mut App) {
         }
         None => (new_window_row(cx), None),
     };
-    if let Some(handle) = open_window(row, display, None, start, cx) {
-        handle
-            .update(cx, |b, window, cx| {
-                if b.abandoned {
-                    return;
-                }
-                if start == WindowStart::Burner && b.model.burner_shown() {
-                    b.open_burner(window, cx);
-                }
-                window.activate_window();
-            })
-            .ok();
-        cx.activate(true);
-    }
+    let handle = open_window(row, display, None, start, cx)?;
+    let opened = handle
+        .update(cx, |b, window, cx| {
+            if b.abandoned {
+                return false;
+            }
+            if start == WindowStart::Burner && b.model.burner_shown() {
+                b.open_burner(window, cx);
+            }
+            window.activate_window();
+            true
+        })
+        .unwrap_or(false);
+    cx.activate(true);
+    opened.then_some(handle)
 }
 
 pub(crate) fn open_torn(torn: Torn, row: SavedWindow, display: Option<DisplayId>, from: Option<gpui::WindowHandle<Browser>>, cx: &mut App) {

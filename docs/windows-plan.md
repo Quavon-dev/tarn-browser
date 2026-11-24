@@ -138,6 +138,11 @@ WebView2 plan and are kept for the security mapping; where they disagree, this s
 - **One Tarn per data folder** (`engine::instance`): a second launch hands its links to the
   running Tarn through `WM_COPYDATA` to a message-only window and exits, as a macOS app does. The
   taskbar jump list's New Window arrives the same way (`--dock-action N`).
+- **Agent control** (`engine::agent_socket`, threat model S31): while Settings › AI › Let AI agents
+  control Tarn is on, a named pipe `\\.\pipe\Tarn.Agent.<hash of the data folder>` of the current
+  user's account that refuses remote clients stands in for the Unix socket; `tarn.exe --mcp` relays
+  an agent's stdio to it. Requests and answers alternate, since a synchronous pipe handle cannot
+  read and write at once. Not run on Windows yet.
 - **Zap Element and site styles:** Chromium has no content rule lists, so the profile's style
   sheets and hidden elements become one style sheet (`site_styles_of`), put into each page at load
   start and into open pages whenever it changes (`restyle`); a zapped element can show for a moment
