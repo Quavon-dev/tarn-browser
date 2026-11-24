@@ -1,5 +1,7 @@
 use browser_core::theme::{Active, Selection};
-use gpui::{App, WindowAppearance};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use gpui::{App, WindowAppearance, WindowBackgroundAppearance};
 use ui::theme::Theme;
 
 use crate::shared::AppCore;
@@ -29,9 +31,30 @@ pub(crate) fn apply(core: &AppCore, system_light: bool) {
     let active = browser_core::theme_library::current(&core.disk, system_light, state.safe);
     let p = &active.parsed;
     Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
+    GLASS.store(cfg!(target_os = "macos") && matches!(active.id, browser_core::theme::ThemeRef::BuiltIn(_)) && p.tokens.translucent(), Ordering::Relaxed);
     crate::prefs::apply_accent(&core.disk);
     Theme::set_search_effect(browser_core::theme_library::search_effect(&core.disk, &active));
     state.active = Some(active);
+}
+
+static GLASS: AtomicBool = AtomicBool::new(false);
+
+/// Only built-in themes see through the window: their text is tested over any desktop. Windows
+/// keeps an opaque window until acrylic is tried over CEF views.
+pub(crate) fn window_background() -> WindowBackgroundAppearance {
+    if GLASS.load(Ordering::Relaxed) { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }
+}
+
+/// Deferred, as the caller may be inside the update of one of these windows.
+fn refresh(cx: &mut App) {
+    cx.defer(|cx| {
+        let shells =
+            cx.windows().into_iter().filter(|w| w.downcast::<crate::browser::Browser>().is_some() || w.downcast::<crate::settings::SettingsWindow>().is_some());
+        for handle in shells.collect::<Vec<_>>() {
+            handle.update(cx, |_, window, _| window.set_background_appearance(window_background())).ok();
+        }
+        cx.refresh_windows();
+    });
 }
 
 /// Applies the stored theme choice after it or a theme changed, and redraws every window. Pages
@@ -43,7 +66,7 @@ pub(crate) fn changed(cx: &mut App) {
     if !moved.is_empty() {
         crate::shared::each(cx, |b, window, cx| b.restart_views_of(&moved, true, window, cx));
     }
-    cx.refresh_windows();
+    refresh(cx);
 }
 
 /// Loads the theme and hands every open profile its sheets; returns the profiles whose sheets
@@ -77,7 +100,7 @@ pub(crate) fn enter_safe_mode(core: &AppCore, cx: &mut App) {
     if !moved.is_empty() {
         crate::shared::each(cx, |b, window, cx| b.restart_views_of(&moved, false, window, cx));
     }
-    cx.refresh_windows();
+    refresh(cx);
 }
 
 /// Called when macOS switches between light and dark: only a "Match system" choice follows it.

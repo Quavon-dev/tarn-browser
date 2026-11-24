@@ -2,8 +2,7 @@ use browser_core::library::HistoryRange;
 use gpui::{
     AnyElement, App, AppContext, Bounds, Context, Div, FocusHandle, Focusable, FontWeight, InteractiveElement, IntoElement, KeyDownEvent, MouseButton,
     MouseMoveEvent, ParentElement, Pixels, PromptLevel, Render, RenderImage, SharedString, Stateful, StatefulInteractiveElement, Styled, Subscription,
-    TitlebarOptions, WeakEntity, Window, WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowOptions, canvas, div, img, point,
-    prelude::FluentBuilder, px, rgb, size,
+    TitlebarOptions, WeakEntity, Window, WindowBounds, WindowHandle, WindowOptions, canvas, div, img, point, prelude::FluentBuilder, px, rgb, size,
 };
 use shield::ShieldLevel;
 use std::cell::Cell;
@@ -338,7 +337,7 @@ impl SettingsWindow {
                 // AppKit only hit-tests the buttons inside its titlebar strip, so they stay within it.
                 traffic_light_position: Some(point(px(18.), px(10.))),
             }),
-            window_background: WindowBackgroundAppearance::Opaque,
+            window_background: crate::themes::window_background(),
             is_minimizable: false,
             ..Default::default()
         };

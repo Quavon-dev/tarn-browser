@@ -21,6 +21,21 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Translucent window for glass themes (2026-11-25)
+
+What it does: the built-in Liquid Glass themes, whose backdrop is translucent, blur what is behind
+the window instead of drawing on an opaque one. The other clients list both themes already and
+paint the translucent backdrop over whatever their window clears to; nobody has checked how that
+looks there.
+Shared API: `browser_core::theme::Tokens::translucent`.
+Reference: `crates/app/src/themes.rs` (`window_background`).
+
+- [ ] Windows — the same code asks GPUI for acrylic; not yet seen running over CEF views.
+- [ ] Linux — `linux/` draws the backdrop on an opaque window; needs an ARGB window and a
+  compositor blur where one exists, else the backdrop composited opaque.
+- [ ] iOS — `mobile/app` shell background; a system material behind the chrome.
+- [ ] Android — `mobile/app` shell background; a window blur behind the chrome (API 31+).
+
 ### Agent control in the user's profile or tabs (2026-11-24)
 
 What it does: two more opt-in settings in Settings › AI let the user approve an agent to open its

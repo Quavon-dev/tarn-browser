@@ -963,13 +963,24 @@ fn readable(fg: u32, backgrounds: &[u32], floor: f32) -> Option<u32> {
 }
 
 impl Tokens {
-    /// Every background text sits on, opaque over the backdrop.
+    /// Every background text sits on, over each end of the backdrop drawn opaque and over the
+    /// black an opaque window clears to.
     fn text_backgrounds(&self) -> Vec<u32> {
-        let base = self.backdrop.from | 0xff;
-        [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to]
-            .iter()
-            .map(|bg| over(*bg, base))
-            .collect()
+        self.text_backgrounds_over(&[0x000000ff])
+    }
+
+    fn text_backgrounds_over(&self, desktops: &[u32]) -> Vec<u32> {
+        let layers =
+            [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to];
+        let ends = [self.backdrop.from, self.backdrop.to];
+        let mut bases: Vec<u32> = ends.iter().map(|e| e | 0xff).chain(ends.iter().flat_map(|e| desktops.iter().map(move |d| over(*e, *d)))).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        bases.into_iter().flat_map(|base| layers.map(|bg| over(bg, base))).collect()
+    }
+
+    pub fn translucent(&self) -> bool {
+        self.backdrop.from & 0xff < 0xff || self.backdrop.to & 0xff < 0xff
     }
 
     /// The accent where it is text or a focus ring: the accent itself while it keeps
@@ -1070,12 +1081,14 @@ fn tokens_css(meta: &Meta, tokens: &Tokens, font: Option<&str>) -> String {
 
 /// Themes compiled into the app: id, CSS. The first is the default dark theme, the second the
 /// default light one.
-pub const BUILT_IN: [(&str, &str); 5] = [
+pub const BUILT_IN: [(&str, &str); 7] = [
     ("tarn", include_str!("../themes/tarn.css")),
     ("tarn-light", include_str!("../themes/tarn-light.css")),
     ("graphite", include_str!("../themes/graphite.css")),
     ("high-contrast", include_str!("../themes/high-contrast.css")),
     ("ember", include_str!("../themes/ember.css")),
+    ("glass", include_str!("../themes/glass.css")),
+    ("glass-light", include_str!("../themes/glass-light.css")),
 ];
 
 pub const DARK_SETTING: &str = "theme.dark";
@@ -1397,6 +1410,19 @@ mod tests {
         assert_eq!(parse(BUILT_IN[0].1, Source::BuiltIn).unwrap().tokens, Tokens::DARK);
         let light = parse(BUILT_IN[1].1, Source::BuiltIn).unwrap();
         assert_eq!((light.tokens, light.meta.scheme), (Tokens::LIGHT, Scheme::Light));
+        assert!(!Tokens::DARK.translucent() && !Tokens::LIGHT.translucent());
+        for id in ["glass", "glass-light"] {
+            let css = BUILT_IN.iter().find(|(b, _)| *b == id).unwrap().1;
+            let mut t = parse(css, Source::BuiltIn).unwrap().tokens;
+            assert!(t.translucent(), "{id}");
+            let backgrounds = t.text_backgrounds_over(&[0xffffffff, 0x000000ff]);
+            for (name, floor) in FLOORS {
+                let text = *text_slot(&mut t, name);
+                for bg in &backgrounds {
+                    assert!(contrast(text, *bg) >= floor, "{id} {name} on {bg:08x} over any desktop");
+                }
+            }
+        }
     }
 
     #[test]
