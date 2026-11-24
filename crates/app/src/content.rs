@@ -396,6 +396,7 @@ fn kind_name(kind: &PromptKind) -> &'static str {
         PromptKind::ClientCertificate { .. } => "certificate",
         PromptKind::ExtensionAccess { .. } => "extension",
         PromptKind::MaliciousDownload { .. } => "malicious download",
+        PromptKind::ResendForm => "resend form",
     }
 }
 
@@ -423,6 +424,7 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
             format!("({}) wants to read and change {origin}", b.extension_badge(key)),
         ),
         PromptKind::MaliciousDownload { file } => (format!("Keep \u{201C}{}\u{201D}", ui::text::bounded_title(file)), format!("from {origin}?")),
+        PromptKind::ResendForm => (origin, browser_core::prompts::RESEND_ASK.to_owned()),
     };
     let title = format!("{lead} {ask}");
     let kind = kind_name(&prompt.kind);
@@ -433,7 +435,10 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
             b.level_for_tab(key, page).max(b.level_for_tab(key, &prompt.origin)) == shield::ShieldLevel::Standard
         });
     let field = |input: gpui::Entity<ui::text_input::TextInput>| field(input.focus_handle(cx).is_focused(window)).w(px(320.)).py_0p5().child(input);
-    let warn = matches!(prompt.kind, PromptKind::MaliciousDownload { .. } | PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. });
+    let warn = matches!(
+        prompt.kind,
+        PromptKind::MaliciousDownload { .. } | PromptKind::ResendForm | PromptKind::Alert | PromptKind::Confirm | PromptKind::Text { .. }
+    );
     let glyph = Icon::named(browser_core::glyphs::glyph(kind)).unwrap_or(Icon::Info);
     let tile = div().size(px(30.)).flex_none().flex().items_center().justify_center().rounded(px(Theme::radius_row())).bg(Secure::control()).child(icon(
         glyph,
@@ -466,6 +471,9 @@ fn prompt_card(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Optio
         PromptKind::MaliciousDownload { .. } => buttons
             .child(secure_button("prompt-accept", "Keep Anyway", false).text_color(Secure::danger()).on_click(answer(false, true)))
             .child(secure_button("prompt-decline", "Cancel Download", true).on_click(answer(false, false))),
+        PromptKind::ResendForm => buttons
+            .child(secure_button("prompt-accept", "Send Again", false).text_color(Secure::danger()).on_click(answer(false, true)))
+            .child(secure_button("prompt-decline", "Cancel", true).on_click(answer(false, false))),
         PromptKind::ClientCertificate { .. } => buttons.child(silence()).child(secure_ghost_button("prompt-decline", "Cancel").on_click(answer(false, false))),
         PromptKind::Credentials { .. } => buttons
             .child(silence())

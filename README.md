@@ -366,9 +366,12 @@ Library › Memory (or Show Memory Use in the command bar) lists the space's tab
 CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
 heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
 the heaviest of those unused for ten minutes sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). On macOS, a WebKit tab left in the
-background for a minute drops the processes WebKit keeps for its earlier pages: the page and its
-history stay, and Back loads the earlier page again (also when sleeping is Never). On macOS and Windows, a background tab whose
+playing media stay awake; off when sleeping is Never). On macOS and iOS, a WebKit tab off screen for
+a minute or two drops the processes WebKit keeps for its earlier pages: the page you left, what you
+typed into it and its history stay, and Back loads the earlier page again (also when sleeping is
+Never). Back, Forward or Reload to a page a form was sent for that is no longer kept asks before sending the
+form again; a page's own `history.back()` or a swipe never sends it and leaves a notice instead (macOS
+and iOS; Chromium tabs show their own page for it). On macOS and Windows, a background tab whose
 page has form input you typed stays awake until you sleep it yourself (a page can use this to keep
 its own tab awake, as with media), and a tab that slept scrolls back to where you left it; neither
 applies under Lockdown, where no script of Tarn's runs on the page. Chromium tabs count by their

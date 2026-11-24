@@ -288,6 +288,9 @@ impl Browser {
         let switched = self.model.active != Some(key);
         let _span = switched.then(|| engine::startup::span(engine::startup::TAB_SWITCH)).flatten();
         if switched {
+            let now = Instant::now();
+            let leaving: Vec<TabKey> = self.views.keys().copied().filter(|k| self.model.active == Some(*k) || self.in_split(*k)).collect();
+            leaving.into_iter().for_each(|k| self.back_forward.shown(k, now));
             self.leave_page_fullscreen(window);
         }
         let mut fading = false;

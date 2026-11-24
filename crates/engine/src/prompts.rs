@@ -42,6 +42,8 @@ pub enum PromptKind {
     MaliciousDownload {
         file: String,
     },
+    /// Back or Forward to a page a form was sent for, no longer kept; accepting sends the form again.
+    ResendForm,
 }
 
 impl PromptKind {

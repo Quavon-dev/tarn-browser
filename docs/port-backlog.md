@@ -21,15 +21,19 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
-### Drop a background tab's back/forward cache (2026-11-24)
+### Ask before sending a form again (2026-11-24)
 
-What it does: a background tab unused for a minute ends the web processes WebKit keeps for its
-earlier pages; the shown page and its history stay, and Back loads the page again.
-Shared API: `engine::WebView::drop_back_forward_cache`, called with `engine::lifecycle::HEAVY_IDLE`.
-Reference: `crates/engine/src/webview.rs`, `crates/app/src/tabs.rs` (`sleep_idle_tabs`).
+What it does: the user's own Back, Forward or Reload to a page a form was sent for, no longer kept, asks
+"would get your form again" with Send Again or Cancel instead of sending the form (an order, a
+message) silently; a page's `history.back()` never sends it and shows `nav_policy::RESEND_STOPPED`.
+Shared API: `engine::PromptKind::ResendForm`, `browser_core::prompts::RESEND_ASK` and
+`meaning("resend form")`.
+Reference: `crates/engine/src/delegates.rs` (`ask_to_resend`), `crates/app/src/content.rs`,
+`mobile/ios/src/handler.rs`, `mobile/app/src/ui/prompt.rs`. Windows (Chromium) shows its own
+resubmission page; Android's WebView never sends the form again.
 
-- [ ] iOS — call WebKit's `_clearBackForwardCache` on background `WKWebView`s from a minute timer
-  in `mobile/app` (the shell has no idle tick yet).
+- [ ] Linux — hold the `NavigationType::FormResubmitted` decision in `linux/src/webview/mod.rs`
+  (`allow_navigation`) behind a `resend form` prompt in `linux/src/browser`.
 
 ### Insert an assistant answer into the page (2026-11-24)
 
