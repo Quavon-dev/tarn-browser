@@ -60,7 +60,7 @@ env:
   CYCLONEDX_VERSION: 0.5.10
   TAG: ${{ inputs.tag || github.ref_name }}
   # SHA-256 of the Android sideload key's certificate, lowercase hex; SECURITY.md lists the same.
-  ANDROID_SIDELOAD_CERT_SHA256: ""
+  ANDROID_SIDELOAD_CERT_SHA256: "fc92b1019fa1ed0df5dad6589941d815e5a0cdc5716868bb9d06a79d708e03b0"
 
 jobs:
   build:

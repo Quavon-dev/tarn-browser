@@ -86,12 +86,17 @@ verifies its EdDSA-signed feed and archive, and the Windows updater the Ed25519-
 `windows-update.json` and the installer's SHA-256 (`docs/cryptography.md`).
 
 The Android APK on GitHub (`Tarn-<tag>-android.apk`) is signed with Tarn's sideload key. Its
-certificate's SHA-256 fingerprint will be listed here when the key is created; releases carry no
-APK until then. Once it is listed, `apksigner verify --print-certs Tarn-<tag>-android.apk` must
-print it as the only signer's certificate SHA-256 digest. Nightly APKs carry the same key and
-package name, so one installs over a release APK. Android refuses an update signed with another
-key. Play Store installs are signed by Google Play with a different key, so you cannot switch
-between a Play install and the APK without uninstalling first.
+certificate's SHA-256 fingerprint is:
+
+```text
+fc92b1019fa1ed0df5dad6589941d815e5a0cdc5716868bb9d06a79d708e03b0
+```
+
+`apksigner verify --print-certs Tarn-<tag>-android.apk` must print it as the only signer's
+certificate SHA-256 digest. Nightly and release APKs use the same key and package name. Android
+refuses an update signed with another key. Play Store installs are signed by Google Play with a
+different key, so switching between a Play install and the sideload APK requires uninstalling
+first.
 
 ## Dependency and code scanning
 
