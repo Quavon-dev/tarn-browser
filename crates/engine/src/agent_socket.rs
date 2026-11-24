@@ -305,8 +305,11 @@ mod imp {
                 let connected = unsafe { ConnectNamedPipe(handle.as_raw_handle(), std::ptr::null_mut()) } != 0;
                 // SAFETY: reads the calling thread's last error, set by the call above.
                 let error = if connected { 0 } else { unsafe { GetLastError() } };
-                // A client that came and went before the connect leaves a dead instance; take the next.
+                // A client that came and went before the connect leaves a dead instance. Its
+                // replacement exists before it closes, so the name is never free for another program.
                 if error == ERROR_NO_DATA {
+                    *next = Some(instance(&self.name, false)?);
+                    drop(handle);
                     continue;
                 }
                 if error != 0 && error != ERROR_PIPE_CONNECTED {
