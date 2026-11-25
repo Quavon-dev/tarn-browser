@@ -479,13 +479,8 @@ const MOTION_NOTE: &str = "Pop-ups, cards, tabs and the sidebar appear without a
 
 fn effect_row<H: Host>(pane: Pane<H>) -> View {
     let stored = pane.host.with_store(library::chosen_effect);
-    let choices: Vec<Segment> = std::iter::once((None, "Theme"))
-        .chain(Effect::ALL.map(|e| (Some(e), e.label())))
-        .map(|(effect, name)| -> Segment {
-            (name.to_owned(), Box::new(move || effect == stored), Box::new(move || pane.quietly(pane.host.with_store(|s| library::set_effect(s, effect)))))
-        })
-        .collect();
-    choice_row("Search bar effect", "Around the search field on the start page.", segmented(choices))
+    let choices: Vec<(&str, Option<Effect>)> = std::iter::once(("Theme", None)).chain(Effect::ALL.map(|e| (e.label(), Some(e)))).collect();
+    choice_row("Search bar effect", "Around the search field on the start page.", picks(pane, stored, &choices, library::set_effect))
 }
 
 fn choice_row(title: &'static str, about: impl Into<SharedString>, choices: View) -> View {

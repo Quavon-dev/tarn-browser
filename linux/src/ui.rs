@@ -1096,7 +1096,7 @@ fn new_tab_row(ui: Ui) -> View {
     view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::ELLIPSIS, browser_core::sidebar::ORGANIZE, move || show(ui, Panel::Organize)))
 }
 
-fn sidebar(ui: Ui) -> View {
+fn sidebar(ui: Ui, card: bool) -> View {
     let settings = icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings));
     let header =
         view().flex_row().items_center().gap_1().h(px(TOOLBAR_HEIGHT - 8.)).pl_1().child(space_switcher(ui)).child(downloads_button(ui)).child(settings);
@@ -1115,7 +1115,7 @@ fn sidebar(ui: Ui) -> View {
         .w(px(SIDEBAR_WIDTH))
         .p_1()
         .rounded(px(Theme::radius_tile()))
-        .paint(Theme::sidebar())
+        .paint(if card { Theme::sidebar_solid() } else { Theme::sidebar() })
         .border_1()
         .border_color(Theme::sidebar_edge())
         .shadow(Theme::elevation(10., 30.))
@@ -3174,7 +3174,7 @@ fn browser_window(ui: Ui) -> AnyElement {
             }
             peek::window_height(ui, b.size.height.0);
         })
-        .child(when(move || ui.sidebar.get() && !full.get(), move || themed(move || sidebar(ui))))
+        .child(when(move || ui.sidebar.get() && !full.get(), move || themed(move || sidebar(ui, false))))
         .child(
             view()
                 .flex_col()

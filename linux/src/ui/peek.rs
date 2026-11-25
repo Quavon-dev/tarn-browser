@@ -133,7 +133,7 @@ pub(super) fn floating(ui: Ui) -> AnyElement {
                 .flex_col()
                 .on_mouse_enter(move |_: &MouseEvent| card_hovered(ui, true))
                 .on_mouse_leave(move |_: &MouseEvent| card_hovered(ui, false))
-                .child(themed(move || sidebar(ui).flex_1()))
+                .child(themed(move || sidebar(ui, true).flex_1()))
         })
     })
 }

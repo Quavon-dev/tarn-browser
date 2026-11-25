@@ -967,20 +967,37 @@ fn readable(fg: u32, backgrounds: &[u32], floor: f32) -> Option<u32> {
 }
 
 impl Tokens {
-    /// Every background text sits on, over each end of the backdrop drawn opaque and over the
-    /// black an opaque window clears to.
+    /// Every background text sits on: opaque over the backdrop, or, in the Glass design, over the
+    /// backdrop over a white and a black desktop.
     fn text_backgrounds(&self) -> Vec<u32> {
-        self.text_backgrounds_over(if self.see_through { &[0xffffffff, 0x000000ff] } else { &[0x000000ff] })
+        if self.see_through {
+            return self.text_backgrounds_over_desktops();
+        }
+        let base = self.backdrop.from | 0xff;
+        self.layers().iter().map(|bg| over(*bg, base)).collect()
     }
 
-    fn text_backgrounds_over(&self, desktops: &[u32]) -> Vec<u32> {
-        let layers =
-            [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to];
+    /// The sidebar as Classic draws it, for a card over the page, where nothing may show through.
+    pub fn sidebar_card(&self) -> Gradient {
+        let s = self.sidebar;
+        if self.see_through { Gradient { from: s.from | 0xff, to: s.to | 0xff, ..s } } else { s }
+    }
+
+    fn layers(&self) -> [u32; 9] {
+        [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to]
+    }
+
+    /// Over a desktop, plus the opaque sidebar a card over the page paints.
+    fn text_backgrounds_over_desktops(&self) -> Vec<u32> {
+        let desktops = [0xffffffff, 0x000000ff];
+        let layers = self.layers();
         let ends = [self.backdrop.from, self.backdrop.to];
         let mut bases: Vec<u32> = ends.iter().map(|e| e | 0xff).chain(ends.iter().flat_map(|e| desktops.iter().map(move |d| over(*e, *d)))).collect();
         bases.sort_unstable();
         bases.dedup();
-        bases.into_iter().flat_map(|base| layers.map(|bg| over(bg, base))).collect()
+        let card = self.sidebar_card();
+        let cards = [card.from, card.to];
+        bases.into_iter().flat_map(|base| layers.map(|bg| over(bg, base))).chain(cards).collect()
     }
 
     /// The accent where it is text or a focus ring: the accent itself while it keeps
@@ -1053,8 +1070,9 @@ pub enum Backing {
     Blurred,
 }
 
-fn fade(c: u32, alpha: f32) -> u32 {
-    (over(c, 0x000000ff) & !0xff) | (alpha * 255.).round() as u32
+/// `c` as Classic draws it over `under`, made `alpha` opaque.
+fn fade(c: u32, under: u32, alpha: f32) -> u32 {
+    (over(c, under) & !0xff) | (alpha * 255.).round() as u32
 }
 
 fn soften(c: u32) -> u32 {
@@ -1082,12 +1100,10 @@ pub fn glass(tokens: &Tokens, glass: Glass, can: Backing) -> (Tokens, Backing, u
         let f = percent as f32 / 100.;
         let mut c = t;
         c.see_through = true;
-        let (backdrop, sidebar, layer) = (1. - 0.70 * f, 1. - 0.75 * f, 1. - 0.14 * f);
-        c.backdrop = Gradient { from: fade(t.backdrop.from, backdrop), to: fade(t.backdrop.to, backdrop), ..t.backdrop };
-        c.sidebar = Gradient { from: fade(t.sidebar.from, sidebar), to: fade(t.sidebar.to, sidebar), ..t.sidebar };
-        for slot in [&mut c.panel, &mut c.surface] {
-            *slot = fade(*slot, layer);
-        }
+        let (backdrop, sidebar) = (1. - 0.70 * f, 1. - 0.75 * f);
+        let (from, to) = (over(t.backdrop.from, 0x000000ff), over(t.backdrop.to, 0x000000ff));
+        c.backdrop = Gradient { from: fade(from, from, backdrop), to: fade(to, to, backdrop), ..t.backdrop };
+        c.sidebar = Gradient { from: fade(t.sidebar.from, from, sidebar), to: fade(t.sidebar.to, to, sidebar), ..t.sidebar };
         let backgrounds = c.text_backgrounds();
         let readable_text = FLOORS.iter().try_for_each(|(name, floor)| {
             let slot = text_slot(&mut c, name);
@@ -1529,29 +1545,54 @@ mod tests {
     #[test]
     fn glass_keeps_text_readable_over_any_desktop_at_every_transparency() {
         for (id, _) in BUILT_IN {
-            let classic = built_in_tokens(id);
-            for transparency in [0, 50, 100] {
-                for blur in [false, true] {
-                    for can in [Backing::Clear, Backing::Blurred] {
-                        let (mut t, backing, effective) = glass(&classic, Glass { transparency, blur, corners: Corners::Round }, can);
-                        assert!(effective <= transparency, "{id}");
-                        if effective == 0 {
-                            assert!(backing == Backing::Opaque && !t.see_through, "{id}");
-                            assert_eq!((t.text, t.backdrop, t.panel), (classic.text, classic.backdrop, classic.panel), "{id}");
-                            continue;
-                        }
-                        assert!(t.see_through, "{id}");
-                        assert_eq!(backing, if blur && can == Backing::Blurred { Backing::Blurred } else { Backing::Clear });
-                        let backgrounds = t.text_backgrounds();
-                        for (name, floor) in FLOORS {
-                            let text = *text_slot(&mut t, name);
-                            for bg in &backgrounds {
-                                assert!(contrast(text, *bg) >= floor, "{id} {name} on {bg:08x} at {effective}");
-                            }
-                        }
+            assert_glass_readable(&built_in_tokens(id), id);
+        }
+    }
+
+    #[test]
+    fn glass_keeps_text_readable_for_generated_themes() {
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed as u32) | 0xff
+        };
+        for ix in 0..300 {
+            let mut t = if ix % 2 == 0 { Tokens::DARK } else { Tokens::LIGHT };
+            for slot in [&mut t.text, &mut t.muted, &mut t.faint, &mut t.space_label, &mut t.accent, &mut t.page, &mut t.panel, &mut t.surface] {
+                *slot = next();
+            }
+            t.backdrop = Gradient { from: next(), to: next() & 0xffffff80 | 0x40, ..t.backdrop };
+            t.sidebar = Gradient { from: next() & 0xffffff00 | 0x90, to: next(), ..t.sidebar };
+            enforce_contrast(&mut t, if ix % 2 == 0 { Scheme::Dark } else { Scheme::Light });
+            assert_glass_readable(&t, &format!("generated {ix}"));
+        }
+    }
+
+    fn assert_glass_readable(classic: &Tokens, id: &str) {
+        for transparency in [0, 50, 100] {
+            for blur in [false, true] {
+                for can in [Backing::Clear, Backing::Blurred] {
+                    let (mut t, backing, effective) = glass(classic, Glass { transparency, blur, corners: Corners::Round }, can);
+                    assert!(effective <= transparency, "{id}");
+                    assert_eq!((t.panel, t.surface), (classic.panel, classic.surface), "{id}: pop-up cards stay as Classic draws them");
+                    if effective == 0 {
+                        assert!(backing == Backing::Opaque && !t.see_through, "{id}");
+                        assert_eq!((t.text, t.backdrop), (classic.text, classic.backdrop), "{id}");
+                        continue;
+                    }
+                    assert!(t.see_through, "{id}");
+                    assert_eq!(backing, if blur && can == Backing::Blurred { Backing::Blurred } else { Backing::Clear });
+                    let backgrounds = t.text_backgrounds();
+                    for (name, floor) in FLOORS {
+                        let text = *text_slot(&mut t, name);
                         for bg in &backgrounds {
-                            assert!(contrast(t.accent_text(), *bg) >= ACCENT_TEXT_FLOOR, "{id} accent on {bg:08x}");
+                            assert!(contrast(text, *bg) >= floor, "{id} {name} on {bg:08x} at {effective}");
                         }
+                    }
+                    for bg in &backgrounds {
+                        assert!(contrast(t.accent_text(), *bg) >= ACCENT_TEXT_FLOOR, "{id} accent on {bg:08x}");
                     }
                 }
             }

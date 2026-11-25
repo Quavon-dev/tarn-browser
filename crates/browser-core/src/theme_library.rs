@@ -79,7 +79,6 @@ pub fn set_effect(store: &Store, effect: Option<Effect>) -> Result<(), String> {
     store.set_setting(SEARCH_EFFECT_SETTING, effect.map_or("theme", Effect::name)).map_err(|e| e.to_string())
 }
 
-/// How the shell is drawn: the theme's tokens, how the window is backed and the transparency reached.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub tokens: Tokens,
@@ -104,14 +103,12 @@ pub fn glass_settings(store: &Store) -> Glass {
     }
 }
 
-/// The transparency choices offered in settings.
 pub const TRANSPARENCY_STEPS: [u8; 5] = [20, 40, 60, 80, 100];
 
-/// What settings say under the transparency choices once `reached` is known.
 pub fn transparency_note(requested: u8, reached: u8, safe: bool) -> String {
     match reached {
         _ if safe => "Safe mode keeps the window opaque until Tarn restarts.".to_owned(),
-        0 => "This theme's text cannot stay readable over the desktop, so the window stays opaque.".to_owned(),
+        0 if requested > 0 => "This theme's text cannot stay readable over the desktop, so the window stays opaque.".to_owned(),
         r if r < requested => format!("Held at {r} % so text stays readable on light and dark desktops."),
         _ => "How much of the desktop shows through.".to_owned(),
     }
@@ -464,6 +461,7 @@ mod tests {
     fn the_transparency_note_names_why_it_was_held() {
         assert!(transparency_note(60, 0, true).starts_with("Safe mode"));
         assert!(transparency_note(60, 0, false).contains("stays opaque"));
+        assert_eq!(transparency_note(0, 0, false), "How much of the desktop shows through.");
         assert!(transparency_note(80, 40, false).starts_with("Held at 40 %"));
         assert_eq!(transparency_note(60, 60, false), "How much of the desktop shows through.");
     }

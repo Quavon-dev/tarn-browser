@@ -13,7 +13,6 @@ pub(crate) struct State {
     /// Shift was held at launch: the built-in theme shows, without page styles, until quit.
     pub safe: bool,
     pub system_light: bool,
-    /// The Glass design's transparency after the readability limit.
     pub reached: u8,
     pub glass: bool,
 }
@@ -36,7 +35,12 @@ pub(crate) fn apply(core: &AppCore, system_light: bool) {
     let can = if cfg!(target_os = "macos") { browser_core::theme::Backing::Blurred } else { browser_core::theme::Backing::Opaque };
     let look = browser_core::theme_library::look(&core.disk, &active, state.safe, can);
     Theme::set_tokens(look.tokens, p.meta.scheme, p.font.clone());
-    BACKING.store(look.window as u8, Ordering::Relaxed);
+    let backing = match look.window {
+        browser_core::theme::Backing::Opaque => OPAQUE,
+        browser_core::theme::Backing::Clear => CLEAR,
+        browser_core::theme::Backing::Blurred => BLURRED,
+    };
+    BACKING.store(backing, Ordering::Relaxed);
     state.reached = look.transparency;
     state.glass = browser_core::theme_library::glass_on(&core.disk);
     crate::prefs::apply_accent(&core.disk);
@@ -44,12 +48,15 @@ pub(crate) fn apply(core: &AppCore, system_light: bool) {
     state.active = Some(active);
 }
 
-static BACKING: AtomicU8 = AtomicU8::new(0);
+static BACKING: AtomicU8 = AtomicU8::new(OPAQUE);
+const OPAQUE: u8 = 0;
+const CLEAR: u8 = 1;
+const BLURRED: u8 = 2;
 
 pub(crate) fn window_background() -> WindowBackgroundAppearance {
     match BACKING.load(Ordering::Relaxed) {
-        1 => WindowBackgroundAppearance::Transparent,
-        2 => WindowBackgroundAppearance::Blurred,
+        CLEAR => WindowBackgroundAppearance::Transparent,
+        BLURRED => WindowBackgroundAppearance::Blurred,
         _ => WindowBackgroundAppearance::Opaque,
     }
 }

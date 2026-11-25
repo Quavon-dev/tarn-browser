@@ -446,7 +446,7 @@ impl Browser {
             })
             .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
             .on_action(cx.listener(|b, _: &ToggleGlassDesign, _, cx| {
-                let on = b.core.themes.borrow().glass;
+                let on = browser_core::theme_library::glass_on(&b.core.disk);
                 if let Err(e) = browser_core::theme_library::set_glass_on(&b.core.disk, !on) {
                     b.show_toast_as(browser_core::toast::Tone::Warning, e, None, cx);
                 }
