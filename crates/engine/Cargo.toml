@@ -91,6 +91,10 @@ harness = false
 required-features = ["chromium"]
 
 [[test]]
+name = "find"
+harness = false
+
+[[test]]
 name = "import_cookies"
 harness = false
 

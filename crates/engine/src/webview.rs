@@ -22,7 +22,7 @@ use shield::ShieldLevel;
 use url::Url;
 
 use crate::data_store::Builtin;
-use crate::delegates::{Delegate, DelegateState, serialized_origin, to_url};
+use crate::delegates::{Delegate, DelegateState, Found, serialized_origin, to_url};
 use crate::extensions::Tab;
 use crate::handover::{self, Storage};
 use crate::page_scripts::{
@@ -411,15 +411,54 @@ impl WebView {
         self._delegate.shown_url(to_url(unsafe { self.view.URL() }))
     }
 
-    /// Highlights the next (or previous) match; `found` receives how many matches the page has,
-    /// and which one is highlighted when the engine says (WebKit does not).
+    /// Marks every match and moves to the next (or previous) one; `found` receives how many
+    /// matches the page has and which one is current. WebKit draws the marks itself, out of the
+    /// page's reach, through its private find API (Safari's); without it, the public one marks only
+    /// the current match and cannot say which it is.
     pub fn find(&self, text: &str, backwards: bool, found: impl Fn(usize, Option<usize>) + 'static) {
+        let lockdown = self._delegate.level() == ShieldLevel::Lockdown;
+        if self.view.respondsToSelector(sel!(_findString:options:maxCount:)) && self.view.respondsToSelector(sel!(_setFindDelegate:)) {
+            // WebKit numbers a new search's matches from wherever the selection is as if it were the
+            // top, so a new text starts there; under Lockdown no script of Tarn's can move it.
+            let found: Found = if lockdown { Rc::new(move |count, _| found(count, None)) } else { Rc::new(found) };
+            let state = objc2::DefinedClass::ivars(&*self._delegate);
+            let fresh = state.found.replace(Some((text.to_owned(), found))).is_none_or(|(old, _)| old != text);
+            if !fresh && state.find_restart.get().1 {
+                return;
+            }
+            // `_WKFindOptions`: CaseInsensitive, WrapAround, ShowOverlay, ShowFindIndicator, ShowHighlight, DetermineMatchIndex; Backwards.
+            let options: usize = 1 | 1 << 4 | 1 << 5 | 1 << 6 | 1 << 7 | 1 << 9 | if backwards { 1 << 3 } else { 0 };
+            let (view, delegate, text) = (self.view.clone(), self._delegate.clone(), text.to_owned());
+            let search = move || {
+                if objc2::DefinedClass::ivars(&*delegate).found.borrow().as_ref().is_none_or(|(running, _)| *running != text) {
+                    return;
+                }
+                // SAFETY: both selectors exist on this WKWebView (checked above); the find delegate is a weak
+                // property, and the delegate lives as long as the view; main thread.
+                unsafe {
+                    let _: () = msg_send![&*view, _setFindDelegate: &*delegate];
+                    let _: () = msg_send![&*view, _findString: &*NSString::from_str(&text), options: options, maxCount: crate::page_scripts::FIND_COUNT_MAX];
+                }
+            };
+            if fresh && !lockdown {
+                let (restarting, id) = (Weak::from_retained(&self._delegate), state.find_restart.get().0 + 1);
+                state.find_restart.set((id, true));
+                return self.run_isolated(crate::page_scripts::FIND_RESTART, move |_| {
+                    let Some(delegate) = restarting.load() else { return };
+                    let restart = &objc2::DefinedClass::ivars(&*delegate).find_restart;
+                    if restart.get() == (id, true) {
+                        restart.set((id, false));
+                        search();
+                    }
+                });
+            }
+            return search();
+        }
         let mtm = self.view.mtm();
         let found = Rc::new(found);
         let view = self.view.clone();
         let count = find_count_script(text);
         // No script of Tarn's runs on a Lockdown page, so the native result stands as one match.
-        let lockdown = self._delegate.level() == ShieldLevel::Lockdown;
         // SAFETY: main-thread calls on a fresh configuration and a live web view; the block is
         // copied by WebKit and receives a valid result.
         unsafe {
@@ -442,6 +481,9 @@ impl WebView {
 
     /// Hides the marker a find left; the match stays selected, as in Safari.
     pub fn clear_find(&self) {
+        let state = objc2::DefinedClass::ivars(&*self._delegate);
+        state.found.take();
+        state.find_restart.set((state.find_restart.get().0, false));
         // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
         if self.view.respondsToSelector(sel!(_hideFindUI)) {
             // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.

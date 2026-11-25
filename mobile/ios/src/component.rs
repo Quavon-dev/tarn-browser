@@ -1,6 +1,5 @@
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
-use std::ptr::NonNull;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -9,13 +8,13 @@ use engine::nav_policy::{self, Decision, LevelAction, Site, Source};
 use engine::view_policy::{self, Levels};
 use nsh_platform_ios::{ComponentContext, Components, NativeComponent};
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
-use objc2::{MainThreadMarker, Message, msg_send, sel};
-use objc2_foundation::{NSError, NSInteger, NSNumber, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
+use objc2::runtime::{Bool, NSObjectProtocol, ProtocolObject};
+use objc2::{MainThreadMarker, msg_send, sel};
+use objc2_foundation::{NSError, NSInteger, NSOperationQueue, NSString, NSURL, NSURLCredential, NSURLCredentialPersistence, NSURLRequest};
 use objc2_ui_kit::{UIUserInterfaceStyle, UIView, UIViewAutoresizing};
 use objc2_web_kit::{
-    WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKFindConfiguration, WKFindResult, WKNavigationAction, WKNavigationActionPolicy,
-    WKNavigationType, WKPermissionDecision, WKUserContentController, WKWebViewConfiguration, WKWebpagePreferences,
+    WKContentRuleList, WKContentRuleListStore, WKContentWorld, WKNavigationAction, WKNavigationActionPolicy, WKNavigationType, WKPermissionDecision,
+    WKUserContentController, WKWebViewConfiguration, WKWebpagePreferences,
 };
 use serde_json::{Value, json};
 use shield::ShieldLevel;
@@ -110,7 +109,7 @@ pub struct Inner {
     /// The shell's own Back or Forward just went through, so WebKit's following `FormResubmitted` is
     /// the user's too; a Reload of a form's page arrives as `FormResubmitted` with `shell_history` set.
     resend_credit: Cell<bool>,
-    find_text: RefCell<String>,
+    find: Rc<find::Find>,
     popups: RefCell<view_policy::Burst>,
     downloads: RefCell<view_policy::Burst>,
     zoom: Cell<f64>,
@@ -293,6 +292,7 @@ impl Inner {
         let old = self.built.borrow_mut().take();
         if let Some(mut old) = old {
             old.ext.cancel_pending();
+            self.find.clear(&old.web);
             for path in OBSERVED {
                 old.web.remove_observer(&old.handler, &NSString::from_str(path));
             }
@@ -418,6 +418,11 @@ impl Inner {
 
     pub fn committed(&self) {
         self.dialogs.set(0);
+        if let Some(web) = self.web()
+            && self.find.clear(&web)
+        {
+            self.context.emit("found", json!({}));
+        }
         self.ext_committed();
         self.end_popup();
     }
@@ -514,14 +519,12 @@ impl Inner {
                 self.zoom.set(zoom::clamp(args.get("factor").and_then(Value::as_f64).unwrap_or(1.0)));
                 self.apply_zoom(&web);
             }
-            "find" => self.find(&web, args),
+            "find" => {
+                let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
+                self.find.find(&web, &self.context, text, args.get("backwards").and_then(Value::as_bool).unwrap_or(false));
+            }
             "clearFind" => {
-                self.find_text.borrow_mut().clear();
-                // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
-                if web.respondsToSelector(sel!(_hideFindUI)) {
-                    // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.
-                    let _: () = unsafe { msg_send![&**web, _hideFindUI] };
-                }
+                self.find.clear(&web);
             }
             // WebKit has no public way to end the processes it keeps for earlier pages; its private `_clearBackForwardCache` does.
             "dropBackForwardCache" if web.respondsToSelector(sel!(_clearBackForwardCache)) => {
@@ -544,54 +547,6 @@ impl Inner {
         // SAFETY: main thread (marker); the script runs in the shell's isolated world, not the page's.
         let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
         web.evaluate(&NSString::from_str(&zoom::script(self.zoom.get())), None, &world, None);
-    }
-
-    fn find(&self, web: &WebView, args: &Value) {
-        let text = args.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
-        if text.is_empty() {
-            self.find_text.borrow_mut().clear();
-            return;
-        }
-        // SAFETY: main thread (marker); plain setters on a fresh configuration.
-        let configuration = unsafe {
-            let configuration = WKFindConfiguration::new(self.mtm);
-            configuration.setBackwards(args.get("backwards").and_then(Value::as_bool).unwrap_or(false));
-            configuration.setWraps(true);
-            configuration
-        };
-        let context = self.context.clone();
-        let target = web.retain();
-        let script = NSString::from_str(&find::count_script(&text));
-        // No script of Tarn's runs on a Lockdown page, so the native result stands as one match.
-        let lockdown = self.built.borrow().as_ref().is_none_or(|b| b.level == ShieldLevel::Lockdown);
-        let mtm = self.mtm;
-        let done = RcBlock::new(move |result: NonNull<WKFindResult>| {
-            // SAFETY: WebKit passes a valid result for the duration of the call, on the main thread.
-            let found = unsafe { result.as_ref().matchFound() };
-            if !found || lockdown {
-                return context.emit("found", json!({ "matched": u64::from(found) }));
-            }
-            let context = context.clone();
-            let counted = RcBlock::new(move |value: *mut AnyObject, _error: *mut NSError| {
-                // SAFETY: WebKit passes the script's result, or null, on the main thread for the duration of the call.
-                let count = unsafe { value.as_ref() }.and_then(|v| v.downcast_ref::<NSNumber>()).map(|n| n.as_f64());
-                context.emit("found", json!({ "matched": find::matched(true, count) }));
-            });
-            // SAFETY: main thread (marker); the count runs in the shell's isolated world.
-            let world = unsafe { WKContentWorld::defaultClientWorld(mtm) };
-            target.evaluate(&script, None, &world, Some(&counted));
-        });
-        let query = NSString::from_str(&text);
-        if *self.find_text.borrow() == text || lockdown {
-            return web.find(&query, Some(&configuration), &done);
-        }
-        // WebKit finds from the selection, the previous match: a new text starts again at the top.
-        *self.find_text.borrow_mut() = text;
-        let again = web.retain();
-        let restart = RcBlock::new(move |_: *mut AnyObject, _: *mut NSError| again.find(&query, Some(&configuration), &done));
-        // SAFETY: main thread (marker); the script runs in the shell's isolated world and only clears the selection.
-        let world = unsafe { WKContentWorld::defaultClientWorld(self.mtm) };
-        web.evaluate(&NSString::from_str(find::RESTART), None, &world, Some(&restart));
     }
 
     fn close(&self) {
@@ -731,7 +686,7 @@ pub fn register(components: &Components) {
                 opener: RefCell::new(None),
                 shell_history: Cell::new(false),
                 resend_credit: Cell::new(false),
-                find_text: RefCell::default(),
+                find: Rc::default(),
                 popups: RefCell::default(),
                 downloads: RefCell::default(),
                 zoom: Cell::new(1.0),

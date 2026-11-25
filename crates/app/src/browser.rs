@@ -126,7 +126,7 @@ pub struct PendingExternal {
 
 pub(crate) enum Msg {
     Tab(TabKey, u64, Event),
-    Found(usize, Option<usize>),
+    Found(TabKey, usize, Option<usize>),
     IconLinks(TabKey, IconKey, Url, String),
     IconData(IconKey, String),
     PageText(Id, Id, String, String),
@@ -480,9 +480,11 @@ impl Browser {
                             b.on_event(key, event, window, cx);
                         }
                     }
-                    Msg::Found(count, current) => {
-                        b.find_count = Some((count, current));
-                        cx.notify();
+                    Msg::Found(key, count, current) => {
+                        if b.model.active == Some(key) {
+                            b.find_count = Some((count, current));
+                            cx.notify();
+                        }
                     }
                     Msg::IconLinks(key, icon, page, links) => b.fetch_favicon(key, icon, &page, &links),
                     Msg::IconData(icon, data) => b.store_favicon(icon, data, cx),
@@ -929,7 +931,7 @@ impl Browser {
     }
 
     /// Moves a live view of `key` from another window here, with its page and history.
-    fn adopt_view(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
+    pub(crate) fn adopt_view(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
         let host = self.host.clone()?;
         let (mut taken, mut link) = (None, None);
         crate::shared::others(cx, |b, window, cx| {

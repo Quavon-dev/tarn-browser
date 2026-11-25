@@ -130,6 +130,9 @@ pub fn find_snippets(found: &str) -> Vec<String> {
     found.lines().filter(|l| !l.trim().is_empty()).take(FIND_MATCHES).map(|l| l.chars().take(max).collect()).collect()
 }
 
+/// Clears the page's selection, from which WebKit's find continues.
+pub const FIND_RESTART: &str = "getSelection().removeAllRanges()";
+
 /// Most matches the find bar counts.
 pub const FIND_COUNT_MAX: usize = 1000;
 

@@ -102,7 +102,7 @@ impl<D: Platform> Shell<D> {
             "article" | "pageText" | "iconLinks" | "iconData" | "textFound" | "picked" | "shielded" | "mediaState" => {
                 return self.script_event(key, name, data);
             }
-            "found" => {
+            "found" if self.model.active == Some(key) => {
                 let number = |field: &str| data.get(field).and_then(Value::as_u64).map(|n| n as usize);
                 self.found = number("matched").map(|n| (n, number("current")));
             }

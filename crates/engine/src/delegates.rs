@@ -203,7 +203,14 @@ pub(crate) struct DelegateState {
     pub split_link: Cell<Option<std::time::Instant>>,
     /// The commands a selection's menu offers after Ask Assistant about Selection; none hides both.
     pub assistant_menu: RefCell<Option<Vec<String>>>,
+    /// The text of the running find and where its results go (`WebView::find`).
+    pub found: RefCell<Option<(String, Found)>>,
+    /// The last restart of a new find, and whether it is still clearing the selection; a step
+    /// meanwhile would start from the old selection.
+    pub find_restart: Cell<(u64, bool)>,
 }
+
+pub(crate) type Found = Rc<dyn Fn(usize, Option<usize>)>;
 
 impl DelegateState {
     pub(crate) fn new(
@@ -242,6 +249,8 @@ impl DelegateState {
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
             assistant_menu: RefCell::default(),
+            found: RefCell::default(),
+            find_restart: Cell::new((0, false)),
         }
     }
 }
@@ -400,6 +409,18 @@ define_class!(
                 let whole_page = known && unsafe { msg_send![web_view, _isDisplayingPDF] };
                 self.save_shown_pdf(data, &downloads::pdf_name(&name.to_string()), to_url(url.map(|u| u.retain())).filter(|_| whole_page));
             }
+        }
+
+        #[unsafe(method(_webView:didFindMatches:forString:withMatchIndex:))]
+        fn did_find_matches(&self, _web_view: &WKWebView, matches: usize, text: &NSString, index: isize) {
+            let matches = matches.min(crate::page_scripts::FIND_COUNT_MAX);
+            let current = usize::try_from(index).ok().filter(|i| *i < matches).map(|i| i + 1);
+            self.report_found(text, matches, current);
+        }
+
+        #[unsafe(method(_webView:didFailToFindString:))]
+        fn did_fail_to_find(&self, _web_view: &WKWebView, text: &NSString) {
+            self.report_found(text, 0, None);
         }
 
         #[unsafe(method(openLinkInSplitView:))]
@@ -940,6 +961,14 @@ define_class!(
 );
 
 impl Delegate {
+    /// Answers only the find still running: a late result for an older text is dropped.
+    fn report_found(&self, text: &NSString, count: usize, current: Option<usize>) {
+        let found = self.ivars().found.borrow().as_ref().filter(|(running, _)| *running == text.to_string()).map(|(_, found)| found.clone());
+        if let Some(found) = found {
+            found(count, current);
+        }
+    }
+
     pub(crate) fn new(mtm: MainThreadMarker, state: DelegateState) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(state);
         // SAFETY: NSObject's designated initialiser on a freshly allocated instance.

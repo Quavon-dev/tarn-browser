@@ -1173,3 +1173,15 @@ fn the_shown_page_is_pinged_and_offers_wait_and_reload_once_it_stops_answering()
     assert!(view.born > born, "Reload gives the tab a new view");
     assert_eq!(view.load.as_ref().map(|l| l.url.as_str()), Some("https://slow.test/"));
 }
+
+#[test]
+fn only_the_active_tab_sets_the_find_count() {
+    let (_dir, mut shell) = open();
+    let first = active(&shell);
+    let second = shell.new_tab(Some("https://b.test/")).expect("a second tab");
+    shell.activate(first);
+    shell.event(first, "found", &json!({ "matched": 3, "current": 2 }), 1);
+    assert_eq!(shell.found, Some((3, Some(2))));
+    shell.event(second, "found", &json!({}), 2);
+    assert_eq!(shell.found, Some((3, Some(2))), "another tab's find does not change the bar");
+}
