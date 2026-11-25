@@ -429,6 +429,20 @@ Security and privacy
        it was.
      - It permits no TCP listener, local HTTP API, remote-debugging port, page-to-shell bridge or
        new outbound request by the shell.
+   - **Certificate exceptions** (threat model S7). On every client, the page Tarn shows for a
+     certificate error may offer to continue to the site, under all of these conditions:
+     - The way through sits under the page's details, not beside Go Back, and needs a second
+       confirmation that names the host and says the connection may be intercepted.
+     - An exception holds for one host and port and the exact certificate (its SHA-256
+       fingerprint); a different certificate for that host shows the error page again.
+     - Never for a revoked certificate, in a private space or for a site at Lockdown.
+     - Exceptions belong to one profile, are listed in its settings, where each can be removed,
+       and are deleted with the profile's site data.
+     - While a page loads under an exception, the address field shows it as not secure, and the
+       site popover says why and offers to remove the exception.
+     - The engine's own trust evaluation still runs; the exception only answers its failure for
+       that certificate. It permits no change to the system's trust store and no new outbound
+       request by the shell.
 8. **No new or changed connections.** Do not add a request the shell makes, or change the
    receiver, content or frequency of one listed in `PRIVACY.md` ("Connections the browser itself
    makes"). No telemetry, analytics, accounts or crash upload. Exception, decided by the
