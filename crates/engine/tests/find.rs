@@ -142,6 +142,12 @@ mod window {
         view.clear_find();
         assert_eq!(step(&view, "fox", false), (5, Some(1)), "after clear_find a find starts again at the first match");
         assert_eq!(shown(), "1", "and selects it");
+        step(&view, "fox", false);
+        step(&view, "fox", false);
+        view.find("fox", false, |_, _| {});
+        view.clear_find();
+        assert_eq!(step(&view, "fox", false), (5, Some(1)), "a restart cleared away does not search");
+        assert_eq!(shown(), "1");
 
         let locked = open(ShieldLevel::Lockdown);
         assert_eq!(step(&locked, "fox", false).0, 5, "a Lockdown page counts every match");

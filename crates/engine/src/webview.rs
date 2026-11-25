@@ -444,13 +444,12 @@ impl WebView {
                 let (restarting, id) = (Weak::from_retained(&self._delegate), state.find_restart.get().0 + 1);
                 state.find_restart.set((id, true));
                 return self.run_isolated(crate::page_scripts::FIND_RESTART, move |_| {
-                    if let Some(delegate) = restarting.load() {
-                        let restart = &objc2::DefinedClass::ivars(&*delegate).find_restart;
-                        if restart.get().0 == id {
-                            restart.set((id, false));
-                        }
+                    let Some(delegate) = restarting.load() else { return };
+                    let restart = &objc2::DefinedClass::ivars(&*delegate).find_restart;
+                    if restart.get() == (id, true) {
+                        restart.set((id, false));
+                        search();
                     }
-                    search();
                 });
             }
             return search();

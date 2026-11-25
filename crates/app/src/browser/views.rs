@@ -327,17 +327,20 @@ impl Browser {
                 self.sleep_unless_playing(evicted, cx);
             }
         }
-        let waking = self.sleeping(key);
+        // A view taken over from another window keeps its page; only a new one loads it.
+        let loads = self.sleeping(key) && self.adopt_view(key, cx).is_none();
         if switched && self.find_open {
             if let Some(prev) = self.model.active.and_then(|p| self.views.get(&p)) {
                 prev.clear_find();
             }
             self.find_count = None;
+            self.find_typing = None;
+            self.find_after_load = None;
         }
         let view = self.wake(key, cx);
         self.model.active = Some(key);
         if switched && self.find_open && self.active_json().is_none() && !self.reader_shown() {
-            if waking || self.pages.get(&key).is_some_and(|p| p.loading) {
+            if loads || self.pages.get(&key).is_some_and(|p| p.loading) {
                 self.find_after_load = Some(key);
             } else {
                 self.find(false, cx);

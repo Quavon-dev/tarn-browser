@@ -931,7 +931,7 @@ impl Browser {
     }
 
     /// Moves a live view of `key` from another window here, with its page and history.
-    fn adopt_view(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
+    pub(crate) fn adopt_view(&mut self, key: TabKey, cx: &mut Context<Self>) -> Option<Rc<WebView>> {
         let host = self.host.clone()?;
         let (mut taken, mut link) = (None, None);
         crate::shared::others(cx, |b, window, cx| {

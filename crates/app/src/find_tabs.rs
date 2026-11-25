@@ -81,7 +81,7 @@ impl Browser {
 
     /// Opens the tab with the find bar running `query`; a tab that was asleep is searched once its page has loaded.
     pub(crate) fn open_text_match(&mut self, key: TabKey, query: String, window: &mut Window, cx: &mut Context<Self>) {
-        let asleep = self.sleeping(key);
+        let asleep = self.sleeping(key) && self.adopt_view(key, cx).is_none();
         let was_open = std::mem::take(&mut self.find_open);
         if was_open && let Some(view) = self.active_view() {
             view.clear_find();

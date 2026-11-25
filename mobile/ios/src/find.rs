@@ -31,7 +31,7 @@ impl Find {
             self.clear(web);
             return;
         }
-        if *self.text.borrow() == text {
+        if *self.text.borrow() == text && (self.search.borrow().is_some() || !self.ranges.borrow().is_empty()) {
             if self.search.borrow().is_none() {
                 let at = browser_core::find::step(self.at.get(), self.ranges.borrow().len(), backwards);
                 self.show(web, context, at);
@@ -113,8 +113,12 @@ define_class!(
     #[ivars = Collected]
     pub struct Aggregator;
 
+    // SAFETY: a plain NSObject subclass adds nothing NSObjectProtocol forbids.
     unsafe impl NSObjectProtocol for Aggregator {}
 
+    // SAFETY: the methods match the protocol's selectors and argument types (objc2-ui-kit's
+    // `UITextSearchAggregator`), the class is main-thread only as the protocol is, and every range
+    // kept is retained.
     unsafe impl UITextSearchAggregator for Aggregator {
         #[unsafe(method_id(allFoundRanges))]
         fn all_found_ranges(&self) -> Retained<NSOrderedSet<UITextRange>> {
