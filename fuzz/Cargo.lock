@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "browser-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "cssparser",
  "engine",
@@ -745,7 +745,7 @@ checksum = "9e9de72ce2ad1f90dc62fa25f0f430ef85eb4b0d8fa0be4f30373bc40a21d28e"
 
 [[package]]
 name = "devkit"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "serde_json",
 ]
@@ -881,7 +881,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "import"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aes",
  "cbc",
@@ -2506,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "shield"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "adblock",
  "ed25519-dalek",
@@ -2583,7 +2583,7 @@ checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
 name = "store"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "rusqlite",
  "serde_json",
