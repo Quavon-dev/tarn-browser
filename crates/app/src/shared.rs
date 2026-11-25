@@ -6,9 +6,7 @@ use browser_core::windows::{Frame, onto_screen};
 use engine::Event;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
-use gpui::{
-    App, AppContext, Bounds, DisplayId, Global, Pixels, TitlebarOptions, Window, WindowBackgroundAppearance, WindowBounds, WindowOptions, point, px, size,
-};
+use gpui::{App, AppContext, Bounds, DisplayId, Global, Pixels, TitlebarOptions, Window, WindowBounds, WindowOptions, point, px, size};
 use store::{Id, SavedWindow};
 
 use crate::browser::{Browser, WindowStart, data_dir};
@@ -562,7 +560,7 @@ pub(crate) fn open_window(
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(point(px(x), px(y)), size(px(width), px(height))))),
         display_id: display,
         titlebar: Some(TitlebarOptions { title: Some("Tarn".into()), appears_transparent: true, traffic_light_position: Some(point(px(20.), px(17.))) }),
-        window_background: WindowBackgroundAppearance::Opaque,
+        window_background: crate::themes::window_background(),
         window_min_size: Some(size(px(720.), px(480.))),
         ..Default::default()
     };

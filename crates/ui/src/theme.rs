@@ -100,14 +100,18 @@ impl Theme {
     pub fn sidebar() -> Background {
         get(|t| gradient(t.sidebar))
     }
+    /// The sidebar as Classic draws it, for a card over the page, where nothing may show through.
+    pub fn sidebar_solid() -> Background {
+        get(|t| gradient(t.sidebar_card()))
+    }
     /// The sidebar gradient washed with a space's colour, kept close to the theme so text keeps
     /// its contrast; the tint's alpha scales the wash.
-    pub fn sidebar_tinted(tint: Rgba) -> Background {
+    pub fn sidebar_tinted(tint: Rgba, solid_card: bool) -> Background {
         let mix = |base: u32, t: f32| {
             let (base, t) = (rgba(base), t * tint.a);
             Rgba { r: base.r + (tint.r - base.r) * t, g: base.g + (tint.g - base.g) * t, b: base.b + (tint.b - base.b) * t, a: base.a }
         };
-        let g = get(|t| t.sidebar);
+        let g = get(|t| if solid_card { t.sidebar_card() } else { t.sidebar });
         linear_gradient(g.angle, linear_color_stop(mix(g.from, 0.12), 0.), linear_color_stop(mix(g.to, 0.2), 1.))
     }
     pub fn sidebar_edge() -> Rgba {

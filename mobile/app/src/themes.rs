@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use browser_core::theme::Active;
+use browser_core::theme::{Active, Backing};
 use browser_core::theme_library as library;
 use store::Store;
 use tarn_nsh_shared::theme::Theme;
@@ -27,10 +27,17 @@ impl<D: Platform> Shell<D> {
         let store = &self.core.disk;
         let active = library::current(store, self.themes.light, false);
         let p = &active.parsed;
-        Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
+        Theme::set_tokens(library::look(store, &active, false, Backing::Opaque).tokens, p.meta.scheme, p.font.clone());
         Theme::set_search_effect(library::search_effect(store, &active));
         Theme::set_compact(browser_core::prefs::COMPACT.on(store));
         self.themes.active = active;
+    }
+
+    pub fn toggle_glass_design(&mut self) {
+        if let Err(e) = library::set_glass_on(&self.core.disk, !library::glass_on(&self.core.disk)) {
+            self.toast_as(browser_core::toast::Tone::Warning, e);
+        }
+        self.apply_theme();
     }
 
     pub fn follow_appearance(&mut self, light: bool) {

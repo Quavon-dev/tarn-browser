@@ -21,7 +21,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 29] = [
+const OFFERED: [Command; 30] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
@@ -46,6 +46,7 @@ const OFFERED: [Command; 29] = [
     Command::RemoveFromSplitView,
     Command::CloseSplit,
     Command::TabsOnTop,
+    Command::GlassDesign,
     Command::Ask,
     Command::AskPage,
     Command::ShowHistory,
@@ -499,6 +500,10 @@ fn run(ui: Ui, command: Command) {
         Command::TogglePin => on_active(ui, |s, k| s.toggle_pin(k)),
         Command::TabsOnTop => ui.act(|s| {
             s.toggle_tabs_on_top();
+            Vec::new()
+        }),
+        Command::GlassDesign => ui.act(|s| {
+            s.toggle_glass_design();
             Vec::new()
         }),
         Command::Ask => super::super::assistant::open(ui, false),

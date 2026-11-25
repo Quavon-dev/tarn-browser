@@ -76,6 +76,8 @@ pub struct Tokens {
     /// accent.
     pub search_effect: Effect,
     pub search_color: Option<u32>,
+    /// Set by `glass` only: the backgrounds above are translucent and sit over the desktop.
+    pub see_through: bool,
 }
 
 impl Tokens {
@@ -107,6 +109,7 @@ impl Tokens {
         fog_mode: Fog::On,
         search_effect: Effect::None,
         search_color: None,
+        see_through: false,
     };
 
     pub const LIGHT: Tokens = Tokens {
@@ -137,6 +140,7 @@ impl Tokens {
         fog_mode: Fog::On,
         search_effect: Effect::None,
         search_color: None,
+        see_through: false,
     };
 
     /// The search effect's colour: the theme's, else the accent.
@@ -963,13 +967,37 @@ fn readable(fg: u32, backgrounds: &[u32], floor: f32) -> Option<u32> {
 }
 
 impl Tokens {
-    /// Every background text sits on, opaque over the backdrop.
+    /// Every background text sits on: opaque over the backdrop, or, in the Glass design, over the
+    /// backdrop over a white and a black desktop.
     fn text_backgrounds(&self) -> Vec<u32> {
+        if self.see_through {
+            return self.text_backgrounds_over_desktops();
+        }
         let base = self.backdrop.from | 0xff;
+        self.layers().iter().map(|bg| over(*bg, base)).collect()
+    }
+
+    /// The sidebar as Classic draws it, for a card over the page, where nothing may show through.
+    pub fn sidebar_card(&self) -> Gradient {
+        let s = self.sidebar;
+        if self.see_through { Gradient { from: s.from | 0xff, to: s.to | 0xff, ..s } } else { s }
+    }
+
+    fn layers(&self) -> [u32; 9] {
         [self.page, self.panel, self.panel_nav, self.panel_row, self.surface, self.sidebar.from, self.sidebar.to, self.backdrop.from, self.backdrop.to]
-            .iter()
-            .map(|bg| over(*bg, base))
-            .collect()
+    }
+
+    /// Over a desktop, plus the opaque sidebar a card over the page paints.
+    fn text_backgrounds_over_desktops(&self) -> Vec<u32> {
+        let desktops = [0xffffffff, 0x000000ff];
+        let layers = self.layers();
+        let ends = [self.backdrop.from, self.backdrop.to];
+        let mut bases: Vec<u32> = ends.iter().map(|e| e | 0xff).chain(ends.iter().flat_map(|e| desktops.iter().map(move |d| over(*e, *d)))).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        let card = self.sidebar_card();
+        let cards = [card.from, card.to];
+        bases.iter().copied().chain(bases.iter().flat_map(|base| layers.map(|bg| over(bg, *base)))).chain(cards).collect()
     }
 
     /// The accent where it is text or a focus ring: the accent itself while it keeps
@@ -977,6 +1005,117 @@ impl Tokens {
     pub fn accent_text(&self) -> u32 {
         readable(self.accent | 0xff, &self.text_backgrounds(), ACCENT_TEXT_FLOOR).unwrap_or(self.text)
     }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Corners {
+    Theme,
+    #[default]
+    Round,
+    Rounder,
+}
+
+impl Corners {
+    pub const ALL: [Corners; 3] = [Corners::Theme, Corners::Round, Corners::Rounder];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Corners::Theme => "Theme",
+            Corners::Round => "Round",
+            Corners::Rounder => "Rounder",
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Corners::Theme => "theme",
+            Corners::Round => "round",
+            Corners::Rounder => "rounder",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Corners> {
+        Corners::ALL.into_iter().find(|c| c.name() == s)
+    }
+
+    fn radii(self) -> Option<[f32; 6]> {
+        match self {
+            Corners::Theme => None,
+            Corners::Round => Some([8., 11., 14., 18., 20., 24.]),
+            Corners::Rounder => Some([10., 13., 16., 20., 22., 24.]),
+        }
+    }
+}
+
+/// The Glass design's settings: how see-through the window is (0 to 100), whether the desktop
+/// behind it is blurred, and how round its corners are.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Glass {
+    pub transparency: u8,
+    pub blur: bool,
+    pub corners: Corners,
+}
+
+impl Default for Glass {
+    fn default() -> Self {
+        Glass { transparency: 60, blur: true, corners: Corners::default() }
+    }
+}
+
+/// What a window can be drawn over: nothing (opaque), the desktop, or the blurred desktop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Backing {
+    Opaque,
+    Clear,
+    Blurred,
+}
+
+/// `c` as Classic draws it over `under`, made `alpha` opaque.
+fn fade(c: u32, under: u32, alpha: f32) -> u32 {
+    (over(c, under) & !0xff) | (alpha * 255.).round() as u32
+}
+
+fn soften(c: u32) -> u32 {
+    (c & !0xff) | ((c & 0xff) as f32 * 0.6).round() as u32
+}
+
+/// `tokens` in the Glass design: rounder corners, softer edges and, where `can` allows, a window
+/// that shows the desktop. Returns the tokens, how the window is backed and the transparency
+/// reached, which is the requested one unless text could not stay readable on a light and a dark
+/// desktop at once, when it steps down until it can.
+pub fn glass(tokens: &Tokens, glass: Glass, can: Backing) -> (Tokens, Backing, u8) {
+    let mut t = *tokens;
+    if let Some(table) = glass.corners.radii() {
+        t.radius = std::array::from_fn(|i| t.radius[i].max(table[i]).min(24.));
+    }
+    for edge in [&mut t.sidebar_edge, &mut t.surface_edge, &mut t.hairline, &mut t.separator] {
+        *edge = soften(*edge);
+    }
+    t.shadow = (t.shadow * 1.15).min(1.5);
+    if can == Backing::Opaque {
+        return (t, Backing::Opaque, 0);
+    }
+    let mut percent = glass.transparency.min(100);
+    while percent > 0 {
+        let f = percent as f32 / 100.;
+        let mut c = t;
+        c.see_through = true;
+        let (backdrop, sidebar) = (1. - 0.70 * f, 1. - 0.75 * f);
+        let (from, to) = (over(t.backdrop.from, 0x000000ff), over(t.backdrop.to, 0x000000ff));
+        c.backdrop = Gradient { from: fade(from, from, backdrop), to: fade(to, to, backdrop), ..t.backdrop };
+        c.sidebar = Gradient { from: fade(t.sidebar.from, from, sidebar), to: fade(t.sidebar.to, to, sidebar), ..t.sidebar };
+        let backgrounds = c.text_backgrounds();
+        let readable_text = FLOORS.iter().try_for_each(|(name, floor)| {
+            let slot = text_slot(&mut c, name);
+            readable(*slot, &backgrounds, *floor).map(|r| *slot = r)
+        });
+        if readable_text.is_some() && readable(c.accent | 0xff, &backgrounds, ACCENT_TEXT_FLOOR).is_some() {
+            let backing = if glass.blur && can == Backing::Blurred { Backing::Blurred } else { Backing::Clear };
+            return (c, backing, percent);
+        }
+        percent = percent.saturating_sub(5);
+    }
+    (t, Backing::Opaque, 0)
 }
 
 /// Moves each text colour towards white or black until it reaches its floor on every background
@@ -1397,6 +1536,129 @@ mod tests {
         assert_eq!(parse(BUILT_IN[0].1, Source::BuiltIn).unwrap().tokens, Tokens::DARK);
         let light = parse(BUILT_IN[1].1, Source::BuiltIn).unwrap();
         assert_eq!((light.tokens, light.meta.scheme), (Tokens::LIGHT, Scheme::Light));
+    }
+
+    fn built_in_tokens(id: &str) -> Tokens {
+        parse(BUILT_IN.iter().find(|(b, _)| *b == id).unwrap().1, Source::BuiltIn).unwrap().tokens
+    }
+
+    #[test]
+    fn glass_keeps_text_readable_over_any_desktop_at_every_transparency() {
+        for (id, _) in BUILT_IN {
+            assert_glass_readable(&built_in_tokens(id), id);
+        }
+    }
+
+    #[test]
+    fn glass_keeps_text_readable_for_generated_themes() {
+        let mut seed = 0x9e3779b97f4a7c15u64;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed as u32) | 0xff
+        };
+        for ix in 0..300 {
+            let mut t = if ix % 2 == 0 { Tokens::DARK } else { Tokens::LIGHT };
+            for slot in [&mut t.text, &mut t.muted, &mut t.faint, &mut t.space_label, &mut t.accent, &mut t.page, &mut t.panel, &mut t.surface] {
+                *slot = next();
+            }
+            t.backdrop = Gradient { from: next(), to: next() & 0xffffff80 | 0x40, ..t.backdrop };
+            t.sidebar = Gradient { from: next() & 0xffffff00 | 0x90, to: next(), ..t.sidebar };
+            enforce_contrast(&mut t, if ix % 2 == 0 { Scheme::Dark } else { Scheme::Light });
+            assert_glass_readable(&t, &format!("generated {ix}"));
+        }
+    }
+
+    #[test]
+    fn glass_checks_text_on_the_bare_backdrop_over_a_light_desktop() {
+        let black = Gradient { from: 0x000000ff, to: 0x000000ff, ..Tokens::DARK.backdrop };
+        let classic = Tokens { backdrop: black, sidebar: black, text: 0xffffffff, ..Tokens::DARK };
+        let (t, _, effective) = glass(&classic, Glass { transparency: 100, ..Glass::default() }, Backing::Blurred);
+        assert!(effective > 0);
+        assert!(contrast(t.text, over(t.backdrop.from, 0xffffffff)) >= 4.5, "white text on the backdrop over a white desktop at {effective}");
+    }
+
+    fn assert_glass_readable(classic: &Tokens, id: &str) {
+        for transparency in [0, 50, 100] {
+            for blur in [false, true] {
+                for can in [Backing::Clear, Backing::Blurred] {
+                    let (mut t, backing, effective) = glass(classic, Glass { transparency, blur, corners: Corners::Round }, can);
+                    assert!(effective <= transparency, "{id}");
+                    assert_eq!((t.panel, t.surface), (classic.panel, classic.surface), "{id}: pop-up cards stay as Classic draws them");
+                    if effective == 0 {
+                        assert!(backing == Backing::Opaque && !t.see_through, "{id}");
+                        assert_eq!((t.text, t.backdrop), (classic.text, classic.backdrop), "{id}");
+                        continue;
+                    }
+                    assert!(t.see_through, "{id}");
+                    assert_eq!(backing, if blur && can == Backing::Blurred { Backing::Blurred } else { Backing::Clear });
+                    let backgrounds = t.text_backgrounds();
+                    for (name, floor) in FLOORS {
+                        let text = *text_slot(&mut t, name);
+                        for bg in &backgrounds {
+                            assert!(contrast(text, *bg) >= floor, "{id} {name} on {bg:08x} at {effective}");
+                        }
+                    }
+                    for bg in &backgrounds {
+                        assert!(contrast(t.accent_text(), *bg) >= ACCENT_TEXT_FLOOR, "{id} accent on {bg:08x}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn an_opaque_window_gets_corners_and_soft_edges_only() {
+        let classic = Tokens::DARK;
+        let (t, backing, effective) = glass(&classic, Glass { transparency: 100, blur: true, corners: Corners::Rounder }, Backing::Opaque);
+        assert_eq!((backing, effective, t.see_through), (Backing::Opaque, 0, false));
+        assert_eq!((t.backdrop, t.text, t.panel), (classic.backdrop, classic.text, classic.panel));
+        assert_eq!(t.radius, [10., 13., 16., 20., 22., 24.]);
+        assert_eq!(t.hairline & 0xff, (0x1f as f32 * 0.6).round() as u32);
+        assert_eq!(t.shadow, 1.15);
+        let (theme_corners, ..) = glass(&classic, Glass { corners: Corners::Theme, ..Glass::default() }, Backing::Opaque);
+        assert_eq!(theme_corners.radius, classic.radius);
+    }
+
+    #[test]
+    fn corners_never_shrink_a_themes_radii_and_stop_at_24() {
+        let hostile = Tokens { radius: [0., 40., 12., 14., 12., 16.], shadow: 1.5, ..Tokens::DARK };
+        let (t, ..) = glass(&hostile, Glass::default(), Backing::Opaque);
+        assert_eq!(t.radius, [8., 24., 14., 18., 20., 24.]);
+        assert_eq!(t.shadow, 1.5);
+    }
+
+    #[test]
+    fn tarn_dark_stays_see_through_at_full_transparency() {
+        let (_, backing, effective) = glass(&Tokens::DARK, Glass { transparency: 100, blur: true, corners: Corners::Round }, Backing::Blurred);
+        assert_eq!(backing, Backing::Blurred);
+        assert!(effective >= 20, "{effective}");
+    }
+
+    #[test]
+    fn a_hostile_theme_falls_back_to_opaque_rather_than_unreadable() {
+        let mixed = Tokens {
+            backdrop: Gradient { angle: 0., from: 0xffffffff, to: 0x000000ff },
+            sidebar: Gradient { angle: 0., from: 0xffffffff, to: 0x000000ff },
+            ..Tokens::DARK
+        };
+        let (t, backing, effective) = glass(&mixed, Glass { transparency: 100, blur: true, corners: Corners::Round }, Backing::Blurred);
+        if backing == Backing::Opaque {
+            assert_eq!((effective, t.see_through), (0, false));
+        } else {
+            let backgrounds = t.text_backgrounds();
+            assert!(backgrounds.iter().all(|bg| contrast(t.text, *bg) >= 4.5));
+        }
+    }
+
+    #[test]
+    fn parsing_never_makes_a_theme_see_through() {
+        for (id, _) in BUILT_IN {
+            assert!(!built_in_tokens(id).see_through, "{id}");
+        }
+        let p = parse("@tarn-theme { scheme: dark; } :root { --tarn-backdrop: #00000000; --tarn-see-through: true }", Source::Yours).unwrap();
+        assert!(!p.tokens.see_through);
     }
 
     #[test]

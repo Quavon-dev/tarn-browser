@@ -133,6 +133,13 @@ impl Theme {
     pub fn sidebar() -> Gradient {
         get(|t| gradient(t.sidebar.angle, t.sidebar.from, t.sidebar.to))
     }
+    /// The sidebar as Classic draws it, for a card over the page, where nothing may show through.
+    pub fn sidebar_solid() -> Gradient {
+        get(|t| {
+            let card = t.sidebar_card();
+            gradient(card.angle, card.from, card.to)
+        })
+    }
     pub fn sidebar_tinted(tint: Rgba) -> Gradient {
         let mix = |base: u32, t: f32| {
             let (base, t) = (rgba(base), t * tint.a);

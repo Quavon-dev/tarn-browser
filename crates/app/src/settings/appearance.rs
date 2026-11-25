@@ -493,6 +493,76 @@ impl SettingsWindow {
         self.report(saved, "Appearance reset to Tarn.", cx);
     }
 
+    pub(super) fn design_rows(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let core = crate::shared::core(cx);
+        let on = library::glass_on(&core.disk);
+        let glass = library::glass_settings(&core.disk);
+        let (reached, safe) = (core.themes.borrow().reached, core.themes.borrow().safe);
+        let mut rows = vec![
+            wide_row(
+                true,
+                text_block(
+                    "Design",
+                    if cfg!(target_os = "macos") {
+                        "Glass makes the window translucent over your desktop, with rounder, softer panels."
+                    } else {
+                        "Glass gives rounder, softer panels."
+                    },
+                ),
+                Self::picks("design", on, [("Classic", false), ("Glass", true)], library::set_glass_on, cx),
+            )
+            .into_any_element(),
+        ];
+        if !on {
+            return rows;
+        }
+        let corners = browser_core::theme::Corners::ALL.map(|c| (c.label(), c));
+        let corners =
+            wide_row(false, text_block("Corners", "How round panels and cards are."), Self::picks("corners", glass.corners, corners, library::set_corners, cx))
+                .into_any_element();
+        if !cfg!(target_os = "macos") {
+            rows.push(corners);
+            return rows;
+        }
+        let steps = library::TRANSPARENCY_STEPS.map(|v| (format!("{v} %"), v));
+        rows.push(
+            wide_row(
+                false,
+                text_block("Transparency", library::transparency_note(glass.transparency, reached, safe)),
+                Self::picks("transparency", glass.transparency, steps, library::set_transparency, cx),
+            )
+            .into_any_element(),
+        );
+        let blur = glass.blur;
+        rows.push(
+            switch_row("glass-blur", false, text_block("Blur behind the window", "Off shows the desktop sharp behind the window."), blur)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    let saved = library::set_blur(&crate::shared::core(cx).disk, !blur);
+                    this.report(saved, "", cx);
+                    this.appearance.message = this.appearance.message.take().filter(|(error, _)| *error);
+                }))
+                .into_any_element(),
+        );
+        rows.push(corners);
+        rows
+    }
+
+    fn picks<T: Copy + PartialEq + 'static, const N: usize>(
+        key: &'static str,
+        current: T,
+        choices: [(impl Into<SharedString>, T); N],
+        set: fn(&store::Store, T) -> Result<(), String>,
+        cx: &mut Context<Self>,
+    ) -> gpui::Div {
+        segmented().children(choices.into_iter().enumerate().map(|(ix, (label, value))| {
+            tab_stop(segment((key, ix), label, value == current)).on_click(cx.listener(move |this, _, _, cx| {
+                let saved = set(&crate::shared::core(cx).disk, value);
+                this.report(saved, "", cx);
+                this.appearance.message = this.appearance.message.take().filter(|(error, _)| *error);
+            }))
+        }))
+    }
+
     pub(super) fn search_effect_row(&self, first: bool, cx: &mut Context<Self>) -> gpui::Div {
         use browser_core::effects::Effect;
         let stored = library::chosen_effect(&crate::shared::core(cx).disk);
