@@ -8,6 +8,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Find in page marks every match and the current one in WebKit tabs on macOS and on iOS, and the find
+  bar says which match you are on ("3 of 12"), as Chromium tabs and Android already did; Linux shows
+  the number of matches. On macOS and Windows, reopening the find bar searches its text again and
+  switching tabs searches the new tab.
 - A video playing with sound moves into Picture in Picture when you switch to another tab, and
   back into its page when you return; a window you opened yourself in that tab stays.
   Settings › Tabs turns it off. macOS (WebKit tabs) and Windows.

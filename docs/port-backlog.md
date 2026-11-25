@@ -21,6 +21,20 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Find bar follows the tab (2026-11-25)
+
+What it does: with the find bar open, switching tabs removes the marks from the tab left and
+searches the bar's text in the new one, after its page has loaded when it was asleep.
+Shared API: the clients' existing `find` / `clear_find` (`clearFind`) operations.
+Reference: `crates/app/src/browser/views.rs` (`activate`) and the `find_after_load` handling in
+`crates/app/src/browser/events.rs`.
+
+- [ ] Linux — `linux/src/ui.rs`: on a tab switch with `ui.finding` set, `clear_find` the old tab and
+  `find_typed` the text in the new one.
+- [ ] iOS — `mobile/app/src/ui/panels.rs` (`find`): the same when the active tab changes while the
+  find panel shows.
+- [ ] Android — as iOS, shared `mobile/app` code.
+
 ### Picture in Picture on tab switch (2026-11-24)
 
 What it does: a video playing with sound moves into Picture in Picture when its tab leaves the

@@ -8,7 +8,8 @@ mod ext_view;
 mod extpage;
 #[cfg(target_os = "ios")]
 mod fetch;
-pub mod find;
+#[cfg(target_os = "ios")]
+mod find;
 #[cfg(target_os = "ios")]
 mod handler;
 #[cfg(target_os = "ios")]

@@ -50,7 +50,7 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | prop | `burstsOf` | string | The `tab` of the opener a popup tab came from: the view shares that tab's prompt and popup limits (S23). Linux only so far; iOS and Android still need it |
 | command | `back`, `forward`, `reload`, `stop` | none | |
 | command | `find` | `{text, backwards}` | Emits `found` |
-| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS hides WebKit's match marker (`_hideFindUI`, where the view responds to it) and keeps the last match selected, Android `clearMatches()`, which clears it (gap below). Emits nothing |
+| command | `clearFind` | none | Removes the highlight a `find` left, when the find bar closes or its text is emptied: iOS removes the marks (`clearAllDecoratedFoundText`; the current match was only marked, so nothing stays selected), Android `clearMatches()`, which clears it (gap below). Emits nothing |
 | prop | `dark` | bool | The colour scheme pages see (`prefers-color-scheme`), from the shell's theme, not the system's: iOS the web view's `overrideUserInterfaceStyle`, Android the theme of the context the WebView is made with (see the differences below). Default false |
 | prop | `splitLinks` | bool | Whether a link's long-press menu offers Open Link in Split View next to Open Link in New Tab (both take the pop-up checks of `popup`): true while the layout is wide enough for splits. iOS adds both to WebKit's menu (`webView:contextMenuConfigurationForElement:completionHandler:`), Android shows them as the WebView's context menu. Default false |
 | command | `answer` | `{id, accept, text?, user?, password?, silence?}` | Answers a `prompt`; an unanswered prompt is declined when the component is destroyed. `silence: true` ("Block requests from this page") declines it and every other pending prompt, and the page's later dialogs and permission requests, until its next navigation (S23). Linux only so far; iOS and Android still need it |
@@ -64,7 +64,7 @@ off at Lockdown, TLS errors are never bypassed, and there is no remote debugging
 | event | `popup` | `{url, link?, split?}` | A user-gesture popup allowed by `nav_policy`; the shell opens it as a new tab. `split` is true for Open Link in Split View, which puts the tab beside its opener while the layout shows splits. `link` (v3) is true for a link that opens a new window (iOS: `WKNavigationTypeLinkActivated`; Android: the tap's hit test is an anchor). As on macOS, only a link pop-up goes to the space a rule names, as a fresh tab without an opener; a script's `window.open` opens in the opener's space with `load.opener` |
 | event | `prompt` | `{id, kind, origin, topOrigin?, message?, default?, realm?, insecure?}` | `kind`: alert, confirm, text, camera, microphone, location, credentials |
 | event | `download` | `{state, name, path?, message?, url?, quarantined?}` | `state`: started, finished, failed; `finished` carries the download's `url` (without user name and password; empty for `blob:` and `data:` on iOS and Linux, which Android sends unchanged) and whether the file was marked with its origin (`quarantined`). Names are sanitised (`engine::downloads`); downloads are never opened automatically |
-| event | `found` | `{matched, current?}` | The number of matches, 0 for none; `current` (from 1) is the highlighted match, Android only (`browser_core::find::count_label` shows "1 of 2") |
+| event | `found` | `{matched, current?}` | The number of matches, 0 for none; `current` (from 1) is the highlighted match, on iOS and Android (`browser_core::find::count_label` shows "1 of 2") |
 | event | `history` | `{canGoBack, canGoForward}` | The back/forward list changed without a commit: a same-document navigation (`pushState`, a fragment). iOS observes `canGoBack`/`canGoForward`, Android sends it from `doUpdateVisitedHistory` |
 | event | `pressed` | none | A touch went down on the page; it still reaches the page. A split pane on a tablet takes the focus. iOS reports it from the component's view (`hitTest:withEvent:` for touches, not hover), Android from the web view's touch listener |
 | event | `crashed` | none | The content process ended; the shell reloads at most once per minute |
@@ -82,8 +82,10 @@ Platform differences left in the contract, and why:
   isolated world, times the boost WebKit's text autosizing gave the page's main paragraph, because
   `pageZoom` raises the page scale and autosizing then shrinks its boost) and the whole page on Linux, as a
   desktop browser does (`WebKitWebView` zoom level, like the macOS app);
-- `find` on iOS: WebKit finds from the page's selection, so a new text clears the selection first and
-  starts again at the first match; the same text steps from the current one, as Android's `findNext`;
+- `find` on iOS: WebKit's public `UITextSearching` collects every match of a new text, without case,
+  in page order; the component marks them all and the current one, scrolls to it and steps through
+  them for the same text, as Android's `findNext`. A Lockdown page is searched the same way, since
+  no script runs;
 - `dark` on Android: Android System WebView takes the page's colour scheme from the theme of the
   context the view is made with and offers no setter for it, so a theme change rebuilds an open
   view on its committed page, as after a crash; its back and forward list starts again. iOS

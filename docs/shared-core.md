@@ -30,14 +30,22 @@ Every shell's web view offers the same operations and reports the same events. T
   `dark` prop, iOS the view's `overrideUserInterfaceStyle`, Android the theme of the context the
   view is made with; Linux: the app's NSH colour scheme, which WebKitGTK takes from GTK's settings
   for every view at once, left on the system's while the theme follows the system);
-- `clear_find`: removes the highlight a `find` left, when the find bar closes or its text is
-  emptied, and keeps the last match selected, as in Safari (on macOS and iOS WebKit hides its match
-  marker with WKWebView's private `_hideFindUI`, called only where the view responds to it;
+- `clear_find`: removes the marks a `find` left, when the find bar closes or its text is
+  emptied, and keeps the last match selected, as in Safari (macOS WebKit with WKWebView's private
+  `_hideFindUI`, called only where the view responds to it; iOS `clearAllDecoratedFoundText`, where
+  the current match was only marked, never selected, and a commit or a rebuilt view drops the marks;
   Chromium stops finding and keeps the selection; Android's `clearMatches`, the only public way to
-  end a find, drops it, `docs/mobile-plan.md`); `find` reports the match count and, where the
-  engine says (Chromium), the highlighted match (NSH components: the `clearFind` command,
-  WebKitGTK `search_finish` on Linux, and `current` in `found` on
-  Android);
+  end a find, drops it, `docs/mobile-plan.md`); `find` marks every match, steps to the next or
+  previous one and reports the match count and the current match. The engine draws the marks, never
+  the page's DOM, so the page cannot read them: macOS WebKit through the private
+  `_findString:options:maxCount:` and `_findDelegate` (Safari's find), used only where the view
+  responds to both, otherwise the public `findString` with one mark and no current match; a new text
+  there first clears the page's selection, from which WebKit numbers the matches, which a Lockdown
+  page cannot run, so it reports the count only; iOS through the public `UITextSearching`
+  (`mobile/ios/src/find.rs`); Chromium and Android through their own find. WebKitGTK reports a
+  count only, so Linux shows no current match (`docs/nsh-plan.md`). NSH components: the
+  `clearFind` command, WebKitGTK `search_finish` on Linux, and `current` in `found` on iOS and
+  Android;
 - `find`, `print`, `snapshot_png`, `pdf`, `picture_in_picture` (`page_scripts::PipMode`: the user's
   toggle, or enter and exit when a tab with playing video leaves and returns to the screen); Linux has `print` (the GTK print
   dialog) and `pdf` with the absolute `path` the user picked in the save dialog, printed there by

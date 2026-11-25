@@ -327,8 +327,22 @@ impl Browser {
                 self.sleep_unless_playing(evicted, cx);
             }
         }
+        let waking = self.sleeping(key);
+        if switched && self.find_open {
+            if let Some(prev) = self.model.active.and_then(|p| self.views.get(&p)) {
+                prev.clear_find();
+            }
+            self.find_count = None;
+        }
         let view = self.wake(key, cx);
         self.model.active = Some(key);
+        if switched && self.find_open {
+            if waking {
+                self.find_after_load = Some(key);
+            } else {
+                self.find(false, cx);
+            }
+        }
         if let Some(view) = view {
             if fading {
                 view.raise();

@@ -22,6 +22,16 @@ pub fn count_label(count: Option<usize>, current: Option<usize>) -> String {
     }
 }
 
+/// The match after (or before) `at` among `count`, wrapping at either end, for an engine that
+/// steps through the matches it found itself.
+pub fn step(at: usize, count: usize, backwards: bool) -> usize {
+    match (count, backwards) {
+        (0, _) => 0,
+        (_, false) => (at + 1) % count,
+        (_, true) => at.checked_sub(1).filter(|p| *p < count).unwrap_or(count - 1),
+    }
+}
+
 /// How long the find bar waits after a keystroke before it searches.
 pub const TYPING_DELAY: std::time::Duration = std::time::Duration::from_millis(150);
 
@@ -54,6 +64,17 @@ mod tests {
         assert_eq!(count_label(Some(12), None), "12 matches");
         assert_eq!(count_label(Some(2), Some(1)), "1 of 2");
         assert_eq!(count_label(Some(0), Some(1)), "No matches");
+    }
+
+    #[test]
+    fn steps_wrap_both_ways() {
+        assert_eq!(step(0, 3, false), 1);
+        assert_eq!(step(2, 3, false), 0);
+        assert_eq!(step(1, 3, true), 0);
+        assert_eq!(step(0, 3, true), 2);
+        assert_eq!(step(7, 3, true), 2, "a match past the end steps back to the last");
+        assert_eq!(step(0, 0, false), 0);
+        assert_eq!(step(0, 0, true), 0);
     }
 
     #[test]

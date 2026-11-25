@@ -63,7 +63,11 @@ impl Browser {
                 self.probe_article(key, &url);
                 self.save_state(key);
                 self.after_load_devtools(key, &url);
-                if self.find_after_load.take_if(|k| *k == key).is_some() && self.find_open && self.model.active == Some(key) {
+                if self.find_after_load.take_if(|k| *k == key).is_some()
+                    && self.find_open
+                    && let Some(view) = self.active_view().filter(|_| self.model.active == Some(key))
+                {
+                    view.clear_find();
                     self.find(false, cx);
                 }
             }
@@ -638,16 +642,24 @@ impl Browser {
 
     /// In the reader, finds on the page it was made from, which the reader then gives way to.
     pub fn open_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.show_find(true, window, cx);
+    }
+
+    /// Opens the find bar; `search` runs its kept text again when the bar was closed.
+    pub(crate) fn show_find(&mut self, search: bool, window: &mut Window, cx: &mut Context<Self>) {
         if self.active_view().is_none() || self.card_open() || self.active_json().is_some() {
             return;
         }
         if self.reader_shown() {
             self.toggle_reader(window, cx);
         }
-        self.find_open = true;
+        let reopened = !std::mem::replace(&mut self.find_open, true);
         self.find_count = None;
         let text = self.find_input.read(cx).text().to_owned();
         self.find_input.update(cx, |i, cx| i.set_text(text, cx));
+        if reopened && search {
+            self.find(false, cx);
+        }
         if let Some(host) = &self.host {
             host.focus();
         }
