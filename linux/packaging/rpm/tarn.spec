@@ -1,5 +1,5 @@
 Name:           tarn
-Version:        0.1.6
+Version:        0.1.7
 Release:        1%{?dist}
 Summary:        Private web browser on the system WebKitGTK 6.0
 License:        GPL-3.0-or-later

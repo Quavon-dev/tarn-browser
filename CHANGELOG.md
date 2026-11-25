@@ -6,6 +6,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-11-25
+
 ### Added
 
 - Find in page marks every match and the current one in WebKit tabs on macOS and on iOS, and the find
@@ -890,7 +892,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.3...v0.1.4

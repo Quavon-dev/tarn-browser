@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.7" date="2026-11-25" type="development">
+      <description>
+        <p>Glass design, find in page that marks every match, a local AI agent that can browse in its own window, saved assistant chats, Picture in Picture on tab switch, client certificates, one-command installs and a portable Windows build.</p>
+      </description>
+    </release>
     <release version="0.1.6" date="2026-11-21" type="development">
       <description>
         <p>Fixes iOS release packaging and App Store Connect upload validation.</p>
