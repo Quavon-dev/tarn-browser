@@ -1,5 +1,7 @@
 use browser_core::theme::{Active, Selection};
-use gpui::{App, WindowAppearance};
+use std::sync::atomic::{AtomicU8, Ordering};
+
+use gpui::{App, WindowAppearance, WindowBackgroundAppearance};
 use ui::theme::Theme;
 
 use crate::shared::AppCore;
@@ -11,6 +13,8 @@ pub(crate) struct State {
     /// Shift was held at launch: the built-in theme shows, without page styles, until quit.
     pub safe: bool,
     pub system_light: bool,
+    pub reached: u8,
+    pub glass: bool,
 }
 
 pub(crate) fn merge_revocations(core: &AppCore, list: &shield::revocations::Revocations) -> bool {
@@ -28,10 +32,45 @@ pub(crate) fn apply(core: &AppCore, system_light: bool) {
     state.system_light = system_light;
     let active = browser_core::theme_library::current(&core.disk, system_light, state.safe);
     let p = &active.parsed;
-    Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
+    let can = if cfg!(target_os = "macos") { browser_core::theme::Backing::Blurred } else { browser_core::theme::Backing::Opaque };
+    let look = browser_core::theme_library::look(&core.disk, &active, state.safe, can);
+    Theme::set_tokens(look.tokens, p.meta.scheme, p.font.clone());
+    let backing = match look.window {
+        browser_core::theme::Backing::Opaque => OPAQUE,
+        browser_core::theme::Backing::Clear => CLEAR,
+        browser_core::theme::Backing::Blurred => BLURRED,
+    };
+    BACKING.store(backing, Ordering::Relaxed);
+    state.reached = look.transparency;
+    state.glass = browser_core::theme_library::glass_on(&core.disk);
     crate::prefs::apply_accent(&core.disk);
     Theme::set_search_effect(browser_core::theme_library::search_effect(&core.disk, &active));
     state.active = Some(active);
+}
+
+static BACKING: AtomicU8 = AtomicU8::new(OPAQUE);
+const OPAQUE: u8 = 0;
+const CLEAR: u8 = 1;
+const BLURRED: u8 = 2;
+
+pub(crate) fn window_background() -> WindowBackgroundAppearance {
+    match BACKING.load(Ordering::Relaxed) {
+        CLEAR => WindowBackgroundAppearance::Transparent,
+        BLURRED => WindowBackgroundAppearance::Blurred,
+        _ => WindowBackgroundAppearance::Opaque,
+    }
+}
+
+/// Deferred, as the caller may be inside the update of one of these windows.
+fn refresh(cx: &mut App) {
+    cx.defer(|cx| {
+        let shells =
+            cx.windows().into_iter().filter(|w| w.downcast::<crate::browser::Browser>().is_some() || w.downcast::<crate::settings::SettingsWindow>().is_some());
+        for handle in shells.collect::<Vec<_>>() {
+            handle.update(cx, |_, window, _| window.set_background_appearance(window_background())).ok();
+        }
+        cx.refresh_windows();
+    });
 }
 
 /// Applies the stored theme choice after it or a theme changed, and redraws every window. Pages
@@ -43,7 +82,7 @@ pub(crate) fn changed(cx: &mut App) {
     if !moved.is_empty() {
         crate::shared::each(cx, |b, window, cx| b.restart_views_of(&moved, true, window, cx));
     }
-    cx.refresh_windows();
+    refresh(cx);
 }
 
 /// Loads the theme and hands every open profile its sheets; returns the profiles whose sheets
@@ -77,7 +116,7 @@ pub(crate) fn enter_safe_mode(core: &AppCore, cx: &mut App) {
     if !moved.is_empty() {
         crate::shared::each(cx, |b, window, cx| b.restart_views_of(&moved, false, window, cx));
     }
-    cx.refresh_windows();
+    refresh(cx);
 }
 
 /// Called when macOS switches between light and dark: only a "Match system" choice follows it.

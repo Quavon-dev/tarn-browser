@@ -21,6 +21,19 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### See-through window for the Glass design (2026-11-25)
+
+What it does: with Settings › Appearance › Design on Glass, the window lets the desktop show
+through behind the sidebar and toolbar, as far as text stays readable.
+Shared API: `browser_core::theme_library::look` with the `Backing` the window can have.
+Reference: `crates/app/src/themes.rs` (`window_background`), `linux/src/browser/themes.rs`.
+
+- [ ] Windows — `crates/app/src/themes.rs` asks for `Backing::Opaque` off macOS; GPUI can give
+  acrylic (`Blurred`), which needs trying over CEF views before the transparency rows show there.
+- [ ] Android — `mobile/app/src/themes.rs` asks for `Backing::Opaque`; the activity could show the
+  wallpaper behind the chrome (`FLAG_SHOW_WALLPAPER`, blurred with `setBackgroundBlurRadius` on
+  API 31+), with `mobile/android` passing `Backing::Clear` or `Blurred` up.
+
 ### Picture in Picture on tab switch (2026-11-24)
 
 What it does: a video playing with sound moves into Picture in Picture when its tab leaves the

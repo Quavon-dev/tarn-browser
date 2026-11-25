@@ -8,6 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Glass design: Settings › Appearance › Design (or View › Glass Design, or the command palette)
+  switches from Classic to Glass, which works with any theme: the window turns translucent over
+  your desktop with rounder, softer panels. Transparency, blur behind the window and corner
+  roundness are adjustable; transparency is held back as far as needed to keep text readable on a
+  light and a dark desktop. Classic stays the default. Translucent with blur on macOS, translucent on
+  Linux where the desktop composites windows; rounder, softer panels only on Windows, iOS and
+  Android.
 - A video playing with sound moves into Picture in Picture when you switch to another tab, and
   back into its page when you return; a window you opened yourself in that tab stays.
   Settings › Tabs turns it off. macOS (WebKit tabs) and Windows.

@@ -100,7 +100,7 @@ actions!(
     ]
 );
 
-actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, OpenAppMenu]);
+actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, ToggleGlassDesign, OpenAppMenu]);
 actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
@@ -126,6 +126,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::TabsOnTop => &ToggleTabsOnTop,
         C::AutoHideSidebar => &ToggleAutoHideSidebar,
         C::CompactToolbar => &ToggleCompactToolbar,
+        C::GlassDesign => &ToggleGlassDesign,
         C::CloseAllTabs => &CloseAllTabs,
         C::ShowLibrary => &ToggleLibrary,
         C::SaveSnapshot => &library::SaveSnapshot,
@@ -444,6 +445,13 @@ impl Browser {
                 }))
             })
             .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
+            .on_action(cx.listener(|b, _: &ToggleGlassDesign, _, cx| {
+                let on = browser_core::theme_library::glass_on(&b.core.disk);
+                if let Err(e) = browser_core::theme_library::set_glass_on(&b.core.disk, !on) {
+                    b.show_toast_as(browser_core::toast::Tone::Warning, e, None, cx);
+                }
+                cx.defer(themes::changed);
+            }))
             .on_action(cx.listener(|b, _: &OpenAppMenu, window, cx| b.open_app_menu(window, cx)))
             .on_action(cx.listener(|b, _: &FocusNextRegion, w, cx| b.cycle_focus(false, w, cx)))
             .on_action(cx.listener(|b, _: &FocusPreviousRegion, w, cx| b.cycle_focus(true, w, cx)))

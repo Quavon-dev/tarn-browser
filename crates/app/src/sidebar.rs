@@ -214,10 +214,11 @@ fn mix(from: Option<Rgba>, to: Option<Rgba>, t: f32) -> Option<Rgba> {
     Some(Rgba { r: lerp(a.r, b.r), g: lerp(a.g, b.g), b: lerp(a.b, b.b), a: lerp(a.a, b.a) })
 }
 
-fn background(b: &Browser) -> Background {
+fn background(b: &Browser, card: bool) -> Background {
     let tint = |ix: usize| b.model.spaces.get(ix).and_then(space_tint);
     let (other, shown) = b.slide_other().map_or((None, 0.), |(ix, _, shown)| (tint(ix), shown));
-    mix(tint(b.model.space_ix), other, shown).map_or_else(Theme::sidebar, Theme::sidebar_tinted)
+    mix(tint(b.model.space_ix), other, shown)
+        .map_or_else(|| if card { Theme::sidebar_solid() } else { Theme::sidebar() }, |tint| Theme::sidebar_tinted(tint, card))
 }
 
 pub fn group_color(g: &Group) -> Rgba {
@@ -363,7 +364,7 @@ pub fn render(b: &mut Browser, cx: &mut Context<Browser>) -> AnyElement {
     if !cx.has_active_drag() {
         b.split_drop = None;
     }
-    let bg = background(b);
+    let bg = background(b, false);
     content(b, NOTCH_WIDTH + 10., cx)
         .relative()
         .w(px(b.sidebar_width))
@@ -411,7 +412,7 @@ fn resize_handle(cx: &mut Context<Browser>) -> impl IntoElement {
 /// visible above it. It slides in from the window's left edge and fully back out, fading as it goes.
 pub fn floating(b: &mut Browser, height: Pixels, closing: bool, cx: &mut Context<Browser>) -> AnyElement {
     let width = b.sidebar_width;
-    let bg = background(b);
+    let bg = background(b, true);
     let card = content(b, TILE_GAP + 4., cx)
         .absolute()
         .top_0()

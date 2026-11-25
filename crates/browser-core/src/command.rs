@@ -235,6 +235,7 @@ pub const GLYPHS: &[(&str, &str)] = &[
     ("Toggle Sidebar", "sidebar"),
     ("Auto-Hide Sidebar", "sidebar"),
     ("Compact Toolbar", "app-window"),
+    ("Glass Design", "sparkles"),
     ("Close All Tabs", "close"),
     ("Close Duplicate Tabs", "copy"),
     ("Close Split View", "close"),
@@ -783,6 +784,7 @@ mod tests {
             "Show Tabs in Sidebar",
             "Classic Toolbar",
             "Compact Toolbar",
+            "Glass Design",
             "Site Settings…",
         ];
         for label in labels {
