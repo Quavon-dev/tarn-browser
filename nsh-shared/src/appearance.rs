@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 use browser_core::effects::Effect;
 use browser_core::github::Hop;
 use browser_core::prefs::{self, ACCENTS, COMPACT, FEATURE_HINTS, REDUCE_MOTION, THEME_ACCENT};
-use browser_core::theme::{self, Origin, Scheme, Selection, Source, ThemeRef};
+use browser_core::theme::{self, Backing, Corners, Origin, Scheme, Selection, Source, ThemeRef};
 use browser_core::theme_fetch::{self as fetch, Pending, Release};
 use browser_core::theme_library::{self as library, Card};
 use nsh_base::input;
@@ -30,6 +30,9 @@ pub trait Host: Copy + 'static {
     fn desktop(self) -> bool;
     fn accent_and_motion(self) -> bool {
         false
+    }
+    fn backing(self) -> Backing {
+        Backing::Opaque
     }
 }
 
@@ -482,14 +485,52 @@ fn effect_row<H: Host>(pane: Pane<H>) -> View {
             (name.to_owned(), Box::new(move || effect == stored), Box::new(move || pane.quietly(pane.host.with_store(|s| library::set_effect(s, effect)))))
         })
         .collect();
-    view()
-        .flex_col()
-        .gap_2()
-        .px_3()
-        .py_2()
-        .child(label("Search bar effect"))
-        .child(small("Around the search field on the start page."))
-        .child(segmented(choices))
+    choice_row("Search bar effect", "Around the search field on the start page.", segmented(choices))
+}
+
+fn choice_row(title: &'static str, about: impl Into<SharedString>, choices: View) -> View {
+    view().flex_col().gap_2().px_3().py_2().child(label(title)).child(small(about)).child(choices)
+}
+
+fn picks<H: Host, T: Copy + PartialEq + 'static>(pane: Pane<H>, current: T, choices: &[(&str, T)], set: fn(&Store, T) -> Result<(), String>) -> View {
+    segmented(
+        choices
+            .iter()
+            .map(|&(name, value)| -> Segment {
+                (name.to_owned(), Box::new(move || value == current), Box::new(move || pane.quietly(pane.host.with_store(|s| set(s, value)))))
+            })
+            .collect(),
+    )
+}
+
+fn design_group<H: Host>(pane: Pane<H>) -> View {
+    let host = pane.host;
+    let backing = host.backing();
+    let (on, glass, reached) = host.with_store(|s| {
+        let active = library::current(s, host.system_light(), host.safe());
+        (library::glass_on(s), library::glass_settings(s), library::look(s, &active, host.safe(), backing).transparency)
+    });
+    let about = if backing == Backing::Opaque {
+        "Glass gives rounder, softer panels."
+    } else {
+        "Glass makes the window translucent over your desktop, with rounder, softer panels."
+    };
+    let mut rows = group().child(choice_row("Design", about, picks(pane, on, &[("Classic", false), ("Glass", true)], library::set_glass_on)));
+    if !on {
+        return rows;
+    }
+    if backing != Backing::Opaque {
+        let labels = library::TRANSPARENCY_STEPS.map(|v| format!("{v} %"));
+        let steps: Vec<(&str, u8)> = labels.iter().map(String::as_str).zip(library::TRANSPARENCY_STEPS).collect();
+        let note = library::transparency_note(glass.transparency, reached, host.safe());
+        rows = rows.child(choice_row("Transparency", note, picks(pane, glass.transparency, &steps, library::set_transparency)));
+    }
+    if backing == Backing::Blurred {
+        let blur = glass.blur;
+        rows = rows.child(switch_row("Blur behind the window", move || blur, move || pane.quietly(host.with_store(|s| library::set_blur(s, !blur)))));
+    }
+    let corners = Corners::ALL.map(|c| (c.label(), c));
+    rows.child(choice_row("Corners", "How round panels and cards are.", picks(pane, glass.corners, &corners, library::set_corners)))
 }
 
 fn pending_card<H: Host>(pane: Pane<H>) -> Option<View> {
@@ -598,6 +639,7 @@ fn body<H: Host>(pane: Pane<H>) -> View {
         } else {
             "Choose a theme to use it."
         })));
+    page = page.child(view().pt_4().pb_2().child(caps_label("Design"))).child(design_group(pane));
     if host.accent_and_motion() {
         page = page.child(view().pt_3().child(group().child(accent_row(pane))));
     }

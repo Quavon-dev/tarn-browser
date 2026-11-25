@@ -1307,6 +1307,19 @@ fn a_peek_reloads_at_a_stricter_level_and_closes_with_its_tab() {
 }
 
 #[test]
+fn the_glass_design_is_off_until_turned_on_and_stays_on() {
+    let (dir, mut b) = browser();
+    assert!(!browser_core::theme_library::glass_on(&b.core.disk));
+    b.toggle_glass_design();
+    b.apply_theme();
+    assert_eq!(b.core.disk.setting(browser_core::theme_library::DESIGN_SETTING).unwrap().as_deref(), Some("glass"), "the key the macOS client reads");
+    assert_eq!(b.themes.window, browser_core::theme::Backing::Opaque, "no display, so nothing to see through");
+    drop(b);
+    let b = Browser::open(dir.path());
+    assert!(browser_core::theme_library::glass_on(&b.core.disk));
+}
+
+#[test]
 fn compact_toolbar_and_auto_hide_sidebar_are_off_until_turned_on() {
     let (_dir, mut b) = browser();
     assert!(!b.compact_toolbar() && !b.auto_hide_sidebar());

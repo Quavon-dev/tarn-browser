@@ -441,6 +441,13 @@ These figures were measured with particles drawn as solid dots; since 2026-11-21
 glow (a radial gradient here, a blurred shadow on macOS and Windows), and Glow runs at 24 fps with
 a light running around the card instead of a ring pulsing at 8 fps; not yet measured again.
 
+The Glass design (Settings › Appearance › Design, or Glass Design in the command bar) asks the core for
+`Backing::Clear` while GDK reports a composited display and `Backing::Opaque` otherwise; with Clear the
+windows get NSH's `transparent` attribute and the theme's backdrop lets the desktop through, at the
+transparency the core keeps readable. Without a compositor only the rounder corners and softer edges
+apply, and Settings offers no Transparency. Gap: no blur behind the window, because GTK 4 and NSH have no
+API to ask for one; a compositor set to blur translucent windows on its own may still do it.
+
 ### Agent control on Linux
 
 `linux/src/ui/agent.rs` runs `browser_core::agent::control` over `engine::agent_socket::Server` (threat

@@ -67,6 +67,7 @@ pub enum Command {
     SetPinnedUrl,
     SleepOthers,
     StopLoading,
+    GlassDesign,
     ToastAction,
     Ask,
     AskPage,
@@ -134,6 +135,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         C::NewWindow => Command::NewWindow,
         C::FullScreen => Command::FullScreen,
         C::StopLoading => Command::StopLoading,
+        C::GlassDesign => Command::GlassDesign,
         C::ReloadFromOrigin => Command::Key(Action::ReloadFromOrigin),
         C::CloseWindow => Command::Key(Action::CloseWindow),
         C::KeyboardShortcuts => Command::Key(Action::ToggleShortcuts),
@@ -287,6 +289,10 @@ pub fn run(ui: Ui, command: Command) {
         Command::NewWindow => super::new_window(ui),
         Command::FullScreen => act(ui, Browser::toggle_full_screen),
         Command::StopLoading => act(ui, Browser::stop),
+        Command::GlassDesign => {
+            act(ui, Browser::toggle_glass_design);
+            super::themes_changed();
+        }
         Command::ToastAction => take_toast_action(ui),
         Command::Ask => super::assistant::open(ui, false),
         Command::AskPage => super::assistant::open(ui, true),

@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round",
     ),
     (
         SettingsPane::Tabs,
@@ -1017,6 +1017,8 @@ impl SettingsWindow {
             .child(section("Theme"))
             .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
             .child(self.theme_sections(window, cx))
+            .child(section("Design"))
+            .child(group().children(self.design_rows(cx)))
             .child(section("Motion"))
             .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
             .child(section("Tips"))

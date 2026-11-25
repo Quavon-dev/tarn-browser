@@ -2767,9 +2767,19 @@ pub fn refresh_panels() {
 pub fn themes_changed() {
     for ui in WINDOWS.with_borrow(Vec::clone) {
         act(ui, Browser::apply_theme);
+        match_backing(ui);
     }
     if let Some(ui) = WINDOWS.with_borrow(|w| w.first().copied()) {
         apply_color_scheme(ui, Theme::is_light());
+    }
+}
+
+fn match_backing(ui: Ui) {
+    let clear = read(ui, |b| b.themes.window != browser_core::theme::Backing::Opaque).unwrap_or_default();
+    if let Some(here) = WINDOW_REFS.with_borrow(|refs| refs.get(&ui.window).cloned()) {
+        let mut attributes = WindowAttributes::default();
+        attributes.transparent = Some(clear);
+        here.set(attributes);
     }
 }
 
@@ -3088,6 +3098,7 @@ fn browser_window(ui: Ui) -> AnyElement {
     let here = current_window();
     keep_placement(ui, here.clone());
     WINDOW_REFS.with_borrow_mut(|refs| refs.insert(ui.window, here.clone()));
+    match_backing(ui);
     here.on_focus_change(move |focused| {
         if focused {
             FOCUSED.with(|f| f.set(ui.window));
@@ -3138,7 +3149,10 @@ fn browser_window(ui: Ui) -> AnyElement {
     }
     effect(move || {
         let light = !dark();
-        untracked(|| act(ui, |b| b.follow_appearance(light)));
+        untracked(|| {
+            act(ui, |b| b.follow_appearance(light));
+            match_backing(ui);
+        });
     });
     effect(move || {
         let light = Theme::is_light();

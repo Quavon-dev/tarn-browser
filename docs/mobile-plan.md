@@ -838,6 +838,11 @@ loopback HTTPS server through a loopback proxy (an app built with `TARN_TEST_PRO
 the simulator's keychain; evidence in
 `mobile/evidence/themes-github/`. Android carries theme sheets in the page world, as it does
 site CSS (S28/S29).
+The Glass design (Settings › Appearance › Design; Glass Design in the command bar of the tablet's
+Mac layout) gives rounder corners and softer edges only: the core is asked for `Backing::Opaque`, so
+Settings offers Corners but no Transparency or Blur. Gap on iOS: a full-screen app has nothing of the
+home screen behind it, and the web views draw above the NSH views, so there is nothing to see through.
+Android could show the wallpaper instead (port backlog).
 
 ### Install script and portable build
 

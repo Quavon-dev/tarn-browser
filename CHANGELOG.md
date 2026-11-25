@@ -8,9 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
-- Liquid Glass themes: pick Liquid Glass or Liquid Glass Light in Settings › Appearance and the
-  sidebar and window background turn translucent in Tarn's blues, blurring the desktop behind
-  them, with rounder panels and lighter edges. On macOS.
+- Glass design: Settings › Appearance › Design (or View › Glass Design, or the command palette)
+  switches from Classic to Glass, which works with any theme: the window turns translucent over
+  your desktop with rounder, softer panels. Transparency, blur behind the window and corner
+  roundness are adjustable; transparency is held back as far as needed to keep text readable on a
+  light and a dark desktop. Classic stays the default. Translucent with blur on macOS, translucent on
+  Linux where the desktop composites windows; rounder, softer panels only on Windows, iOS and
+  Android.
 - Agent control: turn on Settings › AI › Let AI agents control Tarn and add Tarn to Claude Code or
   Codex (`tarn --mcp`), and the agent can browse for you in a window of its own that keeps nothing.
   You allow the agent (look only, or act), each site it uses and each click on a page holding a

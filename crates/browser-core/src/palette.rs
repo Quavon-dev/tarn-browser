@@ -66,6 +66,7 @@ pub enum Command {
     TabsOnTop,
     AutoHideSidebar,
     CompactToolbar,
+    GlassDesign,
     CloseAllTabs,
     ShowLibrary,
     SaveSnapshot,
@@ -123,7 +124,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 73] = [
+pub const COMMANDS: [(&str, &str, Command); 74] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -142,6 +143,7 @@ pub const COMMANDS: [(&str, &str, Command); 73] = [
     ("Tabs on Top", "layout strip horizontal sidebar", Command::TabsOnTop),
     ("Auto-Hide Sidebar", "floating", Command::AutoHideSidebar),
     ("Compact Toolbar", "toggle address", Command::CompactToolbar),
+    ("Glass Design", "liquid classic translucent transparent blur appearance look", Command::GlassDesign),
     ("Close All Tabs", "clear", Command::CloseAllTabs),
     ("Show Library", "bookmarks history", Command::ShowLibrary),
     ("Save Space as Snapshot", "session tabs save", Command::SaveSnapshot),

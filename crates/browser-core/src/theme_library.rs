@@ -5,11 +5,16 @@ use std::path::Path;
 use store::{Id, Store};
 
 use crate::effects::{Effect, chosen};
-use crate::theme::{self, Active, Origin, Scheme, Selection, Source, ThemeRef};
+use crate::prefs::Switch;
+use crate::theme::{self, Active, Backing, Corners, Glass, Origin, Scheme, Selection, Source, ThemeRef, Tokens};
 
 pub const REVOKED_SETTING: &str = "theme.revoked";
 pub const REVOKED_REPOS_SETTING: &str = "theme.revoked_repos";
 pub const SEARCH_EFFECT_SETTING: &str = "search_effect";
+pub const DESIGN_SETTING: &str = "design";
+pub const TRANSPARENCY_SETTING: &str = "design.transparency";
+pub const CORNERS_SETTING: &str = "design.corners";
+pub const GLASS_BLUR: Switch = Switch { key: "design.blur", default: true };
 
 pub fn revoked(store: &Store) -> String {
     store.setting(REVOKED_SETTING).ok().flatten().unwrap_or_default()
@@ -72,6 +77,65 @@ pub fn chosen_effect(store: &Store) -> Option<Effect> {
 
 pub fn set_effect(store: &Store, effect: Option<Effect>) -> Result<(), String> {
     store.set_setting(SEARCH_EFFECT_SETTING, effect.map_or("theme", Effect::name)).map_err(|e| e.to_string())
+}
+
+/// How the shell is drawn: the theme's tokens, how the window is backed and the transparency reached.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Look {
+    pub tokens: Tokens,
+    pub window: Backing,
+    pub transparency: u8,
+}
+
+pub fn glass_on(store: &Store) -> bool {
+    store.setting(DESIGN_SETTING).ok().flatten().as_deref() == Some("glass")
+}
+
+pub fn set_glass_on(store: &Store, on: bool) -> Result<(), String> {
+    store.set_setting(DESIGN_SETTING, if on { "glass" } else { "classic" }).map_err(|e| e.to_string())
+}
+
+pub fn glass_settings(store: &Store) -> Glass {
+    let default = Glass::default();
+    Glass {
+        transparency: store.setting(TRANSPARENCY_SETTING).ok().flatten().and_then(|v| v.parse::<u8>().ok()).map_or(default.transparency, |v| v.min(100)),
+        blur: GLASS_BLUR.on(store),
+        corners: store.setting(CORNERS_SETTING).ok().flatten().and_then(|v| Corners::parse(&v)).unwrap_or(default.corners),
+    }
+}
+
+/// The transparency choices offered in settings.
+pub const TRANSPARENCY_STEPS: [u8; 5] = [20, 40, 60, 80, 100];
+
+/// What settings say under the transparency choices once `reached` is known.
+pub fn transparency_note(requested: u8, reached: u8, safe: bool) -> String {
+    match reached {
+        _ if safe => "Safe mode keeps the window opaque until Tarn restarts.".to_owned(),
+        0 => "This theme's text cannot stay readable over the desktop, so the window stays opaque.".to_owned(),
+        r if r < requested => format!("Held at {r} % so text stays readable on light and dark desktops."),
+        _ => "How much of the desktop shows through.".to_owned(),
+    }
+}
+
+pub fn set_transparency(store: &Store, percent: u8) -> Result<(), String> {
+    store.set_setting(TRANSPARENCY_SETTING, &percent.min(100).to_string()).map_err(|e| e.to_string())
+}
+
+pub fn set_blur(store: &Store, on: bool) -> Result<(), String> {
+    if GLASS_BLUR.set(store, on) { Ok(()) } else { Err("The setting could not be saved.".to_owned()) }
+}
+
+pub fn set_corners(store: &Store, corners: Corners) -> Result<(), String> {
+    store.set_setting(CORNERS_SETTING, corners.name()).map_err(|e| e.to_string())
+}
+
+pub fn look(store: &Store, active: &Active, safe: bool, can: Backing) -> Look {
+    let tokens = active.parsed.tokens;
+    if safe || !glass_on(store) {
+        return Look { tokens, window: Backing::Opaque, transparency: 0 };
+    }
+    let (tokens, window, transparency) = theme::glass(&tokens, glass_settings(store), can);
+    Look { tokens, window, transparency }
 }
 
 pub fn pages_on(store: &Store, profile_id: Id) -> bool {
@@ -210,6 +274,9 @@ pub fn set_page_css(store: &Store, id: Id, on: bool) -> Result<(), String> {
 }
 
 pub fn reset(store: &Store) -> Result<(), String> {
+    for key in [DESIGN_SETTING, TRANSPARENCY_SETTING, CORNERS_SETTING, GLASS_BLUR.key] {
+        store.delete_setting(key).map_err(|e| e.to_string())?;
+    }
     Selection { dark: ThemeRef::DARK, light: ThemeRef::LIGHT, match_system: false }.save(store).map_err(|e| e.to_string())
 }
 
@@ -361,6 +428,55 @@ mod tests {
         assert_eq!(shown("a\u{202e}b\n  c\u{7}"), "ab c");
         assert_eq!((hex(0x1f75b0ff), hex(0x1f75b080)), ("#1f75b0".to_owned(), "#1f75b080".to_owned()));
         assert_eq!(badge("official:x"), "Official");
+    }
+
+    #[test]
+    fn the_design_defaults_round_trip_and_ignore_garbage() {
+        let (_d, s) = store();
+        assert_eq!((glass_on(&s), glass_settings(&s)), (false, Glass { transparency: 60, blur: true, corners: Corners::Round }));
+        set_glass_on(&s, true).unwrap();
+        set_transparency(&s, 250).unwrap();
+        set_blur(&s, false).unwrap();
+        set_corners(&s, Corners::Rounder).unwrap();
+        assert_eq!((glass_on(&s), glass_settings(&s)), (true, Glass { transparency: 100, blur: false, corners: Corners::Rounder }));
+        s.set_setting(TRANSPARENCY_SETTING, "300").unwrap();
+        assert_eq!(glass_settings(&s).transparency, 60);
+        s.set_setting(TRANSPARENCY_SETTING, "x").unwrap();
+        s.set_setting(CORNERS_SETTING, "square").unwrap();
+        s.set_setting(DESIGN_SETTING, "other").unwrap();
+        assert_eq!((glass_on(&s), glass_settings(&s).transparency, glass_settings(&s).corners), (false, 60, Corners::Round));
+    }
+
+    #[test]
+    fn look_is_classic_unless_glass_is_on_and_safe_mode_is_not() {
+        let (_d, s) = store();
+        let active = current(&s, false, false);
+        let classic = Look { tokens: active.parsed.tokens, window: Backing::Opaque, transparency: 0 };
+        assert_eq!(look(&s, &active, false, Backing::Blurred), classic);
+        set_glass_on(&s, true).unwrap();
+        assert_eq!(look(&s, &active, true, Backing::Blurred), classic);
+        let glassy = look(&s, &active, false, Backing::Blurred);
+        assert!(glassy.tokens.see_through && glassy.window == Backing::Blurred && glassy.transparency > 0);
+        assert_eq!(look(&s, &active, false, Backing::Opaque).window, Backing::Opaque);
+    }
+
+    #[test]
+    fn the_transparency_note_names_why_it_was_held() {
+        assert!(transparency_note(60, 0, true).starts_with("Safe mode"));
+        assert!(transparency_note(60, 0, false).contains("stays opaque"));
+        assert!(transparency_note(80, 40, false).starts_with("Held at 40 %"));
+        assert_eq!(transparency_note(60, 60, false), "How much of the desktop shows through.");
+    }
+
+    #[test]
+    fn reset_clears_the_design() {
+        let (_d, s) = store();
+        set_glass_on(&s, true).unwrap();
+        set_transparency(&s, 10).unwrap();
+        set_blur(&s, false).unwrap();
+        set_corners(&s, Corners::Theme).unwrap();
+        reset(&s).unwrap();
+        assert_eq!((glass_on(&s), glass_settings(&s)), (false, Glass::default()));
     }
 
     #[test]

@@ -52,6 +52,9 @@ impl Host for Looks {
     fn accent_and_motion(self) -> bool {
         true
     }
+    fn backing(self) -> browser_core::theme::Backing {
+        crate::browser::themes::desktop_backing()
+    }
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {

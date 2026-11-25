@@ -35,9 +35,10 @@ Tokens (defaults are Tarn's dark theme; a missing or invalid one keeps its defau
 | `--tarn-search-color` | a colour for the effect (its alpha is ignored); unset means the accent |
 | `--tarn-font` | an installed font family |
 
-A translucent `--tarn-backdrop` blurs the desktop through the window only for the built-in Liquid
-Glass themes, whose text is checked over a white and a black desktop; any other theme draws on an
-opaque window.
+No theme token makes the window see-through. The Glass design (Settings › Appearance › Design)
+does that for any theme, in `browser_core::theme::glass`, holding transparency back until every
+text colour stays readable over a white and a black desktop.
+
 `--tarn-danger`, `--tarn-warning` and `--tarn-success` are fixed for security and ignored.
 Website styles: `@media`, `@supports` and `@keyframes` (not in `*`); selectors with `:not`, `:is`,
 `:where`, `:has` (not nested, own and official themes only), `:nth-*`, `:lang`, `:dir`; values

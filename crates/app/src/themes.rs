@@ -1,5 +1,5 @@
 use browser_core::theme::{Active, Selection};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use gpui::{App, WindowAppearance, WindowBackgroundAppearance};
 use ui::theme::Theme;
@@ -13,6 +13,9 @@ pub(crate) struct State {
     /// Shift was held at launch: the built-in theme shows, without page styles, until quit.
     pub safe: bool,
     pub system_light: bool,
+    /// The Glass design's transparency after the readability limit.
+    pub reached: u8,
+    pub glass: bool,
 }
 
 pub(crate) fn merge_revocations(core: &AppCore, list: &shield::revocations::Revocations) -> bool {
@@ -30,19 +33,25 @@ pub(crate) fn apply(core: &AppCore, system_light: bool) {
     state.system_light = system_light;
     let active = browser_core::theme_library::current(&core.disk, system_light, state.safe);
     let p = &active.parsed;
-    Theme::set_tokens(p.tokens, p.meta.scheme, p.font.clone());
-    GLASS.store(cfg!(target_os = "macos") && matches!(active.id, browser_core::theme::ThemeRef::BuiltIn(_)) && p.tokens.translucent(), Ordering::Relaxed);
+    let can = if cfg!(target_os = "macos") { browser_core::theme::Backing::Blurred } else { browser_core::theme::Backing::Opaque };
+    let look = browser_core::theme_library::look(&core.disk, &active, state.safe, can);
+    Theme::set_tokens(look.tokens, p.meta.scheme, p.font.clone());
+    BACKING.store(look.window as u8, Ordering::Relaxed);
+    state.reached = look.transparency;
+    state.glass = browser_core::theme_library::glass_on(&core.disk);
     crate::prefs::apply_accent(&core.disk);
     Theme::set_search_effect(browser_core::theme_library::search_effect(&core.disk, &active));
     state.active = Some(active);
 }
 
-static GLASS: AtomicBool = AtomicBool::new(false);
+static BACKING: AtomicU8 = AtomicU8::new(0);
 
-/// Only built-in themes see through the window: their text is tested over any desktop. Windows
-/// keeps an opaque window until acrylic is tried over CEF views.
 pub(crate) fn window_background() -> WindowBackgroundAppearance {
-    if GLASS.load(Ordering::Relaxed) { WindowBackgroundAppearance::Blurred } else { WindowBackgroundAppearance::Opaque }
+    match BACKING.load(Ordering::Relaxed) {
+        1 => WindowBackgroundAppearance::Transparent,
+        2 => WindowBackgroundAppearance::Blurred,
+        _ => WindowBackgroundAppearance::Opaque,
+    }
 }
 
 /// Deferred, as the caller may be inside the update of one of these windows.
