@@ -997,7 +997,7 @@ impl Tokens {
         bases.dedup();
         let card = self.sidebar_card();
         let cards = [card.from, card.to];
-        bases.into_iter().flat_map(|base| layers.map(|bg| over(bg, base))).chain(cards).collect()
+        bases.iter().copied().chain(bases.iter().flat_map(|base| layers.map(|bg| over(bg, *base)))).chain(cards).collect()
     }
 
     /// The accent where it is text or a focus ring: the accent itself while it keeps
@@ -1570,6 +1570,15 @@ mod tests {
         }
     }
 
+    #[test]
+    fn glass_checks_text_on_the_bare_backdrop_over_a_light_desktop() {
+        let black = Gradient { from: 0x000000ff, to: 0x000000ff, ..Tokens::DARK.backdrop };
+        let classic = Tokens { backdrop: black, sidebar: black, text: 0xffffffff, ..Tokens::DARK };
+        let (t, _, effective) = glass(&classic, Glass { transparency: 100, ..Glass::default() }, Backing::Blurred);
+        assert!(effective > 0);
+        assert!(contrast(t.text, over(t.backdrop.from, 0xffffffff)) >= 4.5, "white text on the backdrop over a white desktop at {effective}");
+    }
+
     fn assert_glass_readable(classic: &Tokens, id: &str) {
         for transparency in [0, 50, 100] {
             for blur in [false, true] {
@@ -1624,7 +1633,7 @@ mod tests {
     fn tarn_dark_stays_see_through_at_full_transparency() {
         let (_, backing, effective) = glass(&Tokens::DARK, Glass { transparency: 100, blur: true, corners: Corners::Round }, Backing::Blurred);
         assert_eq!(backing, Backing::Blurred);
-        assert!(effective >= 40, "{effective}");
+        assert!(effective >= 20, "{effective}");
     }
 
     #[test]
