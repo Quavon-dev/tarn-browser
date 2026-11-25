@@ -37,10 +37,11 @@ pub enum Pref {
     AgentControl,
     AgentProfile,
     AgentTabs,
+    AutoPictureInPicture,
 }
 
 impl Pref {
-    pub const ALL: [Pref; 29] = [
+    pub const ALL: [Pref; 30] = [
         Pref::CompactToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
@@ -70,6 +71,7 @@ impl Pref {
         Pref::AgentControl,
         Pref::AgentProfile,
         Pref::AgentTabs,
+        Pref::AutoPictureInPicture,
     ];
 
     pub(crate) fn key(self) -> &'static str {
@@ -103,6 +105,7 @@ impl Pref {
             Pref::AgentControl => browser_core::agent::SETTING,
             Pref::AgentProfile => browser_core::agent::SETTING_PROFILE,
             Pref::AgentTabs => browser_core::agent::SETTING_TABS,
+            Pref::AutoPictureInPicture => browser_core::prefs::AUTO_PICTURE_IN_PICTURE.key,
         }
     }
 
@@ -124,6 +127,7 @@ impl Pref {
                 | Pref::LocalhostFromApps
                 | Pref::Passkeys
                 | Pref::FeatureHints
+                | Pref::AutoPictureInPicture
         )
     }
 
@@ -513,6 +517,7 @@ mod tests {
             (Pref::TearOffTemporary, prefs::TEAR_OFF_TEMPORARY),
             (Pref::FeatureHints, prefs::FEATURE_HINTS),
             (Pref::CompactDensity, prefs::COMPACT),
+            (Pref::AutoPictureInPicture, prefs::AUTO_PICTURE_IN_PICTURE),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

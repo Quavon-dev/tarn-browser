@@ -15,6 +15,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   light and a dark desktop. Classic stays the default. Translucent with blur on macOS, translucent on
   Linux where the desktop composites windows; rounder, softer panels only on Windows, iOS and
   Android.
+- A video playing with sound moves into Picture in Picture when you switch to another tab, and
+  back into its page when you return; a window you opened yourself in that tab stays.
+  Settings › Tabs turns it off. macOS (WebKit tabs) and Windows.
 - Agent control: turn on Settings › AI › Let AI agents control Tarn and add Tarn to Claude Code or
   Codex (`tarn --mcp`), and the agent can browse for you in a window of its own that keeps nothing.
   You allow the agent (look only, or act), each site it uses and each click on a page holding a
@@ -132,6 +135,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Less memory with many tabs on macOS and iOS, without sleeping any sooner: a WebKit tab off screen
+  for a minute or two ends the web processes WebKit keeps for its earlier pages. The page you left,
+  what you typed into it and its history stay; Back loads the earlier page again instead of showing
+  it instantly. Back, Forward or Reload to a page a form was sent for asks before sending the form again
+  (Send Again or Cancel); a page's script or a swipe never sends it.
 - Less work while idle, for battery, on every client: the start page's fog and search bar effect
   hold their frame after a minute without input in the window, stop their timers, and move on from
   that frame at the next input; while Tarn is not the active app it no longer checks every two

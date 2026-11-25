@@ -196,6 +196,10 @@ impl WebView {
         self.view.process_id()
     }
 
+    /// Chromium evicts its own back/forward cache under memory pressure and after a timeout; CEF
+    /// cannot flush one browser's.
+    pub fn drop_back_forward_cache(&self) {}
+
     pub fn is_muted(&self) -> bool {
         self.view.is_muted()
     }
@@ -228,8 +232,8 @@ impl WebView {
         self.view.pdf(done);
     }
 
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        self.view.picture_in_picture(done);
+    pub fn picture_in_picture(&self, mode: crate::page_scripts::PipMode, done: impl Fn(String) + 'static) {
+        self.view.picture_in_picture(mode, done);
     }
 
     pub fn title(&self) -> String {

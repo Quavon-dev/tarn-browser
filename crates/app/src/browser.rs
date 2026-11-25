@@ -379,6 +379,7 @@ pub struct Browser {
     pub(crate) launcher_from: Option<TabKey>,
     pub(crate) menu_open: bool,
     pub(crate) seen: HashMap<TabKey, Instant>,
+    pub(crate) back_forward: engine::lifecycle::BackForwardTrim<TabKey>,
     /// Awake tabs whose page last said it was playing, and the background tabs marked heavy.
     pub(crate) playing: HashSet<TabKey>,
     pub(crate) heavy: Vec<TabKey>,
@@ -606,6 +607,7 @@ impl Browser {
             launcher_from: None,
             menu_open: false,
             seen: HashMap::new(),
+            back_forward: Default::default(),
             playing: HashSet::new(),
             typed_in: HashSet::new(),
             heavy: Vec::new(),

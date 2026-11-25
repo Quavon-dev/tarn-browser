@@ -250,6 +250,13 @@ impl WebView {
         both!(self, v => v.process_id())
     }
 
+    /// Ends the processes kept for the view's earlier pages; the shown page and its history stay.
+    /// Chromium evicts its own back/forward cache under memory pressure and after a timeout, and CEF
+    /// cannot flush one browser's.
+    pub fn drop_back_forward_cache(&self) {
+        webkit_only!(self, v => v.drop_back_forward_cache(), ())
+    }
+
     pub fn set_muted(&self, muted: bool) {
         both!(self, v => v.set_muted(muted))
     }
@@ -277,8 +284,8 @@ impl WebView {
         webkit_only!(self, v => v.set_passkeys(on), ())
     }
 
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        webkit_only!(self, v => v.picture_in_picture(done), done("refused".into()))
+    pub fn picture_in_picture(&self, mode: crate::page_scripts::PipMode, done: impl Fn(String) + 'static) {
+        webkit_only!(self, v => v.picture_in_picture(mode, done), done("refused".into()))
     }
 
     pub fn title(&self) -> String {

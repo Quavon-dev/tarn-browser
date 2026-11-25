@@ -320,9 +320,13 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   and defaults from `browser_core::settings`; Never stops idle sleeping and the memory budget,
   short of memory too.
   Evidence: `linux/evidence/parity-sleeping-tabs.png`.
-- Picture in Picture (macOS command and `⌘⌃P`) has no Linux command. Gap: WebKitGTK has no
-  Picture-in-Picture; WebKit's video presentation mode exists only on its Cocoa ports, and the
-  pinned `webkit6` 0.6.1 has no API for it.
+- A background tab off screen for a minute or two drops the processes WebKit keeps for its earlier
+  pages on macOS and iOS (`engine::lifecycle::BackForwardTrim`). Gap: WebKitGTK has no call to drop
+  one view's back/forward cache, so a Linux tab keeps them until it sleeps.
+- Picture in Picture (macOS command and `⌘⌃P`, and its automatic move when a tab with playing video
+  leaves the screen) has no Linux counterpart. Gap: WebKitGTK has no Picture-in-Picture; WebKit's
+  video presentation mode exists only on its Cocoa ports, and the pinned `webkit6` 0.6.1 has no API
+  for it.
 - Links from other apps: a launch that reaches the running Tarn before its first window opens is
   lost. Gap: NSH 0.5's `command-line` handler (nsh-platform-linux `app.rs`) forwards only URLs of
   the app's own `schemes` while no window is shown and emits no `SecondInstance` for it; Tarn

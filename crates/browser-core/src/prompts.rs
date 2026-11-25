@@ -23,6 +23,9 @@ pub fn restart(since: &mut Instant, rest: Instant) {
 /// Permission kinds a profile can remember per origin.
 pub const PERMISSIONS: [&str; 3] = ["camera", "microphone", "location"];
 
+/// After the origin of the page a form was sent to, when Back or Forward would send it again.
+pub const RESEND_ASK: &str = "would get your form again";
+
 pub fn meaning(kind: &str) -> Option<&'static str> {
     Some(match kind {
         "camera" => "The site sees your camera while this tab uses it.",
@@ -34,6 +37,7 @@ pub fn meaning(kind: &str) -> Option<&'static str> {
         "certificate" => "The certificate you pick goes to this site only and tells it who you are.",
         "extension" => "The extension can read and change pages on this site.",
         "malicious download" => "The file comes from a site on the malware list.",
+        "resend form" => "This page came from a form you sent, such as an order or a message. Showing it again sends the form again.",
         "external" => "Tarn hands the link to the app that opens it.",
         _ => return None,
     })
@@ -63,6 +67,7 @@ impl Prompt {
             },
             "camera+microphone" | "camera and microphone" => "wants to use your camera and microphone".to_owned(),
             "certificate" => "asks for a certificate to identify you".to_owned(),
+            "resend form" => RESEND_ASK.to_owned(),
             kind => format!("wants to use your {kind}"),
         }
     }
@@ -193,6 +198,8 @@ mod tests {
         assert_eq!(ask("credentials", Some("")), "asks you to sign in");
         assert_eq!(ask("credentials", Some("Admin")), "asks you to sign in (Admin)");
         assert_eq!(ask("certificate", None), "asks for a certificate to identify you");
+        assert_eq!(ask("resend form", None), RESEND_ASK, "Tarn asks, not the page");
+        assert!(meaning("resend form").is_some_and(|m| m.contains("sends the form again")));
         assert!(ask("credentials", Some(&"r".repeat(5000))).len() < 600);
     }
 }

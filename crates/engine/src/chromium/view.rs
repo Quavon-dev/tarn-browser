@@ -2295,8 +2295,27 @@ impl WebView {
         }
     }
 
-    pub fn picture_in_picture(&self, done: impl Fn(String) + 'static) {
-        self.run_isolated_as_gesture(crate::page_scripts::PICTURE_IN_PICTURE, true, done);
+    /// Only entering needs the user's gesture, which the page shares: the automatic `Enter` lends
+    /// it only once a check without one found a video to take, and `Exit` lends none. The automatic
+    /// modes run no script of Tarn's under Lockdown.
+    pub fn picture_in_picture(&self, mode: crate::page_scripts::PipMode, done: impl Fn(String) + 'static) {
+        use crate::page_scripts::{PipMode, picture_in_picture_ready_script, picture_in_picture_script};
+        if mode != PipMode::Toggle && self.lockdown_view() {
+            return done("refused".into());
+        }
+        if mode != PipMode::Enter {
+            return self.run_isolated_as_gesture(&picture_in_picture_script(mode), mode == PipMode::Toggle, done);
+        }
+        let (inner, done) = (Rc::downgrade(&self.0), Rc::new(done));
+        self.run_isolated(&picture_in_picture_ready_script(), move |answer| match (answer.as_str(), inner.upgrade()) {
+            // Back on screen before the check answered: no gesture for a video that stays inline.
+            ("ready", Some(inner)) if inner.visible.get() => done("none".into()),
+            ("ready", Some(inner)) => {
+                let done = done.clone();
+                WebView(inner).run_isolated_as_gesture(&picture_in_picture_script(PipMode::Enter), true, move |a| done(a));
+            }
+            _ => done(answer),
+        });
     }
 
     /// The visible page as PNG, scaled to `width` points when given.

@@ -34,6 +34,34 @@ Reference: `crates/app/src/themes.rs` (`window_background`), `linux/src/browser/
   wallpaper behind the chrome (`FLAG_SHOW_WALLPAPER`, blurred with `setBackgroundBlurRadius` on
   API 31+), with `mobile/android` passing `Backing::Clear` or `Blurred` up.
 
+### Picture in Picture on tab switch (2026-11-24)
+
+What it does: a video playing with sound moves into Picture in Picture when its tab leaves the
+screen, and back into the page when the tab returns; on by default, a switch in Settings › Tabs.
+Shared API: `browser_core::prefs::AUTO_PICTURE_IN_PICTURE`, `browser_core::media::AutoPip`,
+`engine::page_scripts::picture_in_picture_script(PipMode)`.
+Reference: `crates/app/src/mini_player.rs` (`settle_screen`, called on every render from
+`crates/app/src/content.rs`), which hands the tabs on screen to `AutoPip::screen`. Linux and
+Android are gaps (`docs/nsh-plan.md`, `docs/mobile-plan.md`).
+
+- [ ] iOS — a `pictureInPicture` command on the `tarn.webview` component in `mobile/ios` running
+  the script for `Enter`/`Exit` (WKWebView with `allowsPictureInPictureMediaPlayback`), called by
+  `mobile/app` when a tab leaves or returns to the screen, and the Settings switch.
+
+### Ask before sending a form again (2026-11-24)
+
+What it does: the user's own Back, Forward or Reload to a page a form was sent for, no longer kept, asks
+"would get your form again" with Send Again or Cancel instead of sending the form (an order, a
+message) silently; a page's `history.back()` never sends it and shows `nav_policy::RESEND_STOPPED`.
+Shared API: `engine::PromptKind::ResendForm`, `browser_core::prompts::RESEND_ASK` and
+`meaning("resend form")`.
+Reference: `crates/engine/src/delegates.rs` (`ask_to_resend`), `crates/app/src/content.rs`,
+`mobile/ios/src/handler.rs`, `mobile/app/src/ui/prompt.rs`. Windows (Chromium) shows its own
+resubmission page; Android's WebView never sends the form again.
+
+- [ ] Linux — hold the `NavigationType::FormResubmitted` decision in `linux/src/webview/mod.rs`
+  (`allow_navigation`) behind a `resend form` prompt in `linux/src/browser`.
+
 ### Agent control in the user's profile or tabs (2026-11-24)
 
 What it does: two more opt-in settings in Settings › AI let the user approve an agent to open its

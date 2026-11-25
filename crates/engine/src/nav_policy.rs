@@ -244,6 +244,10 @@ pub fn into_private_network(target: &Url, from: Option<&Url>, user_started: bool
     !user_started && block_private_network && shield::rules::local_target(target) && !from.is_some_and(local_page)
 }
 
+/// The notice when a form would be sent again without the user's own Back, Forward or Reload; a
+/// page's script or a swipe does not count.
+pub const RESEND_STOPPED: &str = "A form was not sent again. Use Back, Forward or Reload to be asked whether to send it.";
+
 /// The notice for a navigation `into_private_network` refused; shells offer to open it anyway.
 pub const LOCAL_NETWORK_BLOCKED: &str = "An address on your local network was blocked.";
 

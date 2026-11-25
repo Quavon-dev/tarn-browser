@@ -404,8 +404,9 @@ impl Browser {
         link: Option<Option<Url>>,
         cx: &mut Context<Self>,
     ) {
-        if self.model.tab(key).is_some() && self.views.remove(&key).is_some() {
+        if self.model.tab(key).is_some() && self.views.contains_key(&key) {
             self.forget_media(key);
+            self.views.remove(&key);
             // The old view's last events are dropped; the new one says when its load starts.
             let page = self.pages.entry(key).or_default();
             page.loading = false;
@@ -553,7 +554,13 @@ impl Browser {
         match (accept, silence) {
             (_, true) => {
                 prompt.decline_and_silence_page();
-                self.drop_prompts(key, cx);
+                let queue = self.prompts.get_mut(&key);
+                if queue.is_none_or(|q| {
+                    q.retain(|p| p.kind == PromptKind::ResendForm);
+                    q.is_empty()
+                }) {
+                    self.drop_prompts(key, cx);
+                }
             }
             (true, _) => {
                 let text = self.prompt_input.read(cx).text().to_owned();
@@ -609,12 +616,12 @@ impl Browser {
         }
     }
 
-    /// A permission prompt's Allow and Remember, Keep Anyway on a malware warning and a certificate choice ignore clicks for a
+    /// A permission prompt's Allow and Remember, Keep Anyway on a malware warning, Send Again on a form resend and a certificate choice ignore clicks for a
     /// moment after they appear, so a page cannot time a click to land on them.
     pub(crate) fn prompt_guarded(&self) -> bool {
-        self.active_prompt()
-            .is_some_and(|p| p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. } | PromptKind::ClientCertificate { .. }))
-            && !self.layout_stable()
+        self.active_prompt().is_some_and(|p| {
+            p.kind.is_permission() || matches!(p.kind, PromptKind::MaliciousDownload { .. } | PromptKind::ResendForm | PromptKind::ClientCertificate { .. })
+        }) && !self.layout_stable()
     }
 
     pub(super) fn on_prompt_input_event(&mut self, input: &Entity<TextInput>, event: &TextInputEvent, window: &mut Window, cx: &mut Context<Self>) {
