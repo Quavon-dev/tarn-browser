@@ -242,7 +242,7 @@ impl Browser {
                 .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
-        if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
+        if !self.page_fullscreen_holds() {
             self.leave_page_fullscreen(window);
         }
         if let Some(view) = self.active_view().filter(|v| self.page_fullscreen.is_on() && !v.owns_fullscreen_window()) {

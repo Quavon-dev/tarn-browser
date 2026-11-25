@@ -307,17 +307,21 @@ impl Browser {
     /// full screen; leaving restores the window as it was. A page in the engine's own full-screen
     /// window leaves the shell's window as it is.
     pub(super) fn set_page_fullscreen(&mut self, key: TabKey, on: bool, window: &mut Window) {
-        if self.model.active != Some(key) {
-            return;
-        }
+        let Some(view) = self.views.get(&key).cloned() else { return };
         if !on {
-            // A full screen the shell already ended in the engine's own window comes back only now.
-            if !self.page_fullscreen.is_on() && self.active_view().is_some_and(|v| v.owns_fullscreen_window()) {
+            // The shell's controls are on screen again only once the engine's own window closes.
+            if view.owns_fullscreen_window() {
                 self.layout_changed();
             }
-            return self.leave_page_fullscreen(window);
+            if self.model.active == Some(key) {
+                self.leave_page_fullscreen(window);
+            }
+            return;
         }
-        let Some(view) = self.views.get(&key).cloned() else { return };
+        // Only the active tab's page may cover the shell, as a split pane not yet focused may try.
+        if self.model.active != Some(key) {
+            return view.exit_fullscreen();
+        }
         // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
         let prompt = self.active_prompt().is_some();
         let Some(entered) = self.page_fullscreen.enter(prompt, view.owns_fullscreen_window() || window.is_fullscreen()) else {
@@ -329,8 +333,10 @@ impl Browser {
         if entered {
             window.toggle_fullscreen();
         }
-        view.set_corner_radius(0.);
-        view.raise();
+        if !view.owns_fullscreen_window() {
+            view.set_corner_radius(0.);
+            view.raise();
+        }
         self.layout_changed();
     }
 
@@ -349,15 +355,19 @@ impl Browser {
     }
 
     /// Gives the window back its sidebar, toolbar and size: when the page leaves full screen, and
-    /// when a prompt, another tab or a crash needs the shell. The page itself may stay full screen
-    /// inside the tab until it is put away.
+    /// when a prompt, another tab or a crash needs the shell. A Chromium page may stay full screen
+    /// inside the tab until it is put away; WebKit's own full-screen window is closed even when the
+    /// shell never took it as the page's full screen.
     pub(crate) fn leave_page_fullscreen(&mut self, window: &mut Window) {
+        let view = self.active_view();
+        if let Some(view) = &view {
+            view.exit_fullscreen();
+        }
         let Some(entered) = self.page_fullscreen.leave() else { return };
         if entered && window.is_fullscreen() {
             window.toggle_fullscreen();
         }
-        if let Some(view) = self.active_view() {
-            view.exit_fullscreen();
+        if let Some(view) = view {
             view.set_corner_radius(page_corner());
         }
         self.layout_changed();
