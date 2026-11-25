@@ -205,8 +205,9 @@ pub(crate) struct DelegateState {
     pub assistant_menu: RefCell<Option<Vec<String>>>,
     /// The text of the running find and where its results go (`WebView::find`).
     pub found: RefCell<Option<(String, Found)>>,
-    /// Restarts of a new find still clearing the selection; a step meanwhile would start from the old one.
-    pub find_restarts: Cell<u32>,
+    /// The last restart of a new find, and whether it is still clearing the selection; a step
+    /// meanwhile would start from the old selection.
+    pub find_restart: Cell<(u64, bool)>,
 }
 
 pub(crate) type Found = Rc<dyn Fn(usize, Option<usize>)>;
@@ -249,7 +250,7 @@ impl DelegateState {
             split_link: Cell::new(None),
             assistant_menu: RefCell::default(),
             found: RefCell::default(),
-            find_restarts: Cell::new(0),
+            find_restart: Cell::new((0, false)),
         }
     }
 }

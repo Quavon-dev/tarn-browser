@@ -336,8 +336,8 @@ impl Browser {
         }
         let view = self.wake(key, cx);
         self.model.active = Some(key);
-        if switched && self.find_open {
-            if waking {
+        if switched && self.find_open && self.active_json().is_none() && !self.reader_shown() {
+            if waking || self.pages.get(&key).is_some_and(|p| p.loading) {
                 self.find_after_load = Some(key);
             } else {
                 self.find(false, cx);

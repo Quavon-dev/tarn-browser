@@ -83,7 +83,7 @@ Platform differences left in the contract, and why:
   `pageZoom` raises the page scale and autosizing then shrinks its boost) and the whole page on Linux, as a
   desktop browser does (`WebKitWebView` zoom level, like the macOS app);
 - `find` on iOS: WebKit's public `UITextSearching` collects every match of a new text, without case,
-  in page order; the component marks them all and the current one, scrolls to it and steps through
+  in the order WebKit reports them; the component marks them all and the current one, scrolls to it and steps through
   them for the same text, as Android's `findNext`. A Lockdown page is searched the same way, since
   no script runs;
 - `dark` on Android: Android System WebView takes the page's colour scheme from the theme of the

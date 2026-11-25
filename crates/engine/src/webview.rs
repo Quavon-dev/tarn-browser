@@ -423,7 +423,7 @@ impl WebView {
             let found: Found = if lockdown { Rc::new(move |count, _| found(count, None)) } else { Rc::new(found) };
             let state = objc2::DefinedClass::ivars(&*self._delegate);
             let fresh = state.found.replace(Some((text.to_owned(), found))).is_none_or(|(old, _)| old != text);
-            if !fresh && state.find_restarts.get() > 0 {
+            if !fresh && state.find_restart.get().1 {
                 return;
             }
             // `_WKFindOptions`: CaseInsensitive, WrapAround, ShowOverlay, ShowFindIndicator, ShowHighlight, DetermineMatchIndex; Backwards.
@@ -441,12 +441,14 @@ impl WebView {
                 }
             };
             if fresh && !lockdown {
-                let restarts = Weak::from_retained(&self._delegate);
-                state.find_restarts.set(state.find_restarts.get() + 1);
+                let (restarting, id) = (Weak::from_retained(&self._delegate), state.find_restart.get().0 + 1);
+                state.find_restart.set((id, true));
                 return self.run_isolated(crate::page_scripts::FIND_RESTART, move |_| {
-                    if let Some(delegate) = restarts.load() {
-                        let left = &objc2::DefinedClass::ivars(&*delegate).find_restarts;
-                        left.set(left.get().saturating_sub(1));
+                    if let Some(delegate) = restarting.load() {
+                        let restart = &objc2::DefinedClass::ivars(&*delegate).find_restart;
+                        if restart.get().0 == id {
+                            restart.set((id, false));
+                        }
                     }
                     search();
                 });
@@ -480,7 +482,9 @@ impl WebView {
 
     /// Hides the marker a find left; the match stays selected, as in Safari.
     pub fn clear_find(&self) {
-        objc2::DefinedClass::ivars(&*self._delegate).found.take();
+        let state = objc2::DefinedClass::ivars(&*self._delegate);
+        state.found.take();
+        state.find_restart.set((state.find_restart.get().0, false));
         // WebKit has no public way to hide the match's marker; its private `_hideFindUI` does where it exists.
         if self.view.respondsToSelector(sel!(_hideFindUI)) {
             // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.

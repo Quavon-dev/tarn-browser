@@ -9,7 +9,12 @@ impl Browser {
             _ => {}
         }
         match event {
-            Event::Loading(on) => self.pages.entry(key).or_default().loading = on,
+            Event::Loading(on) => {
+                self.pages.entry(key).or_default().loading = on;
+                if !on {
+                    self.find_loaded(key, cx);
+                }
+            }
             Event::LinkHovered(link) => return self.link_hovered(key, link.as_deref(), cx),
             Event::AssistantSelection(command) => return self.ask_selection(key, command, cx),
             Event::Committed { url, title, can_go_back, can_go_forward } => {
@@ -63,13 +68,7 @@ impl Browser {
                 self.probe_article(key, &url);
                 self.save_state(key);
                 self.after_load_devtools(key, &url);
-                if self.find_after_load.take_if(|k| *k == key).is_some()
-                    && self.find_open
-                    && let Some(view) = self.active_view().filter(|_| self.model.active == Some(key))
-                {
-                    view.clear_find();
-                    self.find(false, cx);
-                }
+                self.find_loaded(key, cx);
             }
             Event::Blocked { url, message, category } => {
                 suggest::typed_visit(&mut self.pages.entry(key).or_default().typed, url.as_str());
@@ -124,6 +123,7 @@ impl Browser {
                 if !IGNORED_LOAD_ERRORS.contains(&code) {
                     page.error = Some(message);
                 }
+                self.find_loaded(key, cx);
             }
             Event::TitleChanged(title) => {
                 let unchanged = self.model.tab(key).is_some_and(|t| t.title == title);
@@ -668,6 +668,17 @@ impl Browser {
         cx.notify();
     }
 
+    /// Runs the search `find_after_load` held for `key` once its load has ended, from the top.
+    fn find_loaded(&mut self, key: TabKey, cx: &mut Context<Self>) {
+        if self.find_after_load.take_if(|k| *k == key).is_some()
+            && self.find_open
+            && let Some(view) = self.active_view().filter(|_| self.model.active == Some(key))
+        {
+            view.clear_find();
+            self.find(false, cx);
+        }
+    }
+
     pub fn close_find(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.find_open = false;
         self.find_typing = None;
@@ -681,10 +692,10 @@ impl Browser {
 
     pub fn find(&mut self, backwards: bool, cx: &mut Context<Self>) {
         let text = self.find_input.read(cx).text().to_owned();
-        let Some(view) = self.active_view().filter(|_| !text.is_empty()) else { return };
+        let (Some(key), Some(view)) = (self.model.active, self.active_view().filter(|_| !text.is_empty())) else { return };
         let events = self.events.clone();
         view.find(&text, backwards, move |found, current| {
-            events.unbounded_send(Msg::Found(found, current)).ok();
+            events.unbounded_send(Msg::Found(key, found, current)).ok();
         });
     }
 

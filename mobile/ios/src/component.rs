@@ -418,8 +418,10 @@ impl Inner {
 
     pub fn committed(&self) {
         self.dialogs.set(0);
-        if let Some(web) = self.web() {
-            self.find.clear(&web);
+        if let Some(web) = self.web()
+            && self.find.clear(&web)
+        {
+            self.context.emit("found", json!({}));
         }
         self.ext_committed();
         self.end_popup();
@@ -521,7 +523,9 @@ impl Inner {
                 let text = args.get("text").and_then(Value::as_str).unwrap_or_default();
                 self.find.find(&web, &self.context, text, args.get("backwards").and_then(Value::as_bool).unwrap_or(false));
             }
-            "clearFind" => self.find.clear(&web),
+            "clearFind" => {
+                self.find.clear(&web);
+            }
             // WebKit has no public way to end the processes it keeps for earlier pages; its private `_clearBackForwardCache` does.
             "dropBackForwardCache" if web.respondsToSelector(sel!(_clearBackForwardCache)) => {
                 // SAFETY: the selector exists on this WKWebView (checked above), takes no arguments and returns nothing.

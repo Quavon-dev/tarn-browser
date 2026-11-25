@@ -6,13 +6,13 @@ use nsh_platform_ios::ComponentContext;
 use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
-use objc2_foundation::{NSArray, NSComparisonResult, NSObject, NSOrderedSet, NSString, NSStringCompareOptions};
+use objc2_foundation::{NSArray, NSObject, NSOrderedSet, NSString, NSStringCompareOptions};
 use objc2_ui_kit::{UITextRange, UITextSearchAggregator, UITextSearchFoundTextStyle, UITextSearchMatchMethod, UITextSearchOptions};
 use serde_json::json;
 
 use crate::webkit::WebView;
 
-/// The running find: its text, the matches WebKit found in page order, and the current one.
+/// The running find: its text, the matches in the order WebKit reports them, and the current one.
 #[derive(Default)]
 pub(crate) struct Find {
     text: RefCell<String>,
@@ -28,7 +28,8 @@ impl Find {
     /// there are and which one is current.
     pub fn find(self: &Rc<Self>, web: &WebView, context: &ComponentContext, text: &str, backwards: bool) {
         if text.is_empty() {
-            return self.clear(web);
+            self.clear(web);
+            return;
         }
         if *self.text.borrow() == text {
             if self.search.borrow().is_none() {
@@ -42,18 +43,12 @@ impl Find {
         let (find, view, context, this) = (Rc::downgrade(self), Weak::from_retained(&web.retain()), context.clone(), self.searches.get());
         let aggregator = Aggregator::new(
             web.mtm(),
-            Box::new(move |mut ranges| {
+            Box::new(move |ranges| {
                 let (Some(find), Some(view)) = (find.upgrade(), view.load()) else { return };
                 if find.searches.get() != this {
                     return;
                 }
                 find.search.take();
-                // SAFETY: main thread; both ranges came from this view's own search.
-                ranges.sort_by(|a, b| match unsafe { msg_send![&*view, compareFoundRange: &**a, toRange: &**b, inDocument: None::<&AnyObject>] } {
-                    NSComparisonResult::Ascending => std::cmp::Ordering::Less,
-                    NSComparisonResult::Descending => std::cmp::Ordering::Greater,
-                    _ => std::cmp::Ordering::Equal,
-                });
                 for range in &ranges {
                     decorate(&view, range, UITextSearchFoundTextStyle::Found);
                 }
@@ -72,14 +67,15 @@ impl Find {
         };
     }
 
-    /// Removes every mark and ends a running search.
-    pub fn clear(&self, web: &WebView) {
+    /// Removes every mark and ends a running search; answers whether a find was running.
+    pub fn clear(&self, web: &WebView) -> bool {
         self.searches.set(self.searches.get() + 1);
-        self.text.borrow_mut().clear();
+        let running = !std::mem::take(&mut *self.text.borrow_mut()).is_empty();
         self.ranges.borrow_mut().clear();
         self.search.take();
         // SAFETY: main thread; WKWebView adopts `UITextSearching` (iOS 16).
         let _: () = unsafe { msg_send![web, clearAllDecoratedFoundText] };
+        running
     }
 
     fn show(&self, web: &WebView, context: &ComponentContext, at: usize) {
