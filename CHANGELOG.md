@@ -6,6 +6,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+
+- A video in full screen in a WebKit tab on macOS fills the screen instead of sitting lower with
+  rounded corners: Tarn no longer moves the page while WebKit shows it full screen. A dialog or
+  switching tabs ends the video's full screen, and a page without rounded corners is no longer
+  clipped, which spares the compositor an off-screen pass.
+
 ## [0.1.7] - 2026-11-25
 
 ### Added

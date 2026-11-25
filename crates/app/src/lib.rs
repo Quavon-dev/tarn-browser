@@ -245,7 +245,7 @@ impl Browser {
         if self.page_fullscreen.is_on() && !self.page_fullscreen_holds() {
             self.leave_page_fullscreen(window);
         }
-        if let Some(view) = self.active_view().filter(|_| self.page_fullscreen.is_on()) {
+        if let Some(view) = self.active_view().filter(|v| self.page_fullscreen.is_on() && !v.owns_fullscreen_window()) {
             let page = canvas(
                 move |bounds, _, _| {
                     view.set_frame(

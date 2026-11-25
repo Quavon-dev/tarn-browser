@@ -26,9 +26,9 @@ use objc2_foundation::{
     NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
-    WKDownload, WKDownloadDelegate, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView,
-    WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin,
+    WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
 };
 use security_framework::identity::SecIdentity;
 use shield::ShieldLevel;
@@ -197,6 +197,7 @@ pub(crate) struct DelegateState {
     /// so they cannot launder a public page's navigation to a private address (S10).
     pub web_origin: RefCell<Option<String>>,
     pub last_title: RefCell<String>,
+    pub fullscreen: Cell<bool>,
     pub after_commit: RefCell<Option<Box<dyn FnOnce()>>>,
     /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
     /// beside the page, and a later one does not.
@@ -246,6 +247,7 @@ impl DelegateState {
             committed_url: RefCell::default(),
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
+            fullscreen: Cell::new(false),
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
             assistant_menu: RefCell::default(),
@@ -311,6 +313,13 @@ fn is_attachment(response: &NSURLResponse) -> bool {
     let Some(http) = response.downcast_ref::<NSHTTPURLResponse>() else { return false };
     http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition"))
         .is_some_and(|v| v.to_string().trim_start().to_ascii_lowercase().starts_with("attachment"))
+}
+
+/// Whether WebKit holds the view in its own full-screen window, entering and leaving included.
+pub(crate) fn in_fullscreen(view: &WKWebView) -> bool {
+    // SAFETY: main-thread read of a live web view.
+    let state = unsafe { view.fullscreenState() };
+    state != WKFullscreenState::NotInFullscreen
 }
 
 /// The page title, cut to `MAX_TITLE` characters.
@@ -441,6 +450,13 @@ define_class!(
             _context: *mut c_void,
         ) {
             let Some(view) = object.and_then(|o| o.downcast_ref::<WKWebView>()) else { return };
+            if key_path.is_some_and(|k| k.to_string() == "fullscreenState") {
+                let on = in_fullscreen(view);
+                if self.ivars().fullscreen.replace(on) != on {
+                    self.emit(Event::FullScreen(on));
+                }
+                return;
+            }
             if key_path.is_some_and(|k| matches!(k.to_string().as_str(), "URL" | "canGoBack" | "canGoForward")) {
                 // Loads report their URL through `Committed`; this catches same-document changes
                 // such as pushState.

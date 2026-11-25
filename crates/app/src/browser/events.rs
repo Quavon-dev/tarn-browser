@@ -304,17 +304,28 @@ impl Browser {
     }
 
     /// The active tab's page alone fills the window, in full screen, while it shows an element
-    /// full screen; leaving restores the window as it was.
+    /// full screen; leaving restores the window as it was. A page in the engine's own full-screen
+    /// window leaves the shell's window as it is.
     pub(super) fn set_page_fullscreen(&mut self, key: TabKey, on: bool, window: &mut Window) {
         if self.model.active != Some(key) {
             return;
         }
         if !on {
+            // A full screen the shell already ended in the engine's own window comes back only now.
+            if !self.page_fullscreen.is_on() && self.active_view().is_some_and(|v| v.owns_fullscreen_window()) {
+                self.layout_changed();
+            }
             return self.leave_page_fullscreen(window);
         }
         let Some(view) = self.views.get(&key).cloned() else { return };
         // Nothing the shell must show may be hidden: a pending prompt keeps the toolbar and its origin.
-        let Some(entered) = self.page_fullscreen.enter(self.active_prompt().is_some(), window.is_fullscreen()) else { return };
+        let prompt = self.active_prompt().is_some();
+        let Some(entered) = self.page_fullscreen.enter(prompt, view.owns_fullscreen_window() || window.is_fullscreen()) else {
+            if prompt {
+                view.exit_fullscreen();
+            }
+            return;
+        };
         if entered {
             window.toggle_fullscreen();
         }
@@ -346,6 +357,7 @@ impl Browser {
             window.toggle_fullscreen();
         }
         if let Some(view) = self.active_view() {
+            view.exit_fullscreen();
             view.set_corner_radius(page_corner());
         }
         self.layout_changed();
