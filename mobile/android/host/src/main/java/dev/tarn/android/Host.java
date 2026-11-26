@@ -1,11 +1,16 @@
 package dev.tarn.android;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.biometrics.BiometricPrompt;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.os.Handler;
@@ -39,6 +44,16 @@ final class Host {
     private static final int SPEECH_STARTED = 1;
     private static final int SPEECH_FAILED = 2;
     private static volatile int speechState = SPEECH_STARTED;
+    /** Request codes of the confirm-credential screen: this bit plus the low bits of its check's number. */
+    static final int CONFIRM_OWNER = 0x1000;
+    private static final int CHECK_BITS = 0x0fff;
+    private static final int OWNER_ASKING = 0;
+    private static final int OWNER_CONFIRMED = 1;
+    private static final int OWNER_REFUSED = 2;
+    private static int ownerState = OWNER_REFUSED;
+    private static int ownerRequest;
+    private static int ownerScreen;
+    private static CancellationSignal ownerPrompt;
 
     private Host() {}
 
@@ -162,6 +177,86 @@ final class Host {
             pendingSpeech = null;
             if (speech != null) speech.stop();
         });
+    }
+
+    /** Starts owner check number n (above 0) and returns it, or 0 while another runs. */
+    static synchronized int confirmOwner(String reason) {
+        if (activity == null || ownerState == OWNER_ASKING) return 0;
+        int request = ++ownerRequest;
+        ownerState = OWNER_ASKING;
+        MAIN.post(() -> askOwner(reason, request));
+        return request;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void askOwner(String reason, int request) {
+        Activity shown = activity;
+        String title = "Confirm it is you";
+        String description = "Tarn is trying to " + reason + ".";
+        try {
+            if (shown == null) {
+                ownerAnswered(request, false);
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                BiometricPrompt.Builder builder = new BiometricPrompt.Builder(shown).setTitle(title).setDescription(description);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
+                } else {
+                    builder.setDeviceCredentialAllowed(true);
+                }
+                CancellationSignal cancel = new CancellationSignal();
+                ownerPrompt = cancel;
+                builder.build().authenticate(cancel, shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
+                    @Override
+                    public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                        ownerAnswered(request, true);
+                    }
+
+                    @Override
+                    public void onAuthenticationError(int code, CharSequence message) {
+                        ownerAnswered(request, false);
+                    }
+                });
+            } else {
+                KeyguardManager keyguard = shown.getSystemService(KeyguardManager.class);
+                Intent ask = keyguard == null ? null : keyguard.createConfirmDeviceCredentialIntent(title, description);
+                if (ask == null) {
+                    ownerAnswered(request, false);
+                } else {
+                    ownerScreen = request;
+                    shown.startActivityForResult(ask, CONFIRM_OWNER | (request & CHECK_BITS));
+                }
+            }
+        } catch (RuntimeException e) {
+            ownerAnswered(request, false);
+        }
+    }
+
+    static synchronized void ownerAnswered(int request, boolean confirmed) {
+        if (request == ownerRequest && ownerState == OWNER_ASKING) ownerState = confirmed ? OWNER_CONFIRMED : OWNER_REFUSED;
+    }
+
+    /**
+     * The confirm-credential screen answered. Its request code names the check that opened it, so a
+     * screen left over from a destroyed activity cannot answer a newer check.
+     */
+    static synchronized void ownerScreenAnswered(int requestCode, boolean confirmed) {
+        if (ownerScreen == 0 || (ownerScreen & CHECK_BITS) != (requestCode & CHECK_BITS)) return;
+        ownerAnswered(ownerScreen, confirmed);
+        ownerScreen = 0;
+    }
+
+    /** The activity that showed the prompt is gone: its prompt closes and its check is refused. */
+    static synchronized void ownerPromptGone() {
+        if (ownerPrompt != null) ownerPrompt.cancel();
+        ownerPrompt = null;
+        ownerScreen = 0;
+        ownerAnswered(ownerRequest, false);
+    }
+
+    /** 0 while check {@code request} runs, then its answer; a newer check refuses it. */
+    static synchronized int ownerState(String request) {
+        if (!String.valueOf(ownerRequest).equals(request)) return OWNER_REFUSED;
+        return ownerState;
     }
 
     static void releaseStore(String session) {

@@ -1019,3 +1019,46 @@ fn closing_find_keeps_the_last_match_selected() {
     assert!(!spin_until(|| page_eval(&web, "String(getSelection())") != "zebrafish", 5), "the last match stays selected");
     assert!(state.find_text.borrow().is_empty(), "the next find starts afresh");
 }
+
+#[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn a_self_signed_site_shows_the_certificate_error_and_never_loads() {
+    gtk::init().expect("a display");
+    let dir = tempfile::tempdir().unwrap();
+    let (cert, key) = (dir.path().join("cert.pem"), dir.path().join("key.pem"));
+    let made = std::process::Command::new("openssl")
+        .args(["req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes", "-days", "2", "-subj", "/CN=cert.test", "-keyout"])
+        .arg(&key)
+        .arg("-out")
+        .arg(&cert)
+        .status()
+        .unwrap();
+    assert!(made.success(), "openssl made a certificate");
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let serve = format!(
+        "import http.server, ssl\nc = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)\nc.load_cert_chain('{}', '{}')\ns = http.server.HTTPServer(('127.0.0.1', {port}), http.server.SimpleHTTPRequestHandler)\ns.socket = c.wrap_socket(s.socket, server_side=True)\ns.serve_forever()",
+        cert.display(),
+        key.display()
+    );
+    let mut server = std::process::Command::new("python3").arg("-c").arg(serve).current_dir(dir.path()).spawn().unwrap();
+    let url = format!("https://127.0.0.1:{port}/");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let error = || event(&state, "certificate_error");
+    for seq in 1..=20 {
+        state.events.borrow_mut().clear();
+        *state.load.borrow_mut() = Some((url.clone(), seq));
+        load(&state, None);
+        if spin_until(|| error().is_some() || event(&state, "failed").is_some(), 5) && error().is_some() {
+            break;
+        }
+        spin_until(|| false, 1);
+    }
+    let shown = error().expect("the certificate error page was asked for");
+    assert_eq!((shown["url"].as_str(), shown["problem"].as_str()), (Some(url.as_str()), Some("name")), "{shown}");
+    let leaf = glib::base64_decode(shown["chain"][0].as_str().unwrap());
+    let read = std::process::Command::new("openssl").args(["x509", "-outform", "DER", "-in"]).arg(&cert).output().unwrap();
+    assert_eq!(leaf, read.stdout, "the event carries the server's certificate");
+    assert!(event(&state, "committed").is_none() && event(&state, "finished").is_none(), "nothing of the site loaded");
+    server.kill().ok();
+    server.wait().ok();
+}

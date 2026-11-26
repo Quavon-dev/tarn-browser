@@ -21,6 +21,16 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Owner check before trusting a certificate (2026-11-26)
+
+What it does: before Tarn keeps a certificate exception from the certificate error page, the
+device's owner confirms with Windows Hello or the system password, as Touch ID does on macOS.
+Shared API: `engine::confirm_owner` (macOS: LocalAuthentication).
+Reference: `crates/engine/src/biometrics.rs`, `crates/app/src/blocking.rs` (`trust_certificate`).
+
+- [ ] Windows — `engine::confirm_owner` is a stub that answers yes; call Windows Hello through
+  `IUserConsentVerifierInterop::RequestVerificationForWindowAsync` with the window handle.
+
 ### Find bar follows the tab (2026-11-25)
 
 What it does: with the find bar open, switching tabs removes the marks from the tab left and

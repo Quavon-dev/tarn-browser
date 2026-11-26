@@ -372,7 +372,9 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
     let blocked = b.pages.get(&key).and_then(|p| p.blocked.as_ref());
     let json = b.json_pages.get(&key);
     let capture = crate::capture_overlay::render(b, key, cx);
-    let covered = blocked.is_some() || json.is_some() || capture.is_some();
+    let cert = if blocked.is_none() { crate::blocking::render_cert_page(b, key, cx) } else { None };
+    let warned = blocked.is_some() || cert.is_some();
+    let covered = warned || json.is_some() || capture.is_some();
     let rects = b.split_shown.rects.clone();
     let splits = splits.clone();
     let slide = share.and_then(|share| b.sidebar_slide().map(|(shown, full)| (shown, full * share)));
@@ -411,12 +413,13 @@ fn pane(b: &Browser, splits: &Rc<split::Splits<TabKey>>, ix: usize, key: TabKey,
         .child(page)
         .children(match (blocked, json) {
             (Some(blocked), _) => Some(crate::blocking::render_blocked(blocked, cx)),
+            _ if cert.is_some() => cert,
             (None, Some(json)) => Some(crate::devtools::render_json(key, json, cx)),
             (None, None) => None,
         })
         .children(capture)
         // A warning's buttons act on the focused pane, so a click on another pane's warning only focuses it.
-        .when(blocked.is_some() && !focused, |d| {
+        .when(warned && !focused, |d| {
             d.child(div().id(("pane-cover", ix)).absolute().inset_0().occlude().on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx))))
         });
     div()

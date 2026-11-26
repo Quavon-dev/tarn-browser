@@ -1,5 +1,6 @@
 pub mod agent_scripts;
 pub mod agent_socket;
+pub mod cert;
 #[cfg(unix)]
 pub mod chromium_owner;
 pub mod content_rules;
@@ -26,6 +27,14 @@ pub mod view_policy;
 
 #[cfg(target_os = "macos")]
 mod biometrics;
+#[cfg(target_os = "macos")]
+pub use biometrics::confirm_owner;
+
+/// Windows Hello is not wired yet (docs/port-backlog.md), so the page's own confirmation stands alone.
+#[cfg(windows)]
+pub fn confirm_owner(_reason: &str, done: impl FnOnce(bool) + Send + 'static) {
+    done(true);
+}
 #[cfg(any(windows, all(target_os = "macos", feature = "chromium")))]
 pub mod chromium;
 #[cfg(target_os = "macos")]

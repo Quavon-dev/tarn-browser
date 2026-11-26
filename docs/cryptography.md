@@ -60,8 +60,9 @@ a smaller one, so smaller key lengths are always off.
 
 TLS is never Tarn's code. Pages load through the engine's TLS stack. The shell's own requests
 (updates, filter lists, extensions, themes, listed in `PRIVACY.md`) use the client below. Filter
-lists and updates are Ed25519-signed, so their integrity does not rest on TLS key sizes. No client
-lets a certificate error through (threat model S7).
+lists and updates are Ed25519-signed, so their integrity does not rest on TLS key sizes. A
+certificate error passes only for a certificate the user trusted for that host and port (threat
+model S7).
 
 | Client | Pages | Shell requests | Default key lengths | Switching smaller keys off |
 |---|---|---|---|---|

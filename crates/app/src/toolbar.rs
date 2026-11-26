@@ -183,7 +183,9 @@ pub(crate) struct Site {
 }
 
 fn site(b: &Browser) -> Site {
-    site_of(b.active_view().and_then(|v| v.url()).or_else(|| b.model.active_tab().and_then(|t| Url::parse(&t.url).ok())))
+    let mut site = site_of(b.active_view().and_then(|v| v.url()).or_else(|| b.model.active_tab().and_then(|t| Url::parse(&t.url).ok())));
+    site.insecure |= b.model.active.zip(site.url.as_ref()).is_some_and(|(key, url)| b.cert_excepted(key, url));
+    site
 }
 
 pub(crate) fn site_of(url: Option<Url>) -> Site {
@@ -508,7 +510,7 @@ mod tests {
         let sources = [
             (include_str!("toolbar.rs"), ["fn address_text(", "fn shield_button(", "fn origin_chip("].as_slice()),
             (include_str!("content.rs"), ["fn floating(", "fn banner(", "fn prompt_card(", "fn start_shield("].as_slice()),
-            (include_str!("blocking.rs"), ["pub fn render_blocked("].as_slice()),
+            (include_str!("blocking.rs"), ["pub fn render_blocked(", "pub fn render_cert_error(", "fn cert_viewer("].as_slice()),
             (include_str!("link_peek.rs"), ["fn peek_origin("].as_slice()),
             (include_str!("toast.rs"), ["fn secure_card("].as_slice()),
             (include_str!("settings/appearance.rs"), ["fn badge_line("].as_slice()),

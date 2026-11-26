@@ -237,12 +237,19 @@ const MIGRATIONS: &[&str] = &[
          updated INTEGER NOT NULL
      );
      CREATE INDEX chats_profile ON chats(profile_id, updated);",
+    "CREATE TABLE cert_exceptions (
+         profile_id INTEGER NOT NULL REFERENCES profiles(id) ON DELETE CASCADE,
+         host TEXT NOT NULL,
+         port INTEGER NOT NULL,
+         fingerprint TEXT NOT NULL,
+         PRIMARY KEY (profile_id, host, port)
+     );",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
 const PROFILE_NEUTRAL: [&str; 4] = ["settings", "themes", "windows", "sqlite_sequence"];
 /// Every table holding profile data, with the filter that selects one profile's rows.
-const PROFILE_TABLES: [(&str, &str); 31] = [
+const PROFILE_TABLES: [(&str, &str); 32] = [
     ("profiles", "id = ?1"),
     ("spaces", "profile_id = ?1"),
     ("folders", "space_id IN (SELECT id FROM spaces WHERE profile_id = ?1)"),
@@ -274,6 +281,7 @@ const PROFILE_TABLES: [(&str, &str); 31] = [
     ("snippets", "profile_id = ?1"),
     ("notes", "profile_id = ?1"),
     ("chats", "profile_id = ?1"),
+    ("cert_exceptions", "profile_id = ?1"),
 ];
 /// Sites kept per profile for the privacy report's list.
 const MAX_SHIELD_SITES: i64 = 200;
@@ -1762,6 +1770,43 @@ impl Store {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// The certificates the user confirmed despite a certificate error: host, port and SHA-256 fingerprint.
+    pub fn cert_exceptions(&self, profile_id: Id) -> Result<Vec<(String, u16, String)>> {
+        let mut stmt = self.conn.prepare("SELECT host, port, fingerprint FROM cert_exceptions WHERE profile_id = ?1 ORDER BY host, port")?;
+        let rows = stmt.query_map([profile_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Keeps one certificate per host and port; a new one replaces the old.
+    pub fn set_cert_exception(&self, profile_id: Id, host: &str, port: u16, fingerprint: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO cert_exceptions (profile_id, host, port, fingerprint) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (profile_id, host, port) DO UPDATE SET fingerprint = excluded.fingerprint",
+            params![profile_id, host, port, fingerprint],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_cert_exception(&self, profile_id: Id, host: &str, port: u16) -> Result<()> {
+        self.conn.execute("DELETE FROM cert_exceptions WHERE profile_id = ?1 AND host = ?2 AND port = ?3", params![profile_id, host, port])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    /// Every exception of the profile, as clearing its site data takes them.
+    pub fn clear_cert_exceptions(&self, profile_id: Id) -> Result<()> {
+        self.conn.execute("DELETE FROM cert_exceptions WHERE profile_id = ?1", [profile_id])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
+    /// Clear Site Data: the host's exceptions on every port go with its other data.
+    pub fn delete_cert_exceptions_of(&self, profile_id: Id, host: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM cert_exceptions WHERE profile_id = ?1 AND host = ?2", params![profile_id, host.to_ascii_lowercase()])?;
+        self.checkpoint().ok();
+        Ok(())
+    }
+
     pub fn delete_permission(&self, profile_id: Id, origin: &str, kind: &str) -> Result<()> {
         self.conn.execute("DELETE FROM permissions WHERE profile_id = ?1 AND origin = ?2 AND kind = ?3", params![profile_id, origin, kind])?;
         self.checkpoint().ok();
@@ -2318,6 +2363,25 @@ mod tests {
         assert!(store.set_space_schedule(space.id, Schedule { end: 24, ..work }).is_err());
         let (weekday, hour) = store.local_time().unwrap();
         assert!(weekday < 7 && hour < 24);
+    }
+
+    #[test]
+    fn a_cert_exception_is_one_per_host_and_port_and_goes_with_the_site_data() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "u", false).unwrap();
+        store.set_cert_exception(p.id, "192.168.1.2", 8006, "aa").unwrap();
+        store.set_cert_exception(p.id, "192.168.1.2", 8006, "bb").unwrap();
+        store.set_cert_exception(p.id, "192.168.1.2", 443, "cc").unwrap();
+        assert_eq!(store.cert_exceptions(p.id).unwrap(), [("192.168.1.2".into(), 443, "cc".into()), ("192.168.1.2".into(), 8006, "bb".into())]);
+        store.delete_cert_exception(p.id, "192.168.1.2", 443).unwrap();
+        assert_eq!(store.cert_exceptions(p.id).unwrap().len(), 1);
+        store.forget_site_records(p.id, "192.168.1.2").unwrap();
+        assert_eq!(store.cert_exceptions(p.id).unwrap().len(), 1, "forgetting history keeps a trusted certificate");
+        store.delete_cert_exceptions_of(p.id, "192.168.1.2").unwrap();
+        assert!(store.cert_exceptions(p.id).unwrap().is_empty());
+        store.set_cert_exception(p.id, "a.test", 443, "aa").unwrap();
+        store.clear_cert_exceptions(p.id).unwrap();
+        assert!(store.cert_exceptions(p.id).unwrap().is_empty());
     }
 
     #[test]

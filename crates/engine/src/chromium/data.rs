@@ -55,6 +55,17 @@ pub fn clear_site(root: &Path, profile: &str, host: &str) {
     chromium_owner::record_clear(root, &host);
 }
 
+/// Forgets the certificates Chromium was told to continue past, so a removed exception asks again.
+pub fn clear_cert_decisions() {
+    if runtime::running() {
+        runtime::with_context(|context| {
+            context.clear_certificate_exceptions(None);
+            context.close_all_connections(None);
+            view::forget_continued("");
+        });
+    }
+}
+
 pub fn clear_cache(root: &Path, profile: &str) {
     if runtime::running() && chromium_owner::owns(root, profile) {
         runtime::with_context(|context| context.clear_http_cache(None));

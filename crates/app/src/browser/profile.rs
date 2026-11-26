@@ -313,6 +313,9 @@ impl Browser {
             }
         };
         let space = reset.space;
+        if !private {
+            self.apply_cert_exceptions(profile_id);
+        }
         Self::sync_other_windows(cx);
         crate::shared::others(cx, |b, _, cx| {
             b.forget_history(private, profile_id);

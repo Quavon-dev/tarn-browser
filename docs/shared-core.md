@@ -128,6 +128,10 @@ Every shell's web view offers the same operations and reports the same events. T
 
 **Events:**
 - `Committed`, `Finished`, `TitleChanged`, `UrlChanged`, `Failed`;
+- `CertificateError` (`certificate_error {url, problem, chain}` on NSH): a main-frame load failed
+  on its certificate; the shell shows the certificate error page (`browser_core::cert_error`). A
+  certificate the user trusted there (`engine::cert::Exceptions`) is accepted inside the web view
+  and sends no event;
 - `Loading(bool)` on macOS and Windows, `started` and `stopped` on Linux, iOS and Android: a
   main-frame load began before it commits, or ended without `Finished` or `Failed` (a stop, a
   cancel, a load that turned into a download);

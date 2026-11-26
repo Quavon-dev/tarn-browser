@@ -1974,3 +1974,23 @@ fn an_address_tarn_does_not_open_is_refused_without_a_notice_or_a_load() {
     assert_eq!((b.model.tabs.len(), b.pages[&key].load.clone()), (count, load));
     assert!(b.notice.is_none(), "the field shakes instead");
 }
+
+#[test]
+fn a_certificate_error_shows_the_certificate_and_go_back_keeps_the_page() {
+    let (_dir, mut b) = browser();
+    let key = b.model.active.unwrap();
+    visit(&mut b, key, "https://news.test/");
+    let url = "https://192.168.1.2:8006/";
+    b.on_event(key, "certificate_error", &json!({ "url": url, "problem": "untrusted", "chain": ["AQID", "not base64 !"] }));
+    let cert = crate::snapshot::snapshot(&b, true).cert.expect("the error page covers the tab");
+    assert_eq!((cert.error.url.as_str(), cert.error.chain[0].as_slice(), cert.viewer), (url, &[1u8, 2, 3][..], false));
+    assert!(!b.pages[&key].loading);
+    b.toggle_cert_viewer();
+    assert!(b.pages[&key].cert.as_ref().unwrap().viewer, "Show Certificate opens the viewer");
+    b.leave_blocked();
+    assert!(b.pages[&key].cert.is_none());
+    assert_eq!(b.pages[&key].url, "https://news.test/", "Go Back keeps the page the tab had");
+    b.on_event(key, "certificate_error", &json!({ "url": url, "problem": "revoked", "chain": [] }));
+    b.navigate_in("https://other.test/", false);
+    assert!(b.pages[&key].cert.is_none(), "a new load leaves the error page");
+}

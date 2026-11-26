@@ -211,7 +211,13 @@ impl WebView {
             allow_picture_in_picture(&config.preferences());
 
             let view = WKWebView::initWithFrame_configuration(WKWebView::alloc(mtm), NSRect::ZERO, &config);
-            let delegate = Delegate::new(mtm, DelegateState::new(sink, site_for, level, filtered, data.downloads.clone(), false));
+            let delegate = Delegate::new(
+                mtm,
+                DelegateState {
+                    cert_exceptions: data.cert_exceptions.clone(),
+                    ..DelegateState::new(sink, site_for, level, filtered, data.downloads.clone(), false)
+                },
+            );
             delegate.attach(&view);
             view.setInspectable(inspectable);
             host.view.addSubview(&view);

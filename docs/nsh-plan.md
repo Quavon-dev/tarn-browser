@@ -73,7 +73,7 @@ All three backends call the same `nav_policy::decide` and `level_action`.
 | **Shield** | `WKContentRuleList`, unchanged | `shouldInterceptRequest` with `engine-core::content_rules`, which needs a literal prefilter first (§6) | `WebKitUserContentFilterStore`, which takes the same JSON as on macOS |
 | **Navigation policy** | `WKNavigationDelegate` (shared code) | `shouldOverrideUrlLoading` and `onCreateWindow` | `decide-policy` signal |
 | **Dialogs and permissions** | `WKUIDelegate` | `WebChromeClient` (`onJsAlert`, `onPermissionRequest`, …) | `script-dialog` and `permission-request` signals |
-| **HTTP sign-in and TLS** | delegate challenge, default trust | `onReceivedHttpAuthRequest`; `onReceivedSslError` always cancels | `authenticate` signal; TLS errors always fail |
+| **HTTP sign-in and TLS** | delegate challenge, default trust | `onReceivedHttpAuthRequest`; `onReceivedSslError` always cancels | `authenticate` signal; TLS errors always fail; the certificate error page shows the certificate |
 | **Downloads** | `WKDownload` into the app container, shared through the Files app | `DownloadManager` or a stream to app storage | `download-started`; name sanitising and quarantine attribute (`user.xdg.origin.url`) |
 | **Extensions** | `WKWebExtensionController` if available on iOS (to verify); otherwise none | None | Tarn extensions (`browser_core::tarn_ext`, see below); classic WebExtensions are not supported |
 
@@ -117,6 +117,12 @@ runtime in `browser_core::tarn_ext`; the shell only carries out its decisions.
   changed install is turned off and its site grants are dropped.
 
 Gaps, with their reason:
+
+- **Certificate exceptions.** Linux shows the certificate error page and its certificate viewer but
+  offers no way through. WebKitGTK (pinned `webkit6` 0.6.1, WebKitGTK 2.5x) can accept a certificate
+  only for a host, in every session, until Tarn quits (`allow_tls_certificate_for_host`): no port,
+  no session scope and no withdrawal. That cannot honour hard rule 7's exception for one host, port
+  and profile, never in a private space.
 
 - **Store links in frames.** WebKitGTK's navigation policy decision names no frame: the pinned
   `webkit6` 0.6.1 `NavigationAction` has only `frame_name`, the target name a page may give, and

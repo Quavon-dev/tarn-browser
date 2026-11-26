@@ -76,6 +76,16 @@ impl Drop for Prompting {
 
 /// `work` runs off the main thread once Touch ID answered, so a keychain prompt cannot block the UI.
 pub(crate) fn evaluate<T: Send + 'static>(app: &str, work: impl FnOnce(bool) -> T + Send + 'static, done: impl FnOnce(T) + Send + 'static) {
+    ask(LAPolicy::DeviceOwnerAuthenticationWithBiometrics, &format!("unlock {app}"), work, done);
+}
+
+/// Asks the Mac's owner to confirm with Touch ID or their login password; `done` runs on the
+/// main thread with the answer. `reason` completes "Tarn is trying to …".
+pub fn confirm_owner(reason: &str, done: impl FnOnce(bool) + Send + 'static) {
+    ask(LAPolicy::DeviceOwnerAuthentication, reason, |ok| ok, done);
+}
+
+fn ask<T: Send + 'static>(policy: LAPolicy, reason: &str, work: impl FnOnce(bool) -> T + Send + 'static, done: impl FnOnce(T) + Send + 'static) {
     if PROMPTING.swap(true, Ordering::SeqCst) {
         let result = work(false);
         DispatchQueue::main().exec_async(move || done(result));
@@ -94,9 +104,7 @@ pub(crate) fn evaluate<T: Send + 'static>(app: &str, work: impl FnOnce(bool) -> 
         DispatchQueue::main().exec_async(move || done(result));
     });
     // SAFETY: LocalAuthentication copies the block, which holds the context until it replies.
-    unsafe {
-        context.evaluatePolicy_localizedReason_reply(LAPolicy::DeviceOwnerAuthenticationWithBiometrics, &NSString::from_str(&format!("unlock {app}")), &reply)
-    };
+    unsafe { context.evaluatePolicy_localizedReason_reply(policy, &NSString::from_str(reason), &reply) };
 }
 
 #[cfg(test)]

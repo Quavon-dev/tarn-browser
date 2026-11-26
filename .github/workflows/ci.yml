@@ -274,7 +274,7 @@ jobs:
     steps:
       - run: >-
           dnf -y install git gcc gcc-c++ clang pkgconf-pkg-config gtk4-devel webkitgtk6.0-devel
-          gstreamer1-devel gstreamer1-plugins-base-devel xorg-x11-server-Xvfb mesa-dri-drivers dbus-daemon python3
+          gstreamer1-devel gstreamer1-plugins-base-devel xorg-x11-server-Xvfb mesa-dri-drivers dbus-daemon python3 openssl
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

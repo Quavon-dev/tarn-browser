@@ -88,6 +88,7 @@ pub struct DataStore {
     /// The profile's store UUID, for a store kept on disk.
     uuid: Option<String>,
     downloads: Rc<dyn Fn(Event)>,
+    cert_exceptions: crate::cert::Exceptions,
 }
 
 /// Removes the profile's Shield choices with its last store handle; its views then fail closed.
@@ -97,6 +98,7 @@ impl Drop for ShieldKey {
     fn drop(&mut self) {
         crate::chromium::drop_shield(&self.0);
         crate::chromium::set_extension_rules_for(&self.0, &[]);
+        crate::chromium::set_cert_exceptions_for(&self.0, None);
         STYLES.with_borrow_mut(|s| s.remove(&self.0));
         PAGE_SCRIPTS.with_borrow_mut(|s| s.remove(&self.0));
     }
@@ -117,12 +119,24 @@ fn folder(uuid: &str) -> Option<PathBuf> {
 
 impl DataStore {
     pub fn persistent(uuid: &str, _extensions: &str, downloads: Rc<dyn Fn(Event)>) -> Option<Self> {
-        valid(uuid).then(|| DataStore { key: format!("p:{uuid}"), shield: next_shield(), uuid: Some(uuid.to_owned()), downloads })
+        valid(uuid).then(|| DataStore::new(format!("p:{uuid}"), Some(uuid.to_owned()), downloads))
     }
 
     pub fn ephemeral(downloads: Rc<dyn Fn(Event)>) -> Option<Self> {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        Some(DataStore { key: format!("e:{n}"), shield: next_shield(), uuid: None, downloads })
+        Some(DataStore::new(format!("e:{n}"), None, downloads))
+    }
+
+    fn new(key: String, uuid: Option<String>, downloads: Rc<dyn Fn(Event)>) -> Self {
+        let shield = next_shield();
+        let cert_exceptions = crate::cert::Exceptions::default();
+        crate::chromium::set_cert_exceptions_for(&shield.0, Some(cert_exceptions.clone()));
+        DataStore { key, shield, uuid, downloads, cert_exceptions }
+    }
+
+    /// The profile's certificate exceptions; views read them on each certificate error.
+    pub fn cert_exceptions(&self) -> crate::cert::Exceptions {
+        self.cert_exceptions.clone()
     }
 
     pub(crate) fn context_key(&self) -> &str {
@@ -286,6 +300,15 @@ impl DataStore {
 
     pub fn clear_cache(&self) {
         with_live(&self.key, |context| context.clear_http_cache(None));
+    }
+
+    /// Forgets the certificates Chromium was told to continue past, so a removed exception asks again.
+    pub fn clear_cert_decisions(&self) {
+        with_live(&self.key, |context| {
+            context.clear_certificate_exceptions(None);
+            context.close_all_connections(None);
+            crate::chromium::view::forget_continued(&self.key);
+        });
     }
 
     /// Removes `host`'s cookies (its parent domains and subdomains included), the storage of its

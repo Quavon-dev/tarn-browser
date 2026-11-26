@@ -628,7 +628,7 @@ pub(crate) fn with_store_context(key: String, shield: String, cache: Option<Path
                 persist_session_cookies: 0,
                 ..Default::default()
             };
-            let context = request_context_create_context(Some(&settings), Some(&mut super::filter::TarnContextFilter::new(shield.clone())))?;
+            let context = request_context_create_context(Some(&settings), Some(&mut super::filter::TarnContextFilter::new(shield.clone(), key.clone())))?;
             CONTEXTS.with_borrow_mut(|c| c.insert(key.clone(), context.clone()));
             Some(context)
         });

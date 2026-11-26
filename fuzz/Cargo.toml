@@ -110,6 +110,12 @@ doc = false
 bench = false
 
 [[bin]]
+name = "cert_details"
+path = "fuzz_targets/cert_details.rs"
+test = false
+doc = false
+
+[[bin]]
 name = "history_text"
 path = "fuzz_targets/history_text.rs"
 test = false

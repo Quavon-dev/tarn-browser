@@ -108,6 +108,10 @@ pub(crate) fn call_string(method: &str, value: &str) -> bool {
     call(method, "(Ljava/lang/String;)V", |env| Some(vec![string(env, value)?])).is_some()
 }
 
+pub(crate) fn call_string_int(method: &str, value: &str) -> Option<i32> {
+    call(method, "(Ljava/lang/String;)I", |env| Some(vec![string(env, value)?]))
+}
+
 pub(crate) fn call_int(method: &str) -> Option<i32> {
     call(method, "()I", |_| Some(Vec::new()))
 }

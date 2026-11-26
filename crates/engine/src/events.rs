@@ -51,6 +51,13 @@ pub enum Event {
         code: isize,
         message: String,
     },
+    /// The main frame's load failed on its certificate; nothing of the site was shown. `chain`
+    /// is the server's certificates, leaf first, bounded by `cert::bounded_chain`.
+    CertificateError {
+        url: Url,
+        problem: crate::cert::Problem,
+        chain: Vec<Vec<u8>>,
+    },
     /// A navigation was stopped by Shield; the current page is unchanged. With a category, a
     /// domain set named the host: `Category::warns` ones get the warning page, others a notice.
     Blocked {

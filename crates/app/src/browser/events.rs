@@ -10,7 +10,9 @@ impl Browser {
         }
         match event {
             Event::Loading(on) => {
-                self.pages.entry(key).or_default().loading = on;
+                let page = self.pages.entry(key).or_default();
+                page.loading = on;
+                page.loads += u64::from(on);
                 if !on {
                     self.find_loaded(key, cx);
                 }
@@ -41,6 +43,7 @@ impl Browser {
                 self.apply_site_mute(key, &url, left_host);
                 let page = self.pages.entry(key).or_default();
                 page.blocked = None;
+                page.cert = None;
                 page.visit = None;
                 (page.local_counted, page.https_counted) = (false, false);
                 self.forget_article(key, window, cx);
@@ -117,12 +120,21 @@ impl Browser {
                 // undercount after a failed upgrade beats a counter a page can run up.
                 let page = self.pages.entry(key).or_default();
                 page.loading = false;
+                page.cert = None;
                 if let Some(url) = url {
                     suggest::typed_visit(&mut page.typed, url.as_str());
                 }
                 if !IGNORED_LOAD_ERRORS.contains(&code) {
                     page.error = Some(message);
                 }
+                self.find_loaded(key, cx);
+            }
+            Event::CertificateError { url, problem, chain } => {
+                let page = self.pages.entry(key).or_default();
+                page.loading = false;
+                (page.error, page.blocked) = (None, None);
+                suggest::typed_visit(&mut page.typed, url.as_str());
+                page.cert = Some(browser_core::cert_error::CertPage::new(browser_core::cert_error::CertError { url, problem, chain }));
                 self.find_loaded(key, cx);
             }
             Event::TitleChanged(title) => {
@@ -349,7 +361,7 @@ impl Browser {
             overlay: self.overlay_open(),
             address: self.command_mode.is_some(),
             find: self.find_open,
-            notice: self.model.active.and_then(|k| self.pages.get(&k)).is_some_and(|p| p.notice.is_some() || p.blocked.is_some()),
+            notice: self.model.active.and_then(|k| self.pages.get(&k)).is_some_and(|p| p.notice.is_some() || p.blocked.is_some() || p.cert.is_some()),
         }
         .lets_page_fill_window()
     }
@@ -1055,10 +1067,18 @@ impl Browser {
 
     /// Removes every WebKit data type of `host` in the tab's profile, then reloads the tab.
     pub(crate) fn clear_site(&mut self, key: TabKey, host: String, cx: &mut Context<Self>) {
-        if let Some(profile_id) = self.profile_of(key).filter(|_| !key.private)
-            && self.core.disk.unzap_element(profile_id, &host, None).is_ok()
-        {
-            crate::zaps::apply(&self.core, false, profile_id);
+        let mut kept_certificate = false;
+        if let Some(profile_id) = self.profile_of(key).filter(|_| !key.private) {
+            if self.core.disk.unzap_element(profile_id, &host, None).is_ok() {
+                crate::zaps::apply(&self.core, false, profile_id);
+            }
+            match self.core.disk.delete_cert_exceptions_of(profile_id, &host) {
+                Ok(()) => self.apply_cert_exceptions(profile_id),
+                Err(e) => {
+                    self.warning = Some(format!("The certificate trusted for {host} could not be removed ({e})."));
+                    kept_certificate = true;
+                }
+            }
         }
         let Some(rt) = self.profile_of(key).and_then(|p| self.loaded(key.private, p)) else { return };
         #[cfg(feature = "chromium")]
@@ -1067,7 +1087,11 @@ impl Browser {
         let mut async_cx = cx.to_async();
         rt.data.clear_site_data(&host.clone(), move |count| {
             this.update(&mut async_cx, |b, cx| {
-                let message = if count == 0 { format!("{host} had no stored data.") } else { format!("Cleared stored data for {host}.") };
+                let message = match (kept_certificate, count) {
+                    (true, _) => format!("Cleared stored data for {host}, but the certificate trusted for it is still kept."),
+                    (false, 0) => format!("{host} had no stored data."),
+                    (false, _) => format!("Cleared stored data for {host}."),
+                };
                 b.notify_offer(key, message, None);
                 b.reload_view(key, false);
                 cx.notify();

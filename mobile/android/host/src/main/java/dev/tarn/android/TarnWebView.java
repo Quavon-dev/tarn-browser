@@ -2,7 +2,10 @@ package dev.tarn.android;
 
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.net.http.SslCertificate;
 import android.net.http.SslError;
+import android.os.Build;
+import android.os.Bundle;
 import android.os.Message;
 import android.os.SystemClock;
 import android.view.ContextMenu;
@@ -124,6 +127,10 @@ final class TarnWebView implements NshComponent {
     private long findUsed;
     private Extensions extensions;
     private volatile String ruleStore;
+    private volatile String certExceptions = "[]";
+    // WebView remembers a proceeded certificate per profile; it forgets on the first apply and
+    // whenever the exceptions or the levels change, so a removed exception or Lockdown asks again.
+    private boolean sslStale = true;
 
     private volatile int level = Native.STANDARD;
     private volatile Map<String, Integer> levels = Map.of();
@@ -152,8 +159,16 @@ final class TarnWebView implements NshComponent {
         switch (name) {
             case "tab" -> tab = value instanceof String s ? s : "";
             case "profile" -> store = value instanceof String s ? s : null;
-            case "level" -> level = Native.level(value);
-            case "levels" -> levels = parseLevels(value);
+            case "level" -> {
+                int next = Native.level(value);
+                sslStale |= next != level;
+                level = next;
+            }
+            case "levels" -> {
+                Map<String, Integer> next = parseLevels(value);
+                sslStale |= !next.equals(levels);
+                levels = next;
+            }
             case "active" -> active = !Boolean.FALSE.equals(value);
             case "styles" -> styles = parseStyles(value);
             case "themeStyles" -> themeStyles = value instanceof List<?> list ? new JSONArray(list).toString() : "[]";
@@ -167,6 +182,11 @@ final class TarnWebView implements NshComponent {
             case "assistantMenu" -> {
                 assistantMenu = parseCommands(value);
                 return;
+            }
+            case "certExceptions" -> {
+                String next = value instanceof List<?> list ? new JSONArray(list).toString() : "[]";
+                sslStale |= !next.equals(certExceptions);
+                certExceptions = next;
             }
             case "load" -> {
                 if (value instanceof Map<?, ?> load && load.get("url") instanceof String url) {
@@ -592,6 +612,10 @@ final class TarnWebView implements NshComponent {
         }
         if (web == null || !Objects.equals(store, builtStore)) {
             if (!build()) return;
+        }
+        if (sslStale) {
+            sslStale = false;
+            web.clearSslPreferences();
         }
         if (active) {
             web.onResume();
@@ -1115,6 +1139,27 @@ final class TarnWebView implements NshComponent {
                 "canGoBack", view.canGoBack(), "canGoForward", view.canGoForward());
     }
 
+    private static byte[] leafDer(SslCertificate certificate) {
+        if (certificate == null) return null;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                java.security.cert.X509Certificate x509 = certificate.getX509Certificate();
+                return x509 == null ? null : x509.getEncoded();
+            } catch (java.security.cert.CertificateEncodingException e) {
+                return null;
+            }
+        }
+        // Before API 29 the DER is only reachable through the saved state's "x509-certificate" bytes.
+        Bundle state = SslCertificate.saveState(certificate);
+        return state == null ? null : state.getByteArray("x509-certificate");
+    }
+
+    private static String hex(byte[] bytes) {
+        StringBuilder out = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) out.append(Character.forDigit((b >> 4) & 0xf, 16)).append(Character.forDigit(b & 0xf, 16));
+        return out.toString();
+    }
+
     private static String withoutCredentials(String url) {
         Uri uri = Uri.parse(url);
         String user = uri.getEncodedUserInfo();
@@ -1125,6 +1170,16 @@ final class TarnWebView implements NshComponent {
         Uri first = Uri.parse(a);
         Uri second = Uri.parse(b);
         return Objects.equals(first.getScheme(), second.getScheme()) && first.getPort() == second.getPort();
+    }
+
+    private static boolean sameHostAndPort(String a, String b) {
+        Uri first = Uri.parse(a);
+        Uri second = Uri.parse(b);
+        return first.getHost() != null && first.getHost().equalsIgnoreCase(second.getHost()) && tlsPort(first) == tlsPort(second);
+    }
+
+    private static int tlsPort(Uri uri) {
+        return uri.getPort() == -1 ? 443 : uri.getPort();
     }
 
     private static String origin(String url) {
@@ -1297,9 +1352,23 @@ final class TarnWebView implements NshComponent {
 
         @Override
         public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+            String url = error.getUrl();
+            byte[] leaf = leafDer(error.getCertificate());
+            int site = Math.max(levelFor(url), viewLevel);
+            if (leaf != null && Native.certAllowed(url, error.getPrimaryError(), leaf, certExceptions, site)) {
+                handler.proceed();
+                // WebView would remember it for the host on every port; the next connection is checked again.
+                view.clearSslPreferences();
+                return;
+            }
+            Page page = pending != null ? pending : top;
             handler.cancel();
             endNavigation();
-            emit("failed", "url", error.getUrl(), "message", "The site's certificate is not valid");
+            if (page == null || !sameHostAndPort(page.url(), url)) {
+                emit("failed", "url", url, "message", "The site's certificate is not valid");
+                return;
+            }
+            emit("certificate_error", "url", url, "primary", error.getPrimaryError(), "chain", leaf == null ? List.of() : List.of(hex(leaf)));
         }
 
         @Override
