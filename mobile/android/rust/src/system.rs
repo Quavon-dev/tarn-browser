@@ -17,6 +17,18 @@ pub fn speech_started() -> Option<bool> {
     }
 }
 
+/// Asks the device's owner with biometrics or the screen lock; `owner_answer` reads the reply.
+pub fn confirm_owner(reason: &str) -> bool {
+    crate::host::call_bool("confirmOwner", reason)
+}
+
+pub fn owner_answer() -> Option<bool> {
+    match crate::host::call_int("ownerState") {
+        Some(0) => None,
+        state => Some(state == Some(1)),
+    }
+}
+
 pub fn stop_speaking() {
     crate::host::call_string("stopSpeaking", "");
 }

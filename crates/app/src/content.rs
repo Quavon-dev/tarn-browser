@@ -332,6 +332,11 @@ fn page_body(b: &mut Browser, window: &mut Window, blocked: Option<&crate::block
             view.set_frame(0., 0., 0., 0.);
         }
         crate::blocking::render_blocked(blocked, cx)
+    } else if let Some(cert) = b.model.active.and_then(|key| crate::blocking::render_cert_page(b, key, cx)) {
+        if let Some(view) = b.active_view() {
+            view.set_frame(0., 0., 0., 0.);
+        }
+        cert
     } else if let Some((key, json)) = b.active_json() {
         if let Some(view) = b.active_view() {
             view.set_frame(0., 0., 0., 0.);

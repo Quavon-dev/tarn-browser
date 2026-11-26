@@ -71,6 +71,8 @@ final class Native {
 
     static native boolean mayAskCredentials(String challenge, String page, int failures);
 
+    static native boolean certAllowed(String url, int primary, byte[] leaf, String exceptions, int level);
+
     static native int popupBurst();
 
     static native int downloadBurst();

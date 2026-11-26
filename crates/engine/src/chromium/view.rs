@@ -31,6 +31,8 @@ const ADD_SCRIPT: &str = "Page.addScriptToEvaluateOnNewDocument";
 #[path = "tarn.rs"]
 mod tarn;
 
+type CertFailure = (Url, crate::cert::Problem, Vec<Vec<u8>>);
+
 struct Tab {
     id: u64,
     /// Whose Shield choices apply (`DataStore::shield_key`); empty on macOS.
@@ -70,6 +72,8 @@ struct Tab {
     recent_downloads: RefCell<std::collections::VecDeque<std::time::Instant>>,
     recent_prompts: RefCell<std::collections::VecDeque<std::time::Instant>>,
     silenced: Rc<Cell<bool>>,
+    /// The page and certificates of the last refused certificate, for the error page that follows.
+    cert_failure: RefCell<Option<CertFailure>>,
     /// The URLs a back, forward or reload the shell asked for may go to, and whether the main frame's current
     /// navigation was started by the user (shell, click or history), which its redirects keep.
     history_step: RefCell<Vec<Url>>,
@@ -137,6 +141,45 @@ thread_local! {
 
 pub(crate) fn any_visible() -> bool {
     VISIBLE.get() > 0
+}
+
+/// The profile, host and port of each certificate Chromium was told to continue past. Chromium
+/// remembers a Continue for the host and certificate on every port, so a page or frame of that host
+/// on another port first makes it forget, and the exception check decides there again.
+static CONTINUED: std::sync::Mutex<std::collections::BTreeSet<(String, String, u16)>> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+fn forget_other_ports(profile: &str, url: &Url, browser: Option<&Browser>) {
+    let Some((host, port)) = crate::cert::host_port(url).filter(|_| url.scheme() == "https") else { return };
+    let mut continued = CONTINUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Another port of the host was continued: its certificate could pass here, whatever this port's is.
+    if !continued.iter().any(|(p, h, other)| p == profile && *h == host && *other != port) {
+        return;
+    }
+    // Chromium forgets per profile, not per host: every Continue of the profile goes.
+    if let Some(context) = browser.and_then(|b| b.host()).and_then(|h| h.request_context()) {
+        context.clear_certificate_exceptions(None);
+        context.close_all_connections(None);
+        continued.retain(|(p, ..)| p != profile);
+    }
+}
+
+/// Chromium forgot the profile's remembered decisions; so does the record of them.
+pub(crate) fn forget_continued(profile: &str) {
+    CONTINUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).retain(|(p, ..)| p != profile);
+}
+
+/// The certificate's DER bytes followed by its issuers bounded by `cert::bounded_chain`.
+fn der_chain(cert: &X509Certificate) -> Vec<Vec<u8>> {
+    let bytes = |value: Option<BinaryValue>| {
+        let value = value?;
+        let mut buffer = vec![0; value.size().min(crate::cert::MAX_CERT_BYTES + 1)];
+        let read = value.data(Some(&mut buffer), 0);
+        buffer.truncate(read);
+        Some(buffer)
+    };
+    let mut issuers = vec![None; cert.issuer_chain_size().min(crate::cert::MAX_CHAIN)];
+    cert.derencoded_issuer_chain(Some(&mut issuers));
+    crate::cert::bounded_chain(std::iter::once(cert.derencoded()).chain(issuers).map(|value| bytes(value).unwrap_or_default()))
 }
 
 /// Whether the owning profile's choices put `url` at `lockdown`; before the first snapshot every
@@ -585,6 +628,9 @@ wrap_load_handler! {
 
         fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, _transition_type: TransitionType) {
             let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            if frame.is_main() == 1 {
+                tab.cert_failure.take();
+            }
             if frame.is_main() != 1 {
                 // A subframe, often in a renderer of its own, gets its host's list hiding through CEF, which reaches any frame.
                 #[cfg(windows)]
@@ -653,10 +699,15 @@ wrap_load_handler! {
             if !string(failed_url).starts_with("about:") {
                 drop_handover(&tab, browser);
             }
+            let url = Url::parse(&string(failed_url)).ok();
+            // A cancelled certificate decision fails the load as aborted or as the certificate error.
+            if let Some((url, problem, chain)) = tab.cert_failure.take().filter(|f| url.as_ref().and_then(crate::cert::host_port) == crate::cert::host_port(&f.0)) {
+                emit(&tab, Event::CertificateError { url, problem, chain });
+                return;
+            }
             if code == sys::cef_errorcode_t::ERR_ABORTED {
                 return;
             }
-            let url = Url::parse(&string(failed_url)).ok();
             emit(&tab, Event::Failed { url, code: code as isize, message: crate::page::bounded(&string(error_text)) });
         }
     }
@@ -715,6 +766,7 @@ wrap_request_handler! {
         fn on_before_browse(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, user_gesture: i32, is_redirect: i32) -> i32 {
             let (Some(tab), Some(frame), Some(request)) = (tab(self.id), frame, request) else { return 1 };
             let Ok(url) = Url::parse(&CefString::from(&request.url()).to_string()) else { return 1 };
+            forget_other_ports(&self.profile, &url, browser.as_deref());
             if let Some(allowed) = tarn::page_allows(&tab, &url, frame.is_main() == 1) {
                 if !allowed && frame.is_main() == 1 && user_gesture == 1 && crate::tarn_ext::opens_as_tab(&url) {
                     emit(&tab, Event::OpenTab { url, from: None, background: false, split: false });
@@ -917,9 +969,25 @@ wrap_request_handler! {
             1
         }
 
-        fn on_certificate_error(&self, _browser: Option<&mut Browser>, _cert_error: Errorcode, _request_url: Option<&CefString>, _ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
+        // Chromium's own verification failed; only a certificate the user confirmed goes on (S7).
+        fn on_certificate_error(&self, _browser: Option<&mut Browser>, cert_error: Errorcode, request_url: Option<&CefString>, ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
+            let problem = crate::cert::Problem::from_chromium(sys::cef_errorcode_t::from(cert_error) as i64).unwrap_or(crate::cert::Problem::Refused);
+            let chain = ssl_info.and_then(|info| info.x509_certificate()).map(|c| der_chain(&c)).unwrap_or_default();
+            let url = Url::parse(&string(request_url)).ok();
+            let allowed = url.as_ref().is_some_and(|url| {
+                !lockdown(&self.profile, url)
+                    && crate::cert::host_port(url).zip(chain.first()).is_some_and(|((host, port), leaf)| {
+                        super::filter::cert_exceptions_for(&self.profile).is_some_and(|e| e.allows(&host, port, leaf, problem))
+                    })
+            });
+            if allowed && let Some((host, port)) = url.as_ref().and_then(crate::cert::host_port) {
+                CONTINUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert((self.profile.clone(), host, port));
+            }
+            if !allowed && let (Some(tab), Some(url)) = (tab(self.id), url) {
+                *tab.cert_failure.borrow_mut() = Some((url, problem, chain));
+            }
             if let Some(callback) = callback {
-                callback.cancel();
+                if allowed { callback.cont() } else { callback.cancel() }
             }
             1
         }
@@ -1967,6 +2035,7 @@ impl WebView {
             recent_downloads: RefCell::default(),
             recent_prompts: RefCell::default(),
             silenced: Rc::default(),
+            cert_failure: RefCell::default(),
             history_step: RefCell::default(),
             user_started: Cell::new(false),
             navigating: RefCell::new(None),

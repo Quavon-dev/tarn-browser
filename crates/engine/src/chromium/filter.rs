@@ -17,6 +17,28 @@ static SHIELDS: RwLock<BTreeMap<String, Arc<Shield>>> = RwLock::new(BTreeMap::ne
 /// on macOS, where one profile owns Chromium.
 static EXTENSION_RULES: RwLock<BTreeMap<String, Arc<Vec<RuleList>>>> = RwLock::new(BTreeMap::new());
 
+/// Each profile's certificate exceptions (S7), by Shield key; one on macOS, where one profile owns
+/// Chromium.
+static CERT_EXCEPTIONS: RwLock<BTreeMap<String, crate::cert::Exceptions>> = RwLock::new(BTreeMap::new());
+
+pub(crate) fn set_cert_exceptions_for(key: &str, exceptions: Option<crate::cert::Exceptions>) {
+    let mut all = CERT_EXCEPTIONS.write().unwrap_or_else(PoisonError::into_inner);
+    match exceptions {
+        Some(exceptions) => all.insert(key.to_owned(), exceptions),
+        None => all.remove(key),
+    };
+}
+
+/// Hands Chromium the certificate exceptions of the profile that owns it on macOS.
+#[cfg(target_os = "macos")]
+pub fn set_cert_exceptions(exceptions: crate::cert::Exceptions) {
+    set_cert_exceptions_for("", Some(exceptions));
+}
+
+pub(crate) fn cert_exceptions_for(profile: &str) -> Option<crate::cert::Exceptions> {
+    CERT_EXCEPTIONS.read().unwrap_or_else(PoisonError::into_inner).get(profile).cloned()
+}
+
 /// Replaces the Tarn extension rules of the profile with this Shield key: content rule lists,
 /// one per install, already limited to the hosts it holds grants for. A list that does not parse
 /// is left out.

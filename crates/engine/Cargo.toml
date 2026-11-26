@@ -38,7 +38,7 @@ objc2-foundation = "=0.3.2"
 objc2-local-authentication = { version = "=0.3.2", default-features = false, features = ["std", "block2", "LAContext"] }
 objc2-web-kit = { version = "=0.3.2", features = ["block2", "objc2-app-kit"] }
 raw-window-handle = "=0.6.2"
-security-framework = "=3.7.0"
+security-framework = { version = "=3.7.0", features = ["macos-12"] }
 
 [target.'cfg(windows)'.dependencies]
 cef = { version = "=156.7.0", default-features = false }

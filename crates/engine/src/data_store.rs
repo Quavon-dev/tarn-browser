@@ -50,6 +50,7 @@ pub struct DataStore {
     builtin_lists: [BuiltinList; 3],
     /// Tarn extensions' content scripts, in the controllers of every level but Lockdown.
     tarn: Rc<crate::tarn_webkit::Worlds>,
+    pub(crate) cert_exceptions: crate::cert::Exceptions,
 }
 
 pub(crate) type BuiltinList = Rc<RefCell<Option<Retained<WKContentRuleList>>>>;
@@ -171,6 +172,7 @@ impl DataStore {
             builtin: Default::default(),
             builtin_lists: Default::default(),
             tarn,
+            cert_exceptions: crate::cert::Exceptions::default(),
         };
         this.compile_builtin_rules(mtm);
         this
@@ -193,6 +195,11 @@ impl DataStore {
 
     pub(crate) fn controller(&self, level: ShieldLevel, filtered: bool) -> &WKUserContentController {
         &self.controllers[level as usize][usize::from(filtered)]
+    }
+
+    /// The profile's certificate exceptions; views read them on each server-trust failure.
+    pub fn cert_exceptions(&self) -> crate::cert::Exceptions {
+        self.cert_exceptions.clone()
     }
 
     pub fn set_safe_browsing(&self, on: bool) {

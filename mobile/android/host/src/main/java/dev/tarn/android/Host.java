@@ -1,11 +1,16 @@
 package dev.tarn.android;
 
 import android.app.Activity;
+import android.app.KeyguardManager;
+import android.hardware.biometrics.BiometricManager;
+import android.hardware.biometrics.BiometricPrompt;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.os.Handler;
@@ -39,6 +44,11 @@ final class Host {
     private static final int SPEECH_STARTED = 1;
     private static final int SPEECH_FAILED = 2;
     private static volatile int speechState = SPEECH_STARTED;
+    static final int CONFIRM_OWNER = 2;
+    private static final int OWNER_ASKING = 0;
+    private static final int OWNER_CONFIRMED = 1;
+    private static final int OWNER_REFUSED = 2;
+    private static volatile int ownerState = OWNER_REFUSED;
 
     private Host() {}
 
@@ -162,6 +172,61 @@ final class Host {
             pendingSpeech = null;
             if (speech != null) speech.stop();
         });
+    }
+
+    static boolean confirmOwner(String reason) {
+        if (activity == null || ownerState == OWNER_ASKING) return false;
+        ownerState = OWNER_ASKING;
+        MAIN.post(() -> askOwner(reason));
+        return true;
+    }
+
+    @SuppressWarnings("deprecation")
+    private static void askOwner(String reason) {
+        Activity shown = activity;
+        String title = "Confirm it is you";
+        String description = "Tarn is trying to " + reason + ".";
+        try {
+            if (shown == null) {
+                ownerState = OWNER_REFUSED;
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                BiometricPrompt.Builder builder = new BiometricPrompt.Builder(shown).setTitle(title).setDescription(description);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
+                } else {
+                    builder.setDeviceCredentialAllowed(true);
+                }
+                builder.build().authenticate(new CancellationSignal(), shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
+                    @Override
+                    public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                        ownerAnswered(true);
+                    }
+
+                    @Override
+                    public void onAuthenticationError(int code, CharSequence message) {
+                        ownerAnswered(false);
+                    }
+                });
+            } else {
+                KeyguardManager keyguard = shown.getSystemService(KeyguardManager.class);
+                Intent ask = keyguard == null ? null : keyguard.createConfirmDeviceCredentialIntent(title, description);
+                if (ask == null) {
+                    ownerState = OWNER_REFUSED;
+                } else {
+                    shown.startActivityForResult(ask, CONFIRM_OWNER);
+                }
+            }
+        } catch (RuntimeException e) {
+            ownerState = OWNER_REFUSED;
+        }
+    }
+
+    static void ownerAnswered(boolean confirmed) {
+        ownerState = confirmed ? OWNER_CONFIRMED : OWNER_REFUSED;
+    }
+
+    static int ownerState() {
+        return ownerState;
     }
 
     static void releaseStore(String session) {

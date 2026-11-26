@@ -20,6 +20,7 @@ store.workspace = true
 unicode-normalization = "=0.1.25"
 url.workspace = true
 uuid = { version = "1", features = ["v4"] }
+x509-cert = { version = "=0.3.1", default-features = false, features = ["std"] }
 zip = { version = "=9.5.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]

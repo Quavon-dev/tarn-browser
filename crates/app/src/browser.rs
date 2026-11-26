@@ -98,6 +98,8 @@ pub struct PageState {
     pub visit: Option<(Id, String)>,
     /// The warning page shown instead of the web view.
     pub blocked: Option<BlockedPage>,
+    /// The certificate error page shown instead of the web view, and how far the user went on it.
+    pub cert: Option<browser_core::cert_error::CertPage>,
     /// A local-network refusal or an HTTPS upgrade was counted for the page shown now, so a page
     /// retrying cannot run the counters up.
     pub local_counted: bool,

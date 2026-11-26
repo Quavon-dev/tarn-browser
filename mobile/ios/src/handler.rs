@@ -4,13 +4,15 @@ use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
 use block2::{DynBlock, RcBlock};
+use engine::cert::{Problem, bounded_chain};
 use engine::view_policy;
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, Bool, NSObjectProtocol, ProtocolObject};
-use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
-use objc2_core_foundation::CGRect;
+use objc2::runtime::{AnyClass, AnyObject, Bool, NSObjectProtocol, ProtocolObject, Sel};
+use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
+use objc2_core_foundation::{CFArray, CFData, CFError, CFRetained, CGRect};
 use objc2_foundation::{
     NSArray, NSDictionary, NSError, NSHTTPURLResponse, NSInteger, NSObject, NSString, NSURL, NSURLAuthenticationChallenge, NSURLCredential,
+    NSURLProtectionSpace,
 };
 use objc2_ui_kit::{UIAction, UIContextMenuConfiguration, UIMenu, UIMenuBuilder, UIMenuElement, UIMenuOptions, UIMenuRoot, UIMenuSystem, UIResponder, UIView};
 use objc2_web_kit::{
@@ -22,12 +24,20 @@ use serde_json::json;
 use shield::ShieldLevel;
 use url::Url;
 
-use crate::component::{DISPOSITION_REJECT, Inner, MediaRequest, Pending, settle};
+use crate::component::{DISPOSITION_REJECT, DISPOSITION_USE, Inner, MediaRequest, Pending, settle};
 use crate::webkit::WebView;
 
 pub struct State {
     inner: Weak<Inner>,
     level: ShieldLevel,
+}
+
+#[link(name = "Security", kind = "framework")]
+unsafe extern "C" {
+    fn SecTrustSetNetworkFetchAllowed(trust: *const c_void, allowed: bool) -> i32;
+    fn SecTrustEvaluateWithError(trust: *const c_void, error: *mut *mut CFError) -> bool;
+    fn SecTrustCopyCertificateChain(trust: *const c_void) -> *mut CFArray;
+    fn SecCertificateCopyData(certificate: *const c_void) -> *mut CFData;
 }
 
 type ActionHandler = DynBlock<dyn Fn(WKNavigationActionPolicy, NonNull<WKWebpagePreferences>)>;
@@ -36,6 +46,7 @@ type AuthHandler = DynBlock<dyn Fn(NSInteger, *mut NSURLCredential)>;
 
 const DISPOSITION_DEFAULT: NSInteger = 1;
 pub(crate) const CANCELLED: [(&str, isize); 2] = [("NSURLErrorDomain", -999), ("WebKitErrorDomain", 102)];
+const SERVER_TRUST: &str = "NSURLAuthenticationMethodServerTrust";
 const PASSWORD_METHODS: [&str; 3] = ["NSURLAuthenticationMethodHTTPBasic", "NSURLAuthenticationMethodHTTPDigest", "NSURLAuthenticationMethodNTLM"];
 
 fn ns_url(url: Option<Retained<NSURL>>) -> Option<Url> {
@@ -209,6 +220,13 @@ define_class!(
             let method = space.authenticationMethod().to_string();
             let failures = u32::try_from(challenge.previousFailureCount()).unwrap_or(u32::MAX);
             let origin = space.protocol().and_then(|scheme| Url::parse(&format!("{scheme}://{}:{}/", space.host(), space.port())).ok());
+            // Server trust keeps WebKit's default handling unless the user confirmed this certificate (S7).
+            if method == SERVER_TRUST {
+                return match self.server_trust(&space) {
+                    Some(credential) => handler.call((DISPOSITION_USE, Retained::as_ptr(&credential).cast_mut())),
+                    None => handler.call((DISPOSITION_DEFAULT, std::ptr::null_mut())),
+                };
+            }
             if !PASSWORD_METHODS.contains(&method.as_str()) {
                 return handler.call((DISPOSITION_DEFAULT, std::ptr::null_mut()));
             }
@@ -321,6 +339,34 @@ define_class!(
     }
 );
 
+/// Evaluates `trust`: the problem when it fails, `None` when it passes, and the certificates, leaf first.
+///
+/// # Safety
+/// `trust` is a live SecTrustRef.
+unsafe fn evaluate(trust: *const c_void) -> (Option<Problem>, Vec<Vec<u8>>) {
+    let mut error: *mut CFError = std::ptr::null_mut();
+    // SAFETY: a live SecTrustRef (the caller's contract). Revocation and missing intermediates are
+    // not fetched by the shell, so the evaluation neither reaches the network nor blocks on it; the
+    // error, if any, is returned +1.
+    // A trust whose fetching cannot be turned off counts as passed: WebKit's own evaluation decides.
+    let passed = unsafe { SecTrustSetNetworkFetchAllowed(trust, false) != 0 || SecTrustEvaluateWithError(trust, &mut error) };
+    // SAFETY: a +1 CFErrorRef from the evaluation above, or NULL, released by `CFRetained`.
+    let code = NonNull::new(error).map(|e| unsafe { CFRetained::from_raw(e) }.code()).unwrap_or_default();
+    // SAFETY: a live, evaluated SecTrustRef; the chain is returned +1 or NULL.
+    let certificates = NonNull::new(unsafe { SecTrustCopyCertificateChain(trust) }).map(|a| unsafe { CFRetained::from_raw(a) });
+    let chain = certificates.iter().flat_map(|array| {
+        (0..array.count()).map(|ix| {
+            // SAFETY: `ix` is below the array's count; its values are SecCertificateRefs, whose
+            // data is returned +1.
+            let data = unsafe { SecCertificateCopyData(array.value_at_index(ix)) };
+            // SAFETY: a +1 CFDataRef or NULL, released by `CFRetained`. An unreadable
+            // certificate stays in place, empty, so an issuer never stands in for the leaf.
+            NonNull::new(data).map(|d| unsafe { CFRetained::from_raw(d) }.to_vec()).unwrap_or_default()
+        })
+    });
+    ((!passed).then(|| Problem::from_sec_trust(code as i64)), bounded_chain(chain))
+}
+
 fn is_download(response: &WKNavigationResponse) -> bool {
     // SAFETY: WebKit passes a live response on the main thread.
     let (main, shows, response) = unsafe { (response.isForMainFrame(), response.canShowMIMEType(), response.response()) };
@@ -363,9 +409,59 @@ impl Handler {
         if CANCELLED.iter().any(|(d, c)| *d == domain && *c == code) {
             return self.emit("stopped", json!({}));
         }
-        let key = NSString::from_str("NSErrorFailingURLStringKey");
-        let url = error.userInfo().objectForKey(&key).and_then(|v| v.downcast::<NSString>().ok()).map(|s| s.to_string());
+        let info = error.userInfo();
+        let url = info.objectForKey(&NSString::from_str("NSErrorFailingURLStringKey")).and_then(|v| v.downcast::<NSString>().ok()).map(|s| s.to_string());
+        // NSURLErrorSecureConnectionFailed through NSURLErrorServerCertificateNotYetValid; the
+        // error carries the server trust that failed.
+        if domain == "NSURLErrorDomain"
+            && (-1204..=-1200).contains(&code)
+            && let Some(failed) = url.as_deref().and_then(|u| Url::parse(u).ok())
+            && let Some(trust) = info.objectForKey(&NSString::from_str("NSURLErrorFailingURLPeerTrustErrorKey"))
+        {
+            // SAFETY: Foundation stores a SecTrustRef under this key, kept alive by `trust`.
+            let (problem, chain) = unsafe { evaluate(Retained::as_ptr(&trust).cast()) };
+            let chain: Vec<String> = chain.iter().map(|der| der.iter().map(|b| format!("{b:02x}")).collect()).collect();
+            let Some(problem) = problem else { return self.emit("failed", json!({ "url": url, "message": error.localizedDescription().to_string() })) };
+            return self.emit("certificate_error", json!({ "url": failed.as_str(), "problem": problem.as_str(), "chain": chain }));
+        }
         self.emit("failed", json!({ "url": url, "message": error.localizedDescription().to_string() }));
+    }
+
+    /// The credential that answers a server-trust challenge for a certificate the user confirmed,
+    /// or `None` for WebKit's default handling; a site without an exception is not evaluated here.
+    fn server_trust(&self, space: &NSURLProtectionSpace) -> Option<Retained<NSURLCredential>> {
+        let host = space.host().to_string().to_ascii_lowercase();
+        let host = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host };
+        let port = u16::try_from(space.port()).ok()?;
+        let inner = self.inner()?;
+        let props = inner.props.borrow();
+        let level = Url::parse(&format!("https://{host}:{port}/")).map_or(ShieldLevel::Lockdown, |url| props.site(&url)).max(self.ivars().level);
+        if level == ShieldLevel::Lockdown || !props.cert_exceptions.has(&host, port) {
+            return None;
+        }
+        type TrustGetter = unsafe extern "C-unwind" fn(*const NSURLProtectionSpace, Sel) -> *const c_void;
+        // SAFETY: `objc_msgSend` with the exact signature of `-[NSURLProtectionSpace serverTrust]`,
+        // which returns a +0 SecTrustRef owned by the protection space, or NULL.
+        let trust = unsafe {
+            let send: TrustGetter = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            send(space, sel!(serverTrust))
+        };
+        if trust.is_null() {
+            return None;
+        }
+        // SAFETY: a live SecTrustRef owned by the protection space.
+        let (problem, chain) = unsafe { evaluate(trust) };
+        if !props.cert_exceptions.allows(&host, port, chain.first()?, problem?) {
+            return None;
+        }
+        type CredentialMaker = unsafe extern "C-unwind" fn(*const AnyClass, Sel, *const c_void) -> *mut NSURLCredential;
+        let class = AnyClass::get(c"NSURLCredential")?;
+        // SAFETY: `objc_msgSend` with the exact signature of `+[NSURLCredential credentialForTrust:]`,
+        // given the live SecTrustRef; it returns a +0 credential, retained here.
+        unsafe {
+            let send: CredentialMaker = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            Retained::retain(send(class, sel!(credentialForTrust:), trust))
+        }
     }
 
     fn adopt(&self, download: &WKDownload) {

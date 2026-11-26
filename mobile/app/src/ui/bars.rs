@@ -170,7 +170,12 @@ fn address_input(ui: Ui) -> nsh_base::Input {
     let typed = signal(String::new());
     let completed = signal(None::<(String, String)>);
     let history = signal(std::rc::Rc::new(Vec::<store::HistoryEntry>::new()));
-    let resting = move || ui.read(|s| browser_core::command::display_host(&s.active_url()));
+    let excepted = super::cert::excepted(ui);
+    let resting = move || {
+        let host = ui.read(|s| browser_core::command::display_host(&s.active_url()));
+        if excepted() { format!("Not Secure — {host}") } else { host }
+    };
+
     ui.shaking(input())
         .element_ref(&field)
         .value(move || if ui.editing.get() { ui.address.get() } else { resting() })

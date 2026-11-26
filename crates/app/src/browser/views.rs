@@ -86,6 +86,9 @@ impl Browser {
                 crate::tarn_ext::opened(&self.core, profile_id);
             }
             self.apply_site_styles(private, profile_id);
+            if !private {
+                self.apply_cert_exceptions(profile_id);
+            }
             crate::zaps::apply(&self.core, private, profile_id);
             // Chromium refuses a profile's requests until its Shield choices arrive.
             #[cfg(windows)]

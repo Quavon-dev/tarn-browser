@@ -39,6 +39,10 @@ pub struct Page {
     /// The address the user last opened in this tab from the address field, until a load of it
     /// commits: that visit counts toward inline completion (`suggest::typed_visit`).
     pub typed: Option<String>,
+    /// The certificate error page shown in place of the page (threat model S7).
+    pub cert: Option<browser_core::cert_error::CertPage>,
+    /// "Trust Certificate" waits for the owner check.
+    pub cert_asking: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -64,6 +68,7 @@ pub struct ViewProps {
     pub theme_styles: Vec<(String, String)>,
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
+    pub cert_exceptions: Vec<browser_core::cert_error::Exception>,
     pub load: Option<Load>,
     /// The selection menu's assistant commands; none where the assistant may not see the page.
     pub assistant: Option<Vec<String>>,
@@ -79,6 +84,7 @@ pub struct ProfileProps {
     pub theme_styles: Vec<(String, String)>,
     pub zaps: BTreeMap<String, Vec<String>>,
     pub sort_downloads: bool,
+    pub cert_exceptions: Vec<browser_core::cert_error::Exception>,
     pub assistant: Option<Vec<String>>,
 }
 
@@ -169,6 +175,8 @@ pub struct Shell<D: Platform> {
     pub(crate) opened: PathBuf,
     /// The file each tab opened with Open File: a slept tab loads it again as Open File.
     opened_files: HashMap<TabKey, String>,
+    /// Each profile's certificate exceptions and the sites that had one since launch.
+    pub(crate) cert_seen: std::cell::RefCell<HashMap<Id, engine::cert::Exceptions>>,
 }
 
 fn downloads_sink() -> Rc<dyn Fn(engine::Event)> {
@@ -238,6 +246,7 @@ impl<D: Platform> Shell<D> {
             icons: engine::favicon::Tracker::default(),
             opened,
             opened_files: HashMap::new(),
+            cert_seen: Default::default(),
         };
         shell.ext.root = dir.join("Extensions");
         shell.switch_space(ix);
@@ -316,6 +325,7 @@ impl<D: Platform> Shell<D> {
             theme_styles: self.theme_styles(private, profile_id),
             zaps,
             sort_downloads: self.setting_on(crate::scripts::SORT_DOWNLOADS),
+            cert_exceptions: self.cert_exceptions(),
             assistant: self.model.assistant_commands(&self.core),
         })
     }
@@ -343,6 +353,7 @@ impl<D: Platform> Shell<D> {
                 theme_styles: props.theme_styles.clone(),
                 zaps: props.zaps.clone(),
                 sort_downloads: props.sort_downloads,
+                cert_exceptions: props.cert_exceptions.clone(),
                 load: self.loads.get(&key).cloned(),
                 assistant: self.model.assistant_menu_for(&self.core, props.assistant.as_ref(), &self.tab_url(key)),
             })
@@ -407,6 +418,7 @@ impl<D: Platform> Shell<D> {
         let page = self.pages.entry(key).or_insert_with(|| Page { zoom: 1.0, ..Page::default() });
         page.url = url.to_owned();
         page.error = None;
+        page.cert = None;
         page.loading = true;
         page.awaiting_commit = true;
     }
@@ -865,6 +877,7 @@ impl<D: Platform> Shell<D> {
         let store = self.core.store(private);
         store.clear_history(id).ok();
         store.clear_downloads(id).ok();
+        store.clear_cert_exceptions(id).ok();
         self.download_notices.clear();
         self.cleared_downloads = None;
         self.model.closed_tabs.clear_profile(private, id);
@@ -1037,6 +1050,7 @@ impl<D: Platform> Shell<D> {
     pub fn dismiss_error(&mut self) -> Vec<Effect> {
         if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
             page.error = None;
+            page.cert = None;
         }
         Vec::new()
     }

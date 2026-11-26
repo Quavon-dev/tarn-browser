@@ -96,6 +96,20 @@ pub fn may_ask_credentials(challenge: &str, page: Option<&str>, failures: i32) -
     view_policy::may_ask_credentials(&challenge, page.as_ref(), failures)
 }
 
+/// Whether a TLS failure on `url` is answered by a certificate the user confirmed in this profile
+/// (threat model S7): never at Lockdown, and only for exactly this leaf certificate.
+pub fn cert_allowed(url: &str, primary: i32, leaf: &[u8], exceptions: &str, level_index: i32) -> bool {
+    let (Ok(url), Ok(list)) = (Url::parse(url), serde_json::from_str::<serde_json::Value>(exceptions)) else {
+        return false;
+    };
+    let Some((host, port)) = engine::cert::host_port(&url).filter(|_| level(level_index) != ShieldLevel::Lockdown) else {
+        return false;
+    };
+    let confirmed = engine::cert::Exceptions::default();
+    confirmed.set(engine::cert::Exception::list_from_json(&list));
+    confirmed.allows(&host, port, leaf, engine::cert::Problem::from_android(i64::from(primary)))
+}
+
 fn kind_names(kind: i32) -> (ResourceKind, &'static str) {
     usize::try_from(kind).ok().and_then(|i| KINDS.get(i).copied()).unwrap_or((ResourceKind::Other, "other"))
 }
@@ -134,6 +148,18 @@ mod tests {
     const IMAGE: i32 = 2;
     const SCRIPT: i32 = 4;
     const FETCH: i32 = 7;
+
+    #[test]
+    fn only_a_confirmed_leaf_passes_a_tls_failure_and_never_at_lockdown() {
+        let leaf = b"leaf";
+        let list = serde_json::json!([{ "host": "nas.local", "port": 5001, "fingerprint": engine::cert::fingerprint(leaf) }]).to_string();
+        let (untrusted, standard, lockdown) = (3, 0, 2);
+        assert!(cert_allowed("https://NAS.local:5001/x", untrusted, leaf, &list, standard));
+        assert!(!cert_allowed("https://nas.local:5001/", untrusted, leaf, &list, lockdown));
+        assert!(!cert_allowed("https://nas.local:5001/", untrusted, b"other", &list, standard));
+        assert!(!cert_allowed("https://nas.local/", untrusted, leaf, &list, standard));
+        assert!(!cert_allowed("https://nas.local:5001/", untrusted, leaf, "not json", standard));
+    }
 
     #[test]
     fn every_builtin_rule_is_understood() {

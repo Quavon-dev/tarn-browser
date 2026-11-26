@@ -35,7 +35,7 @@ const OBSERVED: [&str; 3] = ["title", "canGoBack", "canGoForward"];
 thread_local! {
     static NEXT_PROMPT: Cell<u64> = const { Cell::new(1) };
 }
-const DISPOSITION_USE: NSInteger = 0;
+pub(crate) const DISPOSITION_USE: NSInteger = 0;
 pub const DISPOSITION_REJECT: NSInteger = 3;
 
 pub struct MediaRequest {
@@ -68,6 +68,8 @@ pub(crate) struct Props {
     active: bool,
     dark: bool,
     pub(crate) split_links: bool,
+    /// The certificates the user confirmed in this profile (threat model S7).
+    pub(crate) cert_exceptions: engine::cert::Exceptions,
     /// The commands a selection's edit menu offers after Ask Assistant about Selection; none hides both.
     pub(crate) assistant_menu: Option<Vec<String>>,
 }
@@ -645,6 +647,10 @@ impl NativeComponent for TarnWebView {
                         .into_iter()
                         .flat_map(|(h, v)| v.as_array().into_iter().flatten().filter_map(Value::as_str).map(|s| (h.clone(), s.to_owned())).collect::<Vec<_>>())
                         .collect()
+                }
+                "certExceptions" => {
+                    props.cert_exceptions.set(engine::cert::Exception::list_from_json(value.unwrap_or(&Value::Null)));
+                    return;
                 }
                 "sortDownloads" => props.sort_downloads = value.and_then(Value::as_bool).unwrap_or(false),
                 _ => return,

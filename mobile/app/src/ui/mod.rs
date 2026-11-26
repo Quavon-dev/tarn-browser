@@ -2,6 +2,7 @@ mod appearance;
 mod assistant;
 mod bars;
 mod capture;
+mod cert;
 mod controls;
 mod extensions;
 mod mac;
@@ -357,6 +358,7 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
         .prop("themeStyles", move || json!(item.get().theme_styles))
         .prop("zaps", move || json!(item.get().zaps))
         .prop("sortDownloads", move || json!(item.get().sort_downloads))
+        .prop("certExceptions", move || engine::cert::Exception::list_to_json(&item.get().cert_exceptions))
         .prop("dark", move || json!(!Theme::is_light()))
         .prop("splitLinks", move || json!(ui.wide()))
         .prop("assistantMenu", move || json!(item.get().assistant))
@@ -385,7 +387,10 @@ fn web_view(ui: Ui, item: ReadSignal<ViewProps>) -> impl IntoElement {
             None => s.flex_1(),
         })
         .style_when(
-            move || !(ui.browsing() && (ui.pane(key).is_some() || ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty()))),
+            move || {
+                !(ui.browsing() && (ui.pane(key).is_some() || ui.read(|s| s.model.active == Some(key) && !s.active_url().is_empty())))
+                    || ui.read(|s| s.model.active == Some(key) && s.pages.get(&key).is_some_and(|p| p.cert.is_some()))
+            },
             |s| s.hidden(),
         )
         .child(dynamic(move || ui.pane(key).is_some().then(|| pane_header(ui, key))))
@@ -716,6 +721,7 @@ pub fn App() -> impl IntoElement {
                 .child(capture::layer(ui))
                 .child(media::bar(ui, false))
                 .child(start(ui))
+                .child(cert::page(ui))
                 .child(bars::suggestions(ui))
                 .child(prompt::prompt_panel(ui))
                 .child(panels::panel(ui)),

@@ -22,8 +22,8 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodClientCertificate, NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential,
-    NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
+    NSURLAuthenticationMethodClientCertificate, NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodServerTrust,
+    NSURLCredential, NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
     WKDownload, WKDownloadDelegate, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
@@ -208,6 +208,8 @@ pub(crate) struct DelegateState {
     /// The last restart of a new find, and whether it is still clearing the selection; a step
     /// meanwhile would start from the old selection.
     pub find_restart: Cell<(u64, bool)>,
+    /// The profile's certificate exceptions (S7), shared with its other views.
+    pub cert_exceptions: crate::cert::Exceptions,
 }
 
 pub(crate) type Found = Rc<dyn Fn(usize, Option<usize>)>;
@@ -248,6 +250,7 @@ impl DelegateState {
             last_title: RefCell::default(),
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
+            cert_exceptions: crate::cert::Exceptions::default(),
             assistant_menu: RefCell::default(),
             found: RefCell::default(),
             find_restart: Cell::new((0, false)),
@@ -694,7 +697,16 @@ define_class!(
                     method.isEqualToString(NSURLAuthenticationMethodClientCertificate),
                 )
             };
-            // Server trust keeps WebKit's default handling (S7).
+            // SAFETY: reading Foundation's constant string.
+            if unsafe { method.isEqualToString(NSURLAuthenticationMethodServerTrust) } {
+                // WebKit's default handling unless the user confirmed this certificate (S7).
+                let credential = self.server_trust(&space);
+                match credential {
+                    Some(credential) => handler.call((NSURLSessionAuthChallengeDisposition::UseCredential, Retained::as_ptr(&credential).cast_mut())),
+                    None => handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, std::ptr::null_mut())),
+                }
+                return;
+            }
             if !http_auth && !client_certificate {
                 handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, std::ptr::null_mut()));
                 return;
@@ -945,6 +957,7 @@ define_class!(
                 // Until its first commit a popup shows the opener-writable blank document, whatever it was asked to load (S5).
                 committed_url: RefCell::new(Url::parse("about:blank").ok()),
                 agent_gate: RefCell::new(state.agent_gate.borrow().clone()),
+                cert_exceptions: state.cert_exceptions.clone(),
                 ..DelegateState::new(Rc::new(|_| {}), state.site_for.clone(), state.level, state.filtered, state.downloads.clone(), true)
             };
             // SAFETY: main thread; WebKit requires the returned view to use this configuration.
@@ -1253,9 +1266,79 @@ impl Delegate {
         self.ivars().history_step.take();
         // SAFETY: main-thread access to a live web view.
         let url = to_url(unsafe { web_view.URL() });
+        // NSURLErrorSecureConnectionFailed through NSURLErrorServerCertificateNotYetValid, with a
+        // server trust attached that fails evaluation. A failed first load leaves the view without a URL; the error
+        // names the one that failed.
+        if (-1204..=-1200).contains(&error.code())
+            && let Some((problem, chain)) = peer_chain(error)
+            && let Some(url) = failing_url(error).or(url.clone())
+        {
+            self.emit(Event::CertificateError { url, problem, chain });
+            return;
+        }
         let message = error.localizedDescription().to_string();
         self.emit(Event::Failed { url, code: error.code(), message });
     }
+
+    /// The credential that answers a server-trust challenge for a certificate the user confirmed,
+    /// or `None` for WebKit's default handling. Only a host and port with an exception is evaluated
+    /// here, so other connections never wait on the main thread.
+    fn server_trust(&self, space: &NSURLProtectionSpace) -> Option<Retained<NSURLCredential>> {
+        let state = self.ivars();
+        let host = space.host().to_string();
+        let host = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host };
+        let port = u16::try_from(space.port()).ok()?;
+        let site = Url::parse(&format!("https://{host}:{port}/")).ok()?;
+        if state.level == ShieldLevel::Lockdown || (state.site_for)(&site).level == ShieldLevel::Lockdown || !state.cert_exceptions.has(&host, port) {
+            return None;
+        }
+        type TrustGetter = unsafe extern "C-unwind" fn(*const NSURLProtectionSpace, Sel) -> *mut c_void;
+        // SAFETY: `objc_msgSend` with the exact signature of `-[NSURLProtectionSpace serverTrust]`,
+        // which returns a +0 SecTrustRef or NULL; it is retained by `wrap_under_get_rule`.
+        let raw = unsafe {
+            let send: TrustGetter = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            send(space, sel!(serverTrust))
+        };
+        if raw.is_null() {
+            return None;
+        }
+        // SAFETY: `raw` is a live SecTrustRef owned by the protection space.
+        let mut trust = unsafe { security_framework::trust::SecTrust::wrap_under_get_rule(raw.cast()) };
+        // The shell makes no request of its own for the certificate (S7): no intermediates or
+        // revocation fetched, which would also block the main thread.
+        trust.set_network_fetch_allowed(false).ok()?;
+        let problem = crate::cert::Problem::from_sec_trust(trust.evaluate_with_error().err()?.code() as i64);
+        let leaf = trust.chain().first()?.to_der();
+        if !state.cert_exceptions.allows(&host, port, &leaf, problem) {
+            return None;
+        }
+        type CredentialMaker = unsafe extern "C-unwind" fn(*const AnyClass, Sel, *mut c_void) -> *mut NSURLCredential;
+        let class = AnyClass::get(c"NSURLCredential")?;
+        // SAFETY: `objc_msgSend` with the exact signature of `+[NSURLCredential credentialForTrust:]`,
+        // given the live SecTrustRef; it returns a +0 credential, retained here.
+        unsafe {
+            let send: CredentialMaker = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            Retained::retain(send(class, sel!(credentialForTrust:), raw))
+        }
+    }
+}
+
+fn failing_url(error: &NSError) -> Option<Url> {
+    // SAFETY: reading Foundation's constant key.
+    to_url(error.userInfo().objectForKey(unsafe { objc2_foundation::NSURLErrorFailingURLErrorKey })?.downcast::<NSURL>().ok())
+}
+
+/// The problem and certificates of the server trust a TLS failure carries; `None` when that trust
+/// passes, as for a handshake that failed for another reason.
+fn peer_chain(error: &NSError) -> Option<(crate::cert::Problem, Vec<Vec<u8>>)> {
+    // SAFETY: reading Foundation's constant key.
+    let trust = error.userInfo().objectForKey(unsafe { objc2_foundation::NSURLErrorFailingURLPeerTrustErrorKey })?;
+    // SAFETY: Foundation stores a SecTrustRef under this key; the error keeps it alive while it is
+    // retained by `wrap_under_get_rule`.
+    let mut trust = unsafe { security_framework::trust::SecTrust::wrap_under_get_rule(Retained::as_ptr(&trust).cast_mut().cast()) };
+    trust.set_network_fetch_allowed(false).ok()?;
+    let problem = crate::cert::Problem::from_sec_trust(trust.evaluate_with_error().err()?.code() as i64);
+    Some((problem, crate::cert::bounded_chain(trust.chain().iter().map(|c| c.to_der()))))
 }
 
 define_class!(

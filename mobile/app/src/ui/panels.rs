@@ -526,6 +526,7 @@ fn site_shield(ui: Ui) -> impl IntoElement {
                 }, true)
             })
         }))
+        .child(super::cert::trusted(ui))
         .child(caption(move || format!("Profile default: {}", ui.read_data(|s| s.default_level().as_str()))))
         .child(caption("Standard blocks trackers and private-network requests. Strict adds HTTPS-only. Lockdown also turns JavaScript off and keeps website data in memory."))
         .child(sheets::site(ui))
@@ -814,9 +815,10 @@ pub(super) fn pane_body(ui: Ui, pane: Pane) -> Option<View> {
                     .number_of_lines(0)
                     .px_1(),
             ),
-        Pane::Permissions => {
-            body.child(section_with("Site answers", "A site you forget asks again next time; Lockdown sites never ask.")).child(permissions(ui))
-        }
+        Pane::Permissions => body
+            .child(section_with("Site answers", "A site you forget asks again next time; Lockdown sites never ask."))
+            .child(permissions(ui))
+            .child(super::cert::settings(ui)),
         Pane::Snippets => body.child(tarn_nsh_shared::snippets::pane(Notes(ui))),
         Pane::Notes => body.child(tarn_nsh_shared::notes::pane(Notes(ui))),
         Pane::Ai if !tarn_nsh_shared::assistant::offered(super::assistant::Host(ui)) => return None,

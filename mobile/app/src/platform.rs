@@ -33,6 +33,14 @@ mod system {
         SPOKEN.with(|s| s.borrow_mut().clear());
     }
 
+    pub fn confirm_owner(_: &str) -> bool {
+        false
+    }
+
+    pub fn owner_answer() -> Option<bool> {
+        Some(false)
+    }
+
     pub fn fetch(_: &str, _: u64) -> Result<(u16, Option<String>, Vec<u8>), String> {
         Err("This build has no network transport.".to_owned())
     }
@@ -149,6 +157,20 @@ pub async fn speak(text: String) -> bool {
     loop {
         match run_on_main_thread(system::speech_started).await.unwrap_or(Some(false)) {
             Some(started) => return started,
+            None => timer(SPEECH_POLL).await,
+        }
+    }
+}
+
+/// Asks the device's owner to confirm with biometrics or the device passcode; `reason` completes
+/// "Tarn is trying to …" where the system shows it.
+pub async fn confirm_owner(reason: String) -> bool {
+    if !run_on_main_thread(move || system::confirm_owner(&reason)).await.unwrap_or(false) {
+        return false;
+    }
+    loop {
+        match run_on_main_thread(system::owner_answer).await.unwrap_or(Some(false)) {
+            Some(ok) => return ok,
             None => timer(SPEECH_POLL).await,
         }
     }

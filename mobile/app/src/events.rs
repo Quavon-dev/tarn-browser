@@ -66,6 +66,7 @@ impl<D: Platform> Shell<D> {
                     page.error = text(data, "message");
                 }
             }
+            "certificate_error" => self.certificate_error(key, data),
             "blocked" => {
                 let url = text(data, "url").unwrap_or_default();
                 if let Some(page) = self.pages.get_mut(&key) {
@@ -158,7 +159,7 @@ impl<D: Platform> Shell<D> {
             self.record_visit(key, &url, &title, now);
         }
         if let Some(page) = self.pages.get_mut(&key) {
-            let error_page = committed && page.awaiting_commit && page.error.is_some() && page.url == url;
+            let error_page = committed && page.awaiting_commit && (page.error.is_some() || page.cert.is_some()) && page.url == url;
             page.url = url.clone();
             page.title = title.clone();
             if error_page {
@@ -175,6 +176,7 @@ impl<D: Platform> Shell<D> {
             page.forward = data.get("canGoForward").and_then(Value::as_bool).unwrap_or(false);
             page.loading = committed;
             page.error = None;
+            page.cert = None;
         }
         let saved = if committed { Some(url) } else { self.pages.get(&key).and_then(|p| p.committed.clone()) };
         if let Some(saved) = saved {

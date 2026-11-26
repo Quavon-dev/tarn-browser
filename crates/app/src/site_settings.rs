@@ -243,7 +243,7 @@ impl Browser {
         let Some(main) = window.window_handle().downcast::<Browser>() else { return };
         let Some((key, url)) = self.site() else { return };
         self.commit_rename(cx);
-        let rows = self.site_permissions(key, &url).len();
+        let rows = self.site_permissions(key, &url).len() + usize::from(self.cert_excepted(key, &url));
         let more = self.site_popover.more.then(|| (!self.model.private(), self.zapped(url.host_str()).len()));
         let anchor = self.site_popover.anchor.get();
         let origin = window.bounds();
@@ -424,10 +424,12 @@ impl SiteSettingsWindow {
         url: &Url,
         host: &str,
         (paused, pause_host): (bool, String),
-        profile: String,
+        (profile, excepted): (String, bool),
         cx: &mut Context<Self>,
     ) -> gpui::Div {
-        let (glyph, color, text) = if url.scheme() == "https" {
+        let (glyph, color, text) = if excepted {
+            (Icon::TriangleAlert, Secure::warning(), "Not secure — you trusted this site's certificate")
+        } else if url.scheme() == "https" {
             (Icon::Lock, Secure::success(), "Connection is secure")
         } else {
             (Icon::TriangleAlert, Secure::warning(), "Not secure — this page is not encrypted")
@@ -689,7 +691,8 @@ impl Render for SiteSettingsWindow {
         let stopped = b.site_stopped(key, &url);
         let favicon = crate::sidebar::site_icon(b, url.as_str(), 28.);
         let profile = format!("{}/{:?}", key.private, b.profile_of(key));
-        let header = self.header(favicon, &url, &shown, (paused, pause_host), profile.clone(), cx);
+        let excepted = b.cert_excepted(key, &url);
+        let header = self.header(favicon, &url, &shown, (paused, pause_host), (profile.clone(), excepted), cx);
         let permission_rows: Vec<_> = permissions.iter().enumerate().map(|(ix, row)| self.permission(key, ix, row, cx)).collect();
         let armed = self.armed.as_deref() == Some(host.as_str());
         let zap_rows: Vec<_> = zapped
@@ -718,6 +721,15 @@ impl Render for SiteSettingsWindow {
                 },
             )))
             .child(self.zoom(percent, cx))
+            .when(excepted, |d| {
+                let url = url.clone();
+                d.child(Self::item(false, Icon::KeyRound, "Trusted certificate").child(tab_stop(button("forget-cert", "Remove", false)).on_click(cx.listener(
+                    move |this, _, _, cx| {
+                        let url = url.clone();
+                        this.browser.update(cx, |b, cx| b.forget_cert_exception(key, &url, cx)).ok();
+                    },
+                ))))
+            })
             .children(permission_rows);
         let rows = div()
             .id("site-rows")

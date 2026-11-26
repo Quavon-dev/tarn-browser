@@ -1,15 +1,26 @@
 use std::cell::RefCell;
+use std::sync::atomic::{AtomicU8, Ordering};
 
+use block2::RcBlock;
 use objc2::rc::{Allocated, Retained};
-use objc2::runtime::{AnyClass, AnyObject};
+use objc2::runtime::{AnyClass, AnyObject, Bool};
 use objc2::{MainThreadMarker, msg_send};
 use objc2_core_foundation::{CGPoint, CGRect, CGSize};
-use objc2_foundation::{NSArray, NSString, NSURL};
+use objc2_foundation::{NSArray, NSError, NSString, NSURL};
 
 #[link(name = "AVFoundation", kind = "framework")]
 unsafe extern "C" {}
 
+#[link(name = "LocalAuthentication", kind = "framework")]
+unsafe extern "C" {}
+
 const BOUNDARY_IMMEDIATE: isize = 0;
+const DEVICE_OWNER_AUTHENTICATION: isize = 2;
+const OWNER_ASKING: u8 = 0;
+const OWNER_CONFIRMED: u8 = 1;
+const OWNER_REFUSED: u8 = 2;
+
+static OWNER: AtomicU8 = AtomicU8::new(OWNER_REFUSED);
 
 thread_local! {
     static SYNTHESIZER: RefCell<Option<Retained<AnyObject>>> = const { RefCell::new(None) };
@@ -97,6 +108,37 @@ pub fn stop_speaking() {
             let _: bool = unsafe { msg_send![&**speaker, stopSpeakingAtBoundary: BOUNDARY_IMMEDIATE] };
         }
     });
+}
+
+/// Asks the device's owner with Face ID, Touch ID or the passcode; `owner_answer` reads the reply.
+pub fn confirm_owner(reason: &str) -> bool {
+    let (Some(_), Some(class)) = (MainThreadMarker::new(), AnyClass::get(c"LAContext")) else { return false };
+    if OWNER.swap(OWNER_ASKING, Ordering::SeqCst) == OWNER_ASKING {
+        return false;
+    }
+    // SAFETY: main thread (marker); a fresh LAContext evaluates the device-owner policy and calls
+    // the reply once, on a queue of its own; the block holds the context until then.
+    unsafe {
+        let context: Option<Retained<AnyObject>> = msg_send![class, new];
+        let Some(context) = context else {
+            OWNER.store(OWNER_REFUSED, Ordering::SeqCst);
+            return false;
+        };
+        let held = context.clone();
+        let reply = RcBlock::new(move |ok: Bool, _: *mut NSError| {
+            let _ = &held;
+            OWNER.store(if ok.as_bool() { OWNER_CONFIRMED } else { OWNER_REFUSED }, Ordering::SeqCst);
+        });
+        let _: () = msg_send![&*context, evaluatePolicy: DEVICE_OWNER_AUTHENTICATION, localizedReason: &*NSString::from_str(reason), reply: &*reply];
+    }
+    true
+}
+
+pub fn owner_answer() -> Option<bool> {
+    match OWNER.load(Ordering::SeqCst) {
+        OWNER_ASKING => None,
+        state => Some(state == OWNER_CONFIRMED),
+    }
 }
 
 pub use crate::fetch::fetch;

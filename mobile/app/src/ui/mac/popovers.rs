@@ -161,7 +161,11 @@ fn site_header(ui: Ui, host: Option<String>, secure: bool) -> View {
 }
 
 fn site_popover(ui: Ui) -> impl IntoElement {
-    let site = computed(move || ui.read(|s| (s.active_host(), s.active_url().starts_with("https://"))));
+    let excepted = super::super::cert::excepted(ui);
+    let site = computed(move || {
+        let (host, https) = ui.read(|s| (s.active_host(), s.active_url().starts_with("https://")));
+        (host, https && !excepted())
+    });
     dynamic(move || {
         let (host, secure) = site.get();
         untracked(|| site_settings(ui, host, secure))
@@ -250,6 +254,7 @@ fn site_settings(ui: Ui, host: Option<String>, secure: bool) -> impl IntoElement
         .child(small(move || if more.get() { "Fewer site settings" } else { "More site settings" }).text_color(Theme::accent))
         .child(dynamic(move || glyphs::icon(if more.get() { glyphs::CHEVRON_DOWN } else { glyphs::CHEVRON_RIGHT }, 12.)));
     card.gap_3()
+        .child(view().px_3().child(super::super::cert::trusted(ui)))
         .child(summary)
         .child(
             view()
