@@ -1014,6 +1014,11 @@ mod tests {
         assert!(src.contains("confirmed = false"), "an Allow Once on the earlier page does not carry over");
         c.raw(*run, Raw::Script("ok".into()), &ctx(&moved, 10_500));
 
+        c.call(1, None, upload(0), "h", &ctx(&tabs, 10_600));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 10_650));
+        let e = c.raw(runs(&e)[0].0, Raw::Script(String::new()), &ctx(&[page(3, "https://jobs.test/next")], 10_700));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::LOCKED.into()), "a page changed under the script fails the call");
+
         c.call(1, None, Tool::Navigate { tab: 1, url: "https://evil.test/".into() }, "g", &ctx(&tabs, 10_800));
         let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 10_900));
         c.raw(runs(&e)[0].0, Raw::Done, &ctx(&tabs, 10_950));

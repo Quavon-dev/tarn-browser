@@ -213,6 +213,10 @@ fn an_allowed_upload_reaches_the_pages_file_field_and_nothing_else() {
         20,
     );
     assert_eq!(out.into_inner(), "cv.txt:2:text/plain:hi", "the page heard the change");
+    assert_eq!(run(5, "document.getElementById('f').value = ''; history.pushState({}, '', '/next'); return 'x';".into()), "x");
+    let guarded = format!("if (!(location.href === \"http://page.test/\")) return '';\n{}", upload(1));
+    assert_eq!(run(6, guarded), "", "a same-document navigation since the check gets nothing");
+    assert_eq!(run(7, "return String(document.getElementById('f').files.length);".into()), "0", "the field stays empty");
 }
 
 #[test]
