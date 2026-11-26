@@ -1247,3 +1247,18 @@ fn go_back_on_a_certificate_error_leaves_only_an_error_page_the_engine_committed
     shell.event(key, "committed", &json!({ "url": "https://b.test/", "title": "", "canGoBack": true }), 5);
     assert_eq!(shell.leave_cert_page(), vec![Effect::Command(key, "back", Value::Null)], "Android: back past its error page");
 }
+
+#[test]
+fn a_page_started_load_keeps_its_certificate_page_through_the_engines_error_page() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "started", &json!({}), 3);
+    let error = json!({ "url": "https://b.test/x", "problem": "untrusted", "chain": ["3082"] });
+    shell.event(key, "certificate_error", &error, 4);
+    shell.event(key, "committed", &json!({ "url": "https://b.test/x", "title": "", "canGoBack": true }), 5);
+    shell.event(key, "finished", &json!({ "url": "https://b.test/x", "title": "" }), 6);
+    let page = shell.active_page().unwrap();
+    assert!(page.cert.is_some() && page.engine_error_page && !page.loading);
+    assert_eq!(shell.leave_cert_page(), vec![Effect::Command(key, "back", Value::Null)]);
+}

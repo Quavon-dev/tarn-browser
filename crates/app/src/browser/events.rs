@@ -10,7 +10,9 @@ impl Browser {
         }
         match event {
             Event::Loading(on) => {
-                self.pages.entry(key).or_default().loading = on;
+                let page = self.pages.entry(key).or_default();
+                page.loading = on;
+                page.loads += u64::from(on);
                 if !on {
                     self.find_loaded(key, cx);
                 }

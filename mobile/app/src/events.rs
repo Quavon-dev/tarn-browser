@@ -159,8 +159,10 @@ impl<D: Platform> Shell<D> {
             self.record_visit(key, &url, &title, now);
         }
         if let Some(page) = self.pages.get_mut(&key) {
-            let failed_here = page.url == url || page.cert.as_ref().is_some_and(|c| c.error.url.as_str() == url);
-            let error_page = committed && page.awaiting_commit && (page.error.is_some() || page.cert.is_some()) && failed_here;
+            // Android commits its own error page at the URL that failed, whoever started the load.
+            let cert_failed_here = !page.engine_error_page && page.cert.as_ref().is_some_and(|c| Url::parse(&url).ok().as_ref() == Some(&c.error.url));
+            let failed_here = page.awaiting_commit && (page.error.is_some() || page.cert.is_some()) && page.url == url;
+            let error_page = committed && (failed_here || cert_failed_here);
             let error_page_finished = !committed && page.engine_error_page && page.committed.as_deref() == Some(url.as_str());
             if error_page_finished {
                 page.loading = false;

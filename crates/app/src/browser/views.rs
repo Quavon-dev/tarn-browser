@@ -494,7 +494,9 @@ impl Browser {
     pub fn navigate(&mut self, url: &Url, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(key) = self.model.active {
             self.link_loads.remove(&key);
-            self.pages.entry(key).or_default().retry = Some(url.clone());
+            let page = self.pages.entry(key).or_default();
+            page.retry = Some(url.clone());
+            page.loads += 1;
         }
         match (self.active_view(), self.model.active) {
             (Some(view), Some(key)) if view.is_chromium() && self.level_for(url.as_str()) == ShieldLevel::Lockdown => self.rebuild_view(key, url, cx),

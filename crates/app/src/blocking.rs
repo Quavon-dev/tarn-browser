@@ -307,6 +307,7 @@ impl Browser {
         if !self.layout_stable() || page.trusted(key.private, self.level_for_tab(key, page.error.url.as_str())).is_none() {
             return;
         }
+        let loads = self.pages.get(&key).map_or(0, |p| p.loads);
         let (tx, rx) = oneshot::channel();
         engine::confirm_owner(&page.error.owner_reason(), move |ok| {
             let _ = tx.send(ok);
@@ -315,7 +316,7 @@ impl Browser {
             let confirmed = rx.await == Ok(true);
             this.update_in(cx, |b, window, cx| {
                 if confirmed {
-                    b.keep_cert_exception(key, &page, window, cx);
+                    b.keep_cert_exception(key, &page, loads, window, cx);
                 } else {
                     b.notify_offer(key, "Tarn could not confirm it is you, so the certificate was not trusted.".to_owned(), None);
                     cx.notify();
@@ -326,7 +327,7 @@ impl Browser {
         .detach();
     }
 
-    fn keep_cert_exception(&mut self, key: TabKey, page: &CertPage, window: &mut Window, cx: &mut Context<Self>) {
+    fn keep_cert_exception(&mut self, key: TabKey, page: &CertPage, loads: u64, window: &mut Window, cx: &mut Context<Self>) {
         if self.pages.get(&key).and_then(|p| p.cert.as_ref()) != Some(page) {
             return;
         }
@@ -342,8 +343,8 @@ impl Browser {
         if let Some(state) = self.pages.get_mut(&key) {
             state.cert = None;
         }
-        // A load the user started during the owner check wins over the certificate's page.
-        if self.model.active == Some(key) && !self.pages.get(&key).is_some_and(|p| p.loading) {
+        // A load started during the owner check wins over the certificate's page.
+        if self.model.active == Some(key) && self.pages.get(&key).is_some_and(|p| p.loads == loads) {
             self.navigate(&page.error.url, window, cx);
         }
         cx.notify();
