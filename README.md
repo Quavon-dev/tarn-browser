@@ -13,8 +13,9 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Quavon-dev/tarn-browser/badge)](https://scorecard.dev/viewer/?uri=github.com/Quavon-dev/tarn-browser)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20iOS%20%C2%B7%20Android-1f75b0.svg)
+[![As seen on Open Source Alternatives](https://www.opensourcealternatives.to/badge-osa.svg)](https://www.opensourcealternatives.to)
 
-[Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development)
+[Get Tarn](#get-tarn) · [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Contributing](#contributing) · [Privacy](#privacy-and-security)
 
 <a name="demo"></a>
 <img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" />
@@ -29,9 +30,14 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 
 ## Get Tarn
 
-Start with the macOS DMG or a Linux package from the [latest GitHub release](https://github.com/Quavon-dev/tarn-browser/releases/latest).
-Windows packages are provided as unsigned previews. iOS and Android builds are still in testing.
-For platform requirements and installation options, visit the [Tarn download page](https://tarnbrowser.com/download).
+| Platform | How |
+|---|---|
+| **macOS** | DMG from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), or Homebrew (below) |
+| **Linux** | Package from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest): `.deb`, `.rpm` or an AUR `PKGBUILD` |
+| **Windows** | Unsigned preview: PowerShell installer or portable zip (below) |
+| **iOS / Android** | Still in testing |
+
+Platform requirements and more installation options: [tarnbrowser.com/download](https://tarnbrowser.com/download).
 
 **macOS, with Homebrew:**
 
@@ -45,7 +51,10 @@ brew install --cask quavon-dev/tarn/tarn
 irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.ps1 | iex
 ```
 
-**Windows, without installing:** download `Tarn-<version>-windows-x64-portable-unsigned.zip` from the
+<details>
+<summary><b>Windows, without installing (portable)</b></summary>
+
+Download `Tarn-<version>-windows-x64-portable-unsigned.zip` from the
 release, unzip it anywhere (a USB stick works) and start `tarn.exe`. It keeps its profiles, history and site data in the
 `Data` folder next to it. At start Tarn tries to limit that folder to you, SYSTEM and
 administrators and warns when it cannot, as on FAT or exFAT sticks; a folder that already has its
@@ -59,6 +68,8 @@ to Windows' Credential Manager. The same script unpacks or updates it:
 The portable build tells you when a new version is out but does not update itself; run the command
 again, or unzip the new version over the old folder, keeping `Data`. Chromium protects cookies and
 saved passwords with your Windows account, so on another computer or account sites sign you out.
+
+</details>
 
 ## Features
 
@@ -343,45 +354,56 @@ WebKit tabs and Windows).
 <details>
 <summary><b>How tabs, spaces and the address field behave</b></summary>
 
-In the address field and the command bar, an address already open in the profile offers Switch to
-Tab first (other spaces show their name). An action name ("settings", "new space") or a leading `>`
-lists app actions with their shortcuts. Typing the start of an address you have typed or bookmarked
-before, or have open, completes it in place (the added part selected: type on to replace it,
-Backspace drops it, → keeps it); arrows or Tab / ⇧Tab move the selection, Enter runs it, Esc or a
-click elsewhere closes the field.
+**Address field and command bar**
 
-Mute Site (Tabs menu, a tab's menu or the toolbar's menu) silences a host in the profile; an unmute
-button shows in the address field while the page is muted.
+- An address already open in the profile offers Switch to Tab first (other spaces show their name).
+- An action name ("settings", "new space") or a leading `>` lists app actions with their shortcuts.
+- Typing the start of an address you have typed or bookmarked before, or have open, completes it in
+  place (the added part selected: type on to replace it, Backspace drops it, → keeps it).
+- Arrows or Tab / ⇧Tab move the selection, Enter runs it, Esc or a click elsewhere closes the field.
 
-Drag tabs between the tile grid, the pinned section, folders and the tab list. The Shield badge in
-the address field opens Site Settings for the page: Shield level for the site, zoom, mute, the
-permissions remembered for it, Clear Site Data… and whether the connection is encrypted; the
-profile-wide level is set in Settings. Its "Always open in" picks a space for the host: new tabs of
-it (links from other apps, ⌘-clicks, links that open a new window and addresses typed into a new
-tab) then open there, while a script's pop-up (which keeps its opener) and links followed inside a
-tab stay put. Settings › Profiles › Space Rules lists and removes them; the private space neither
-sends tabs elsewhere nor receives them.
+**Site settings and space rules**
 
-A pinned tab or tile remembers the page it was pinned on; once it shows another page its row gets a
-↩ button (Return to &lt;host&gt; in the tab's menu and the Tabs menu, next to Set Pinned URL to
-Current Page). Rename… (or a double-click on the row) gives a tab its own title until Reset Title.
-Tabs without a live page are dimmed; Sleep Tab and Sleep Other Tabs unload them on demand.
-Library › Memory (or Show Memory Use in the command bar) lists the space's tabs by the memory and
-CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
-heavy-tab dot ranks by the same figures. Once awake background tabs hold more than 1 GB together,
-the heaviest of those unused for ten minutes sleep, pinned tabs only after 30 minutes unused (tabs
-playing media stay awake; off when sleeping is Never). On macOS and iOS, a WebKit tab off screen for
-a minute or two drops the processes WebKit keeps for its earlier pages: the page you left, what you
-typed into it and its history stay, and Back loads the earlier page again (also when sleeping is
-Never). Back, Forward or Reload to a page a form was sent for that is no longer kept asks before sending the
-form again; a page's own `history.back()` or a swipe never sends it and leaves a notice instead (macOS
-and iOS; Chromium tabs show their own page for it). On macOS and Windows, a background tab whose
-page has form input you typed stays awake until you sleep it yourself (a page can use this to keep
-its own tab awake, as with media), and a tab that slept scrolls back to where you left it; neither
-applies under Lockdown, where no script of Tarn's runs on the page. Chromium tabs count by their
-renderer process. Resting the
-pointer on a tab row shows its full title, address and state. Right-click a space (its name or
-icon) and choose Edit Space… to change its name, colour and icon.
+- The Shield badge in the address field opens Site Settings for the page: Shield level for the
+  site, zoom, mute, the permissions remembered for it, Clear Site Data… and whether the connection
+  is encrypted; the profile-wide level is set in Settings.
+- Its "Always open in" picks a space for the host: new tabs of it (links from other apps, ⌘-clicks,
+  links that open a new window and addresses typed into a new tab) then open there, while a
+  script's pop-up (which keeps its opener) and links followed inside a tab stay put. Settings ›
+  Profiles › Space Rules lists and removes them; the private space neither sends tabs elsewhere nor
+  receives them.
+- Mute Site (Tabs menu, a tab's menu or the toolbar's menu) silences a host in the profile; an
+  unmute button shows in the address field while the page is muted.
+
+**Tabs, pinned tabs and spaces**
+
+- Drag tabs between the tile grid, the pinned section, folders and the tab list.
+- A pinned tab or tile remembers the page it was pinned on; once it shows another page its row gets
+  a ↩ button (Return to &lt;host&gt; in the tab's menu and the Tabs menu, next to Set Pinned URL to
+  Current Page).
+- Rename… (or a double-click on the row) gives a tab its own title until Reset Title.
+- Resting the pointer on a tab row shows its full title, address and state.
+- Right-click a space (its name or icon) and choose Edit Space… to change its name, colour and icon.
+
+**Sleeping tabs and memory**
+
+- Tabs without a live page are dimmed; Sleep Tab and Sleep Other Tabs unload them on demand.
+- Library › Memory (or Show Memory Use in the command bar) lists the space's tabs by the memory and
+  CPU of their web content process, with Sleep per tab and Sleep All Inactive Tabs; the sidebar's
+  heavy-tab dot ranks by the same figures. Chromium tabs count by their renderer process.
+- Once awake background tabs hold more than 1 GB together, the heaviest of those unused for ten
+  minutes sleep, pinned tabs only after 30 minutes unused (tabs playing media stay awake; off when
+  sleeping is Never).
+- On macOS and iOS, a WebKit tab off screen for a minute or two drops the processes WebKit keeps
+  for its earlier pages: the page you left, what you typed into it and its history stay, and Back
+  loads the earlier page again (also when sleeping is Never).
+- Back, Forward or Reload to a page a form was sent for that is no longer kept asks before sending
+  the form again; a page's own `history.back()` or a swipe never sends it and leaves a notice
+  instead (macOS and iOS; Chromium tabs show their own page for it).
+- On macOS and Windows, a background tab whose page has form input you typed stays awake until you
+  sleep it yourself (a page can use this to keep its own tab awake, as with media), and a tab that
+  slept scrolls back to where you left it; neither applies under Lockdown, where no script of
+  Tarn's runs on the page.
 
 </details>
 
@@ -421,10 +443,6 @@ Checks per workspace (each runs in its own directory; CI runs all of them):
 `crates/engine` and `crates/platform`, plus one export in `crates/app-dll`, and in the platform
 bindings `mobile/ios` and `mobile/android/rust`; the other root crates, `linux/` and `nsh-shared/`
 forbid it.
-Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
-and read [`CONTRIBUTING.md`](CONTRIBUTING.md); AI-assisted contributions follow
-[`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and release automation live in this
-repository; no other repository is part of the codebase.
 
 <details>
 <summary><b>On-device translation</b></summary>
@@ -499,6 +517,13 @@ The bundle carries Chromium's credits, CEF's and Sparkle's licences and the Rust
 [`docs/release.md`](docs/release.md).
 
 </details>
+
+## Contributing
+
+Start with a [good first issue](https://github.com/Quavon-dev/tarn-browser/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+and read [`CONTRIBUTING.md`](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md);
+AI-assisted contributions follow [`AGENTS.md`](AGENTS.md). All of Tarn's code, packaging and
+release automation live in this repository; no other repository is part of the codebase.
 
 ## Privacy and security
 
