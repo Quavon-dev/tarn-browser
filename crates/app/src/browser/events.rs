@@ -1045,13 +1045,17 @@ impl Browser {
 
     /// Removes every WebKit data type of `host` in the tab's profile, then reloads the tab.
     pub(crate) fn clear_site(&mut self, key: TabKey, host: String, cx: &mut Context<Self>) {
+        let mut kept_certificate = false;
         if let Some(profile_id) = self.profile_of(key).filter(|_| !key.private) {
             if self.core.disk.unzap_element(profile_id, &host, None).is_ok() {
                 crate::zaps::apply(&self.core, false, profile_id);
             }
             match self.core.disk.delete_cert_exceptions_of(profile_id, &host) {
                 Ok(()) => self.apply_cert_exceptions(profile_id),
-                Err(e) => self.warning = Some(format!("The certificate trusted for {host} could not be removed ({e}).")),
+                Err(e) => {
+                    self.warning = Some(format!("The certificate trusted for {host} could not be removed ({e})."));
+                    kept_certificate = true;
+                }
             }
         }
         let Some(rt) = self.profile_of(key).and_then(|p| self.loaded(key.private, p)) else { return };
@@ -1061,7 +1065,11 @@ impl Browser {
         let mut async_cx = cx.to_async();
         rt.data.clear_site_data(&host.clone(), move |count| {
             this.update(&mut async_cx, |b, cx| {
-                let message = if count == 0 { format!("{host} had no stored data.") } else { format!("Cleared stored data for {host}.") };
+                let message = match (kept_certificate, count) {
+                    (true, _) => format!("Cleared stored data for {host}, but the certificate trusted for it is still kept."),
+                    (false, 0) => format!("{host} had no stored data."),
+                    (false, _) => format!("Cleared stored data for {host}."),
+                };
                 b.notify_offer(key, message, None);
                 b.reload_view(key, false);
                 cx.notify();
