@@ -13,7 +13,7 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Quavon-dev/tarn-browser/badge)](https://scorecard.dev/viewer/?uri=github.com/Quavon-dev/tarn-browser)
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20iOS%20%C2%B7%20Android-1f75b0.svg)
-[![As seen on Open Source Alternatives](https://www.opensourcealternatives.to/badge-osa.svg)](https://www.opensourcealternatives.to)
+<a href="https://www.opensourcealternatives.to"><img src="https://www.opensourcealternatives.to/badge-osa.svg" alt="As seen on Open Source Alternatives" height="20" /></a>
 
 [Get Tarn](#get-tarn) · [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Contributing](#contributing) · [Privacy](#privacy-and-security)
 
@@ -33,11 +33,11 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 | Platform | How |
 |---|---|
 | **macOS** | DMG from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), or Homebrew (below) |
-| **Linux** | Package from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest): `.deb`, `.rpm` or an AUR `PKGBUILD` |
-| **Windows** | Unsigned preview: PowerShell installer or portable zip (below) |
+| **Linux** | `.deb`, `.rpm` or Arch `.pkg.tar.zst` from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest); also in the AUR and Tarn's apt and dnf repositories |
+| **Windows** | Unsigned preview: setup `.exe` from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), PowerShell installer or portable zip (below) |
 | **iOS / Android** | Still in testing |
 
-Platform requirements and more installation options: [tarnbrowser.com/download](https://tarnbrowser.com/download).
+Requirements are under [Platforms](#platforms); repository setup and more options on [tarnbrowser.com/download](https://tarnbrowser.com/download).
 
 **macOS, with Homebrew:**
 
@@ -122,6 +122,25 @@ link peek. Unused tabs sleep, and the heaviest background tabs sleep once they u
 ### 🎨 Yours to restyle
 Built-in themes, a colour editor and themes from a file, the clipboard, GitHub or the official
 catalog. Reader view, per-site zoom, dark mode and CSS, Picture in Picture and extensions.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+### 🤖 AI only when you ask
+An assistant that reads the page with you, through the Claude API or, on desktop, Ollama on your
+own computer. On desktop, agents such as Claude Code or Codex can browse in a window of their own
+(`tarn --mcp`). Both are off until you turn them on in Settings › AI, and Tarn asks before each
+agent and site.
+
+</td>
+<td valign="top">
+
+### 📚 Your library, on your device
+Open tabs, history, bookmarks, Reading List and downloads in one Library; notes per profile that
+are never synced. On desktop, import history and bookmarks from Firefox, Chrome and other Chromium
+browsers, and cookies where the browser allows it.
 
 </td>
 </tr>
@@ -416,16 +435,6 @@ Wikipedia, `!wa` Wolfram|Alpha, `!gh` GitHub, `!so` Stack Overflow, `!mdn` MDN, 
 crates.io, `!npm` npm, `!r` Reddit, `!a` Amazon, `!gm` Google Maps, `!gt` Google Translate. The
 full list is `BANGS` in `crates/browser-core/src/command.rs`.
 
-### Passkeys
-
-Settings › Privacy › Passkeys and security keys (on at first) lets sites ask for a passkey or a
-security key to sign you in (WebAuthn); off, WebKit tabs hide passkey sign-in from every site and
-open pages follow once they reload (macOS). Passkeys saved in Apple Passwords (iCloud Keychain)
-also need Apple's `com.apple.developer.web-browser.public-key-credential` entitlement in the signed
-app, which Apple grants per developer team; a build without it offers security keys only. Tarn
-cannot fill passwords from Apple Passwords: macOS gives third-party browsers no API to read them
-(AuthenticationServices' password APIs serve credential providers and an app's own domains).
-
 ## Development
 
 Checks per workspace (each runs in its own directory; CI runs all of them):
@@ -530,6 +539,16 @@ release automation live in this repository; no other repository is part of the c
 Tarn sends no telemetry and has no accounts. The connections the browser itself makes are listed in
 [`PRIVACY.md`](PRIVACY.md); report vulnerabilities privately as described in
 [`SECURITY.md`](SECURITY.md).
+
+### Passkeys
+
+Settings › Privacy › Passkeys and security keys (on at first) lets sites ask for a passkey or a
+security key to sign you in (WebAuthn); off, WebKit tabs hide passkey sign-in from every site and
+open pages follow once they reload (macOS). Passkeys saved in Apple Passwords (iCloud Keychain)
+also need Apple's `com.apple.developer.web-browser.public-key-credential` entitlement in the signed
+app, which Apple grants per developer team; a build without it offers security keys only. Tarn
+cannot fill passwords from Apple Passwords: macOS gives third-party browsers no API to read them
+(AuthenticationServices' password APIs serve credential providers and an app's own domains).
 
 ## Licence
 
