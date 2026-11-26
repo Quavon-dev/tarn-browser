@@ -48,7 +48,10 @@ final class Host {
     private static final int OWNER_ASKING = 0;
     private static final int OWNER_CONFIRMED = 1;
     private static final int OWNER_REFUSED = 2;
-    private static volatile int ownerState = OWNER_REFUSED;
+    private static int ownerState = OWNER_REFUSED;
+    private static int ownerRequest;
+    private static int ownerScreen;
+    private static CancellationSignal ownerPrompt;
 
     private Host() {}
 
@@ -174,21 +177,23 @@ final class Host {
         });
     }
 
-    static boolean confirmOwner(String reason) {
-        if (activity == null || ownerState == OWNER_ASKING) return false;
+    /** Starts owner check number n (above 0) and returns it, or 0 while another runs. */
+    static synchronized int confirmOwner(String reason) {
+        if (activity == null || ownerState == OWNER_ASKING) return 0;
+        int request = ++ownerRequest;
         ownerState = OWNER_ASKING;
-        MAIN.post(() -> askOwner(reason));
-        return true;
+        MAIN.post(() -> askOwner(reason, request));
+        return request;
     }
 
     @SuppressWarnings("deprecation")
-    private static void askOwner(String reason) {
+    private static void askOwner(String reason, int request) {
         Activity shown = activity;
         String title = "Confirm it is you";
         String description = "Tarn is trying to " + reason + ".";
         try {
             if (shown == null) {
-                ownerState = OWNER_REFUSED;
+                ownerAnswered(request, false);
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 BiometricPrompt.Builder builder = new BiometricPrompt.Builder(shown).setTitle(title).setDescription(description);
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -196,36 +201,55 @@ final class Host {
                 } else {
                     builder.setDeviceCredentialAllowed(true);
                 }
-                builder.build().authenticate(new CancellationSignal(), shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
+                CancellationSignal cancel = new CancellationSignal();
+                ownerPrompt = cancel;
+                builder.build().authenticate(cancel, shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
                     @Override
                     public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                        ownerAnswered(true);
+                        ownerAnswered(request, true);
                     }
 
                     @Override
                     public void onAuthenticationError(int code, CharSequence message) {
-                        ownerAnswered(false);
+                        ownerAnswered(request, false);
                     }
                 });
             } else {
                 KeyguardManager keyguard = shown.getSystemService(KeyguardManager.class);
                 Intent ask = keyguard == null ? null : keyguard.createConfirmDeviceCredentialIntent(title, description);
                 if (ask == null) {
-                    ownerState = OWNER_REFUSED;
+                    ownerAnswered(request, false);
                 } else {
+                    ownerScreen = request;
                     shown.startActivityForResult(ask, CONFIRM_OWNER);
                 }
             }
         } catch (RuntimeException e) {
-            ownerState = OWNER_REFUSED;
+            ownerAnswered(request, false);
         }
     }
 
-    static void ownerAnswered(boolean confirmed) {
-        ownerState = confirmed ? OWNER_CONFIRMED : OWNER_REFUSED;
+    static synchronized void ownerAnswered(int request, boolean confirmed) {
+        if (request == ownerRequest && ownerState == OWNER_ASKING) ownerState = confirmed ? OWNER_CONFIRMED : OWNER_REFUSED;
     }
 
-    static int ownerState() {
+    /** The confirm-credential screen answered; one left over from a destroyed activity counts for nothing. */
+    static synchronized void ownerScreenAnswered(boolean confirmed) {
+        ownerAnswered(ownerScreen, confirmed);
+        ownerScreen = 0;
+    }
+
+    /** The activity that showed the prompt is gone: its prompt closes and its check is refused. */
+    static synchronized void ownerPromptGone() {
+        if (ownerPrompt != null) ownerPrompt.cancel();
+        ownerPrompt = null;
+        ownerScreen = 0;
+        ownerAnswered(ownerRequest, false);
+    }
+
+    /** 0 while check {@code request} runs, then its answer; a newer check refuses it. */
+    static synchronized int ownerState(String request) {
+        if (!String.valueOf(ownerRequest).equals(request)) return OWNER_REFUSED;
         return ownerState;
     }
 

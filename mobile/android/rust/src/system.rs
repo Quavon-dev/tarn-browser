@@ -17,13 +17,15 @@ pub fn speech_started() -> Option<bool> {
     }
 }
 
-/// Asks the device's owner with biometrics or the screen lock; `owner_answer` reads the reply.
-pub fn confirm_owner(reason: &str) -> bool {
-    crate::host::call_bool("confirmOwner", reason)
+/// Asks the device's owner with biometrics or the screen lock; the check's number for
+/// `owner_answer`, or 0 when it could not start.
+pub fn confirm_owner(reason: &str) -> u64 {
+    crate::host::call_string_int("confirmOwner", reason).and_then(|n| u64::try_from(n).ok()).unwrap_or(0)
 }
 
-pub fn owner_answer() -> Option<bool> {
-    match crate::host::call_int("ownerState") {
+/// `None` while check `request` runs; a newer check refuses it.
+pub fn owner_answer(request: u64) -> Option<bool> {
+    match crate::host::call_string_int("ownerState", &request.to_string()) {
         Some(0) => None,
         state => Some(state == Some(1)),
     }

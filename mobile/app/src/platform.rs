@@ -33,11 +33,11 @@ mod system {
         SPOKEN.with(|s| s.borrow_mut().clear());
     }
 
-    pub fn confirm_owner(_: &str) -> bool {
-        false
+    pub fn confirm_owner(_: &str) -> u64 {
+        0
     }
 
-    pub fn owner_answer() -> Option<bool> {
+    pub fn owner_answer(_: u64) -> Option<bool> {
         Some(false)
     }
 
@@ -165,11 +165,12 @@ pub async fn speak(text: String) -> bool {
 /// Asks the device's owner to confirm with biometrics or the device passcode; `reason` completes
 /// "Tarn is trying to …" where the system shows it.
 pub async fn confirm_owner(reason: String) -> bool {
-    if !run_on_main_thread(move || system::confirm_owner(&reason)).await.unwrap_or(false) {
+    let request = run_on_main_thread(move || system::confirm_owner(&reason)).await.unwrap_or(0);
+    if request == 0 {
         return false;
     }
     loop {
-        match run_on_main_thread(system::owner_answer).await.unwrap_or(Some(false)) {
+        match run_on_main_thread(move || system::owner_answer(request)).await.unwrap_or(Some(false)) {
             Some(ok) => return ok,
             None => timer(SPEECH_POLL).await,
         }

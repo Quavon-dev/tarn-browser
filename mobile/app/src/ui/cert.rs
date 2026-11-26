@@ -48,17 +48,7 @@ fn card(ui: Ui, (page, may_continue): Shown) -> View {
     } else {
         let (details, next) = if step == Step::Details { ("Hide Details", Step::Summary) } else { ("Details", Step::Details) };
         actions
-            .child(secure_button(
-                "Go Back",
-                move || {
-                    ui.act_on_screen(|s| {
-                        let back = s.active_page().is_some_and(|p| p.back);
-                        s.dismiss_error();
-                        if back { s.active_command("back", serde_json::Value::Null) } else { Vec::new() }
-                    })
-                },
-                true,
-            ))
+            .child(secure_button("Go Back", move || ui.act_on_screen(|s| s.leave_cert_page()), true))
             .child(secure_button(
                 if viewer { "Hide Certificate" } else { "Show Certificate" },
                 move || {

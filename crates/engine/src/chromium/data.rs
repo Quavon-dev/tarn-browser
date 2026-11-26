@@ -61,8 +61,8 @@ pub fn clear_cert_decisions() {
         runtime::with_context(|context| {
             context.clear_certificate_exceptions(None);
             context.close_all_connections(None);
+            view::forget_continued("");
         });
-        view::forget_continued("");
     }
 }
 

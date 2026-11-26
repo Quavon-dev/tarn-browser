@@ -15,7 +15,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   confirm it (with Touch ID or your password on macOS, Face ID, Touch ID or the passcode on iOS,
   and your fingerprint or screen lock on Android); the site then opens without asking again
   and shows as not secure. Settings › Permissions lists the trusted certificates and removes them;
-  so does the site popover. Never for a revoked certificate, in a private space or at Lockdown.
+  so does the site popover. Never for a revoked certificate, one Tarn cannot classify, in a
+  private space or at Lockdown.
   Linux shows the page and the certificate but offers no way through: WebKitGTK can only accept a
   certificate for a host everywhere until Tarn quits.
 

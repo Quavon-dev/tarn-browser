@@ -342,7 +342,8 @@ impl Browser {
         if let Some(state) = self.pages.get_mut(&key) {
             state.cert = None;
         }
-        if self.model.active == Some(key) {
+        // A load the user started during the owner check wins over the certificate's page.
+        if self.model.active == Some(key) && !self.pages.get(&key).is_some_and(|p| p.loading) {
             self.navigate(&page.error.url, window, cx);
         }
         cx.notify();
@@ -356,8 +357,10 @@ impl Browser {
     }
 
     pub fn remove_cert_exception(&mut self, profile: Id, host: &str, port: u16, cx: &mut Context<Self>) {
-        self.core.disk.delete_cert_exception(profile, host, port).ok();
-        self.apply_cert_exceptions(profile);
+        match self.core.disk.delete_cert_exception(profile, host, port) {
+            Ok(()) => self.apply_cert_exceptions(profile),
+            Err(e) => self.warning = Some(format!("The trusted certificate could not be removed ({e}).")),
+        }
         cx.notify();
     }
 

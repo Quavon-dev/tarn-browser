@@ -43,6 +43,9 @@ pub struct Page {
     pub cert: Option<browser_core::cert_error::CertPage>,
     /// "Trust Certificate" waits for the owner check.
     pub cert_asking: bool,
+    /// The engine committed its own error page for the failed load (Android), so it is a history
+    /// entry Go Back leaves; iOS commits none.
+    pub engine_error_page: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -419,6 +422,7 @@ impl<D: Platform> Shell<D> {
         page.url = url.to_owned();
         page.error = None;
         page.cert = None;
+        page.engine_error_page = false;
         page.loading = true;
         page.awaiting_commit = true;
     }

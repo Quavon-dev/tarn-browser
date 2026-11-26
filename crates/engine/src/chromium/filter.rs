@@ -166,6 +166,7 @@ wrap_resource_request_handler! {
     pub(crate) struct TarnFilter {
         hold: Option<String>,
         profile: String,
+        store: String,
         lockdown_view: bool,
     }
 
@@ -186,6 +187,9 @@ wrap_resource_request_handler! {
             let first_party = parse(&request.first_party_for_cookies());
             let top = browser.and_then(|b| b.main_frame()).and_then(|f| parse(&f.url())).or_else(|| first_party.clone());
             if kind != "main_frame" && !crate::nav_policy::file_subresource_allowed(&url, top.as_ref()) {
+                return ReturnValue::CANCEL;
+            }
+            if !matches!(kind, "main_frame" | "sub_frame") && super::view::refused_elsewhere(&self.store, &self.profile, &url) {
                 return ReturnValue::CANCEL;
             }
             let referrer = parse(&request.referrer_url());
@@ -227,11 +231,12 @@ wrap_resource_request_handler! {
 wrap_request_context_handler! {
     pub(crate) struct TarnContextFilter {
         profile: String,
+        store: String,
     }
 
     impl RequestContextHandler {
         fn resource_request_handler(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _request: Option<&mut Request>, _is_navigation: i32, _is_download: i32, _request_initiator: Option<&CefString>, _disable_default_handling: Option<&mut i32>) -> Option<ResourceRequestHandler> {
-            Some(TarnFilter::new(None, self.profile.clone(), false))
+            Some(TarnFilter::new(None, self.profile.clone(), self.store.clone(), false))
         }
     }
 }
@@ -240,5 +245,5 @@ wrap_request_context_handler! {
 /// context sharing the profile's storage; this context exists only to be that handler.
 #[cfg(target_os = "macos")]
 pub(crate) fn worker_filter(global: &mut RequestContext) -> Option<RequestContext> {
-    request_context_cef_create_context_shared(Some(global), Some(&mut TarnContextFilter::new(String::new())))
+    request_context_cef_create_context_shared(Some(global), Some(&mut TarnContextFilter::new(String::new(), String::new())))
 }

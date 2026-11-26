@@ -1047,8 +1047,9 @@ impl Browser {
             if self.core.disk.unzap_element(profile_id, &host, None).is_ok() {
                 crate::zaps::apply(&self.core, false, profile_id);
             }
-            if self.core.disk.delete_cert_exceptions_of(profile_id, &host).is_ok() {
-                self.apply_cert_exceptions(profile_id);
+            match self.core.disk.delete_cert_exceptions_of(profile_id, &host) {
+                Ok(()) => self.apply_cert_exceptions(profile_id),
+                Err(e) => self.warning = Some(format!("The certificate trusted for {host} could not be removed ({e}).")),
             }
         }
         let Some(rt) = self.profile_of(key).and_then(|p| self.loaded(key.private, p)) else { return };

@@ -67,7 +67,7 @@ abstract class ShellActivity extends Activity {
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == Host.CONFIRM_OWNER) {
-            Host.ownerAnswered(resultCode == RESULT_OK);
+            Host.ownerScreenAnswered(resultCode == RESULT_OK);
             return;
         }
         if (requestCode != CHOOSE_FILES || chosen == null) {
@@ -92,7 +92,7 @@ abstract class ShellActivity extends Activity {
         chosen = null;
         if (Host.activity == this) {
             Host.activity = null;
-            Host.ownerAnswered(false);
+            Host.ownerPromptGone();
         }
         destroyShell();
         super.onDestroy();

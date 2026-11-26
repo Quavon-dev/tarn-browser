@@ -6,7 +6,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::data::Platform;
-use crate::shell::Shell;
+use crate::shell::{Effect, Shell};
 
 fn hex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) || text.len() > 2 * MAX_CERT_BYTES || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -51,6 +51,14 @@ impl<D: Platform> Shell<D> {
         if let Some(page) = self.pages.get_mut(&key).and_then(|p| p.cert.as_mut()) {
             page.go(step, may_continue);
         }
+    }
+
+    /// Go Back: leaves the engine's own error page where it committed one (Android); otherwise the
+    /// failed load never became a history entry (iOS) and the card only closes.
+    pub fn leave_cert_page(&mut self) -> Vec<Effect> {
+        let back = self.active_page().is_some_and(|p| p.engine_error_page && p.back);
+        self.dismiss_error();
+        if back { self.active_command("back", Value::Null) } else { Vec::new() }
     }
 
     pub fn toggle_cert_viewer(&mut self) {

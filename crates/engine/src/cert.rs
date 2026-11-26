@@ -27,8 +27,10 @@ pub enum Problem {
 }
 
 impl Problem {
+    /// Only the problems a user may knowingly accept for a device they know; anything Tarn cannot
+    /// name, revoked or refused never gets an exception.
     pub fn allows_exception(self) -> bool {
-        !matches!(self, Problem::Revoked | Problem::Refused)
+        matches!(self, Problem::Untrusted | Problem::Dates | Problem::NameMismatch)
     }
 
     /// From the `OSStatus` of Security's trust evaluation.
@@ -55,9 +57,12 @@ impl Problem {
         })
     }
 
-    /// From GLib's `GTlsCertificateFlags`.
+    /// From GLib's `GTlsCertificateFlags`; any flag beyond the five named here is not a problem
+    /// Tarn can name.
     pub fn from_gtls(flags: u32) -> Problem {
-        if flags & 0x10 != 0 {
+        if flags & !0x1f != 0 {
+            Problem::Invalid
+        } else if flags & 0x10 != 0 {
             Problem::Revoked
         } else if flags & 0x02 != 0 {
             Problem::NameMismatch
@@ -202,6 +207,8 @@ mod tests {
         assert!(ex.allows("192.168.1.2", 8006, &leaf, Problem::NameMismatch));
         assert!(!ex.allows("192.168.1.2", 8006, &leaf, Problem::Revoked));
         assert!(!ex.allows("192.168.1.2", 8006, &leaf, Problem::Refused));
+        assert!(!ex.allows("192.168.1.2", 8006, &leaf, Problem::Invalid));
+        assert!(!Problem::parse("something else").allows_exception());
         assert!(ex.has("192.168.1.2", 8006) && !ex.has("192.168.1.2", 443));
         assert!(!ex.allows("192.168.1.2", 443, &leaf, Problem::Untrusted));
         assert!(!ex.allows("192.168.1.3", 8006, &leaf, Problem::Untrusted));
@@ -239,6 +246,7 @@ mod tests {
         assert_eq!(Problem::from_sec_trust(-67818), Problem::Dates);
         assert_eq!(Problem::from_gtls(0x10 | 0x01), Problem::Revoked);
         assert_eq!(Problem::from_gtls(0x01), Problem::Untrusted);
+        assert_eq!(Problem::from_gtls(0x01 | 0x40), Problem::Invalid);
         assert_eq!(Problem::from_android(2), Problem::NameMismatch);
         for p in [Problem::Untrusted, Problem::Dates, Problem::NameMismatch, Problem::Revoked, Problem::Refused, Problem::Invalid] {
             assert_eq!(Problem::parse(p.as_str()), p);

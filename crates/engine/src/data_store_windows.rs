@@ -307,8 +307,8 @@ impl DataStore {
         with_live(&self.key, |context| {
             context.clear_certificate_exceptions(None);
             context.close_all_connections(None);
+            crate::chromium::view::forget_continued(&self.key);
         });
-        crate::chromium::view::forget_continued(&self.shield.0);
     }
 
     /// Removes `host`'s cookies (its parent domains and subdomains included), the storage of its

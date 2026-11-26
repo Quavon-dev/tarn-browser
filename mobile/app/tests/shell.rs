@@ -1194,8 +1194,9 @@ fn a_certificate_error_page_keeps_a_confirmed_certificate_only_where_allowed() {
     let key = active(&shell);
     let error = json!({ "url": "https://192.168.1.2:8006/", "problem": "untrusted", "chain": ["3082"] });
     shell.event(key, "certificate_error", &error, 1);
-    shell.event(key, "committed", &json!({ "url": "https://192.168.1.2:8006/", "title": "" }), 2);
-    assert!(shell.active_page().unwrap().cert.is_some(), "Android commits its own error page after the error");
+    shell.event(key, "committed", &json!({ "url": "https://192.168.1.2:8006/", "title": "", "canGoBack": false }), 2);
+    shell.event(key, "finished", &json!({ "url": "https://192.168.1.2:8006/", "title": "" }), 2);
+    assert!(shell.active_page().unwrap().cert.is_some(), "Android commits and finishes its own error page after the error");
     assert!(shell.begin_cert_trust().is_none(), "the confirmation comes first");
     shell.set_cert_step(Step::Confirm);
     let (at, cert) = shell.begin_cert_trust().unwrap();
@@ -1229,4 +1230,20 @@ fn a_certificate_error_page_keeps_a_confirmed_certificate_only_where_allowed() {
     let private = active(&shell);
     shell.event(private, "certificate_error", &error, 5);
     assert!(!shell.cert_may_continue(private), "never in a private space");
+}
+
+#[test]
+fn go_back_on_a_certificate_error_leaves_only_an_error_page_the_engine_committed() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://a.test/", "A");
+    shell.navigate("https://b.test/");
+    let key = active(&shell);
+    let error = json!({ "url": "https://b.test/", "problem": "untrusted", "chain": ["3082"] });
+    shell.event(key, "certificate_error", &error, 3);
+    assert!(shell.leave_cert_page().is_empty(), "iOS: the failed load is no history entry");
+    assert!(shell.active_page().unwrap().cert.is_none());
+    shell.navigate("https://b.test/");
+    shell.event(key, "certificate_error", &error, 4);
+    shell.event(key, "committed", &json!({ "url": "https://b.test/", "title": "", "canGoBack": true }), 5);
+    assert_eq!(shell.leave_cert_page(), vec![Effect::Command(key, "back", Value::Null)], "Android: back past its error page");
 }

@@ -1361,9 +1361,9 @@ final class TarnWebView implements NshComponent {
                 view.clearSslPreferences();
                 return;
             }
+            Page page = pending != null ? pending : top;
             handler.cancel();
             endNavigation();
-            Page page = pending != null ? pending : top;
             if (page == null || !sameHostAndPort(page.url(), url)) {
                 emit("failed", "url", url, "message", "The site's certificate is not valid");
                 return;
