@@ -66,8 +66,8 @@ abstract class ShellActivity extends Activity {
     @Override
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == Host.CONFIRM_OWNER) {
-            Host.ownerScreenAnswered(resultCode == RESULT_OK);
+        if ((requestCode & ~0x0fff) == Host.CONFIRM_OWNER) {
+            Host.ownerScreenAnswered(requestCode, resultCode == RESULT_OK);
             return;
         }
         if (requestCode != CHOOSE_FILES || chosen == null) {

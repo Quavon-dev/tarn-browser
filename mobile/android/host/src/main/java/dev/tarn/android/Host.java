@@ -44,7 +44,9 @@ final class Host {
     private static final int SPEECH_STARTED = 1;
     private static final int SPEECH_FAILED = 2;
     private static volatile int speechState = SPEECH_STARTED;
-    static final int CONFIRM_OWNER = 2;
+    /** Request codes of the confirm-credential screen: this bit plus the low bits of its check's number. */
+    static final int CONFIRM_OWNER = 0x1000;
+    private static final int CHECK_BITS = 0x0fff;
     private static final int OWNER_ASKING = 0;
     private static final int OWNER_CONFIRMED = 1;
     private static final int OWNER_REFUSED = 2;
@@ -221,7 +223,7 @@ final class Host {
                     ownerAnswered(request, false);
                 } else {
                     ownerScreen = request;
-                    shown.startActivityForResult(ask, CONFIRM_OWNER);
+                    shown.startActivityForResult(ask, CONFIRM_OWNER | (request & CHECK_BITS));
                 }
             }
         } catch (RuntimeException e) {
@@ -233,8 +235,12 @@ final class Host {
         if (request == ownerRequest && ownerState == OWNER_ASKING) ownerState = confirmed ? OWNER_CONFIRMED : OWNER_REFUSED;
     }
 
-    /** The confirm-credential screen answered; one left over from a destroyed activity counts for nothing. */
-    static synchronized void ownerScreenAnswered(boolean confirmed) {
+    /**
+     * The confirm-credential screen answered. Its request code names the check that opened it, so a
+     * screen left over from a destroyed activity cannot answer a newer check.
+     */
+    static synchronized void ownerScreenAnswered(int requestCode, boolean confirmed) {
+        if (ownerScreen == 0 || (ownerScreen & CHECK_BITS) != (requestCode & CHECK_BITS)) return;
         ownerAnswered(ownerScreen, confirmed);
         ownerScreen = 0;
     }
