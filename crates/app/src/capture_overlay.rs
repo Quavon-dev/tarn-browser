@@ -63,7 +63,11 @@ impl Browser {
         cx.spawn_in(window, async move |this, cx| {
             let Some(png) = rx.next().await else { return };
             this.update_in(cx, |b, window, cx| {
-                if b.overlay_request.0 != request || b.model.active != Some(key) || !b.same_view(key, &weak) {
+                if b.overlay_request.0 != request {
+                    return;
+                }
+                b.overlay_request.1 = false;
+                if b.model.active != Some(key) || !b.same_view(key, &weak) {
                     return;
                 }
                 let Some(png) = png else {
@@ -104,8 +108,7 @@ impl Browser {
 
     /// Measure from the toolbar, the palette or its menu: a second use closes it.
     pub(crate) fn toggle_measure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let pending = self.overlay_request.1 && self.capture_overlay.is_none();
-        if self.measuring() || pending {
+        if self.measuring() || self.overlay_request.1 {
             self.overlay_request = (self.overlay_request.0 + 1, false);
             self.close_capture_overlay(cx);
         } else if self.devtools_on() {

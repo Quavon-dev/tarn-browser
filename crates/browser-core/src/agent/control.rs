@@ -655,7 +655,10 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                     (Ok((upload, Some(bytes))), Some(_)) => {
                         let data = engine::agent_scripts::base64(&bytes);
                         let act = Act::Upload { name: &upload.name, mime: upload.mime(), data: &data };
-                        script(AgentScript::Act { target: *target, act, confirmed: confirmed && call.sensitive_ok, submits })
+                        // Only in the document of the exact page the user allowed, not one a same-document navigation brought since.
+                        let here = page.as_ref().map_or_else(String::new, |p| format!(" && location.href === {}", engine::handover::js_string(p.as_str())));
+                        let source = AgentScript::Act { target: *target, act, confirmed: confirmed && call.sensitive_ok, submits }.source();
+                        Op::Script(bound(source, &format!("{origin}{here}")))
                     }
                 }
             }
@@ -983,6 +986,10 @@ mod tests {
         let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 6100));
         let [(run, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
         assert!(src.contains("kind: 'upload', name: \"cv.pdf\", mime: \"application/pdf\", data: \"JVBERg==\"") && src.contains("confirmed = false"));
+        assert!(
+            src.starts_with("if (!(location.origin === \"https://jobs.test\" && location.href === \"https://jobs.test/apply\")) return '';"),
+            "only on the allowed page: {src}"
+        );
         let e = c.raw(*run, Raw::Script("confirm".into()), &ctx(&tabs, 6200));
         assert!(c.banner().unwrap().text.contains("password or payment"), "a submit the upload set off still asks: {e:?}");
         let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 6300));
