@@ -10,7 +10,7 @@ pub mod tarn_ext;
 mod transport;
 
 use jni::JNIEnv;
-use jni::objects::{JClass, JObject, JObjectArray, JString};
+use jni::objects::{JByteArray, JClass, JObject, JObjectArray, JString};
 use jni::sys::{jboolean, jdouble, jdoubleArray, jint, jlong, jobjectArray, jstring};
 
 pub use data::{Data, PRIVATE_PREFIX};
@@ -96,6 +96,22 @@ pub extern "system" fn Java_dev_tarn_android_Native_mayAskCredentials(
 ) -> jboolean {
     let page = string(&mut env, &page);
     string(&mut env, &challenge).is_some_and(|challenge| policy::may_ask_credentials(&challenge, page.as_deref(), failures)).into()
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_tarn_android_Native_certAllowed(
+    mut env: JNIEnv,
+    _: JClass,
+    url: JString,
+    primary: jint,
+    leaf: JByteArray,
+    exceptions: JString,
+    level: jint,
+) -> jboolean {
+    let (Some(url), Some(exceptions)) = (string(&mut env, &url), string(&mut env, &exceptions)) else { return 0 };
+    let size = if leaf.is_null() { None } else { env.get_array_length(&leaf).ok().and_then(|n| usize::try_from(n).ok()) };
+    let Some(leaf) = size.filter(|n| *n <= engine::cert::MAX_CERT_BYTES).and_then(|_| env.convert_byte_array(&leaf).ok()) else { return 0 };
+    policy::cert_allowed(&url, primary, &leaf, &exceptions, level).into()
 }
 
 #[unsafe(no_mangle)]

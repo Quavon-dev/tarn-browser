@@ -17,6 +17,17 @@ All notable changes to Tarn are documented in this file. The format is based on
   switch; turning it off turns both off. Letting agents use your profile or your tabs keeps its own
   switch, and Tarn still asks before each agent, site, upload and sensitive click. Off by default.
   On macOS and Windows.
+- A page whose certificate is not valid shows Tarn's own error page instead of a banner: it says
+  what is wrong, and Show Certificate lists the server's certificates with their names, dates and
+  SHA-256 fingerprint. For a site you know, such as a router, NAS or Proxmox server on your own
+  network, Details › Continue lets you trust that exact certificate in this profile after you
+  confirm it (with Touch ID or your password on macOS, Face ID, Touch ID or the passcode on iOS,
+  and your fingerprint or screen lock on Android); the site then opens without asking again
+  and shows as not secure. Settings › Permissions lists the trusted certificates and removes them;
+  so does the site popover. Never for a revoked certificate, one Tarn cannot classify, in a
+  private space or at Lockdown.
+  Linux shows the page and the certificate but offers no way through: WebKitGTK can only accept a
+  certificate for a host everywhere until Tarn quits.
 
 ### Changed
 
@@ -27,6 +38,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   the pointer is over the field or the button has keyboard focus, and the star stays shown for a
   bookmarked page. On macOS and Windows; on Linux Share moved the same way (its address field has
   no star).
+
+### Fixed
+
+- A video in full screen in a WebKit tab on macOS fills the screen instead of sitting lower with
+  rounded corners: Tarn no longer moves the page while WebKit shows it full screen. A dialog or
+  switching tabs ends the video's full screen, and a page without rounded corners is no longer
+  clipped, which spares the compositor an off-screen pass.
 
 ## [0.1.7] - 2026-11-25
 

@@ -31,6 +31,8 @@ const ADD_SCRIPT: &str = "Page.addScriptToEvaluateOnNewDocument";
 #[path = "tarn.rs"]
 mod tarn;
 
+type CertFailure = (Url, crate::cert::Problem, Vec<Vec<u8>>);
+
 struct Tab {
     id: u64,
     /// Whose Shield choices apply (`DataStore::shield_key`); empty on macOS.
@@ -70,6 +72,8 @@ struct Tab {
     recent_downloads: RefCell<std::collections::VecDeque<std::time::Instant>>,
     recent_prompts: RefCell<std::collections::VecDeque<std::time::Instant>>,
     silenced: Rc<Cell<bool>>,
+    /// The page and certificates of the last refused certificate, for the error page that follows.
+    cert_failure: RefCell<Option<CertFailure>>,
     /// The URLs a back, forward or reload the shell asked for may go to, and whether the main frame's current
     /// navigation was started by the user (shell, click or history), which its redirects keep.
     history_step: RefCell<Vec<Url>>,
@@ -137,6 +141,64 @@ thread_local! {
 
 pub(crate) fn any_visible() -> bool {
     VISIBLE.get() > 0
+}
+
+/// The store, profile, host and port of each certificate Chromium was told to continue past.
+/// Chromium remembers a Continue per store for the host and certificate on every port, so a page or
+/// frame of that host on another port, or in another profile sharing the store, first makes it
+/// forget, and the exception check decides there again.
+type Continued = std::collections::BTreeSet<(String, String, String, u16)>;
+static CONTINUED: std::sync::Mutex<Continued> = std::sync::Mutex::new(std::collections::BTreeSet::new());
+
+fn continued() -> std::sync::MutexGuard<'static, Continued> {
+    CONTINUED.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+fn forget_other_ports(store: &str, profile: &str, url: &Url, browser: Option<&Browser>) {
+    let Some((host, port)) = crate::cert::host_port(url).filter(|_| url.scheme() == "https") else { return };
+    let mut continued = continued();
+    if !continued_elsewhere(&continued, store, profile, &host, port) {
+        return;
+    }
+    // Chromium forgets per store, not per host: every Continue of the store goes.
+    if let Some(context) = browser.and_then(|b| b.host()).and_then(|h| h.request_context()) {
+        context.clear_certificate_exceptions(None);
+        context.close_all_connections(None);
+        continued.retain(|(s, ..)| s != store);
+    }
+}
+
+/// Another port of the host, or another profile of the same store, was continued: that
+/// certificate could pass here without the check.
+fn continued_elsewhere(continued: &Continued, store: &str, profile: &str, host: &str, port: u16) -> bool {
+    continued.iter().any(|(s, p, h, other)| s == store && h == host && (p != profile || *other != port))
+}
+
+/// A resource of a host continued elsewhere: Chromium would let its certificate through without
+/// asking, as it never asks about resources, so the request is refused instead.
+pub(crate) fn refused_elsewhere(store: &str, profile: &str, url: &Url) -> bool {
+    crate::cert::host_port(url)
+        .filter(|_| matches!(url.scheme(), "https" | "wss"))
+        .is_some_and(|(host, port)| continued_elsewhere(&continued(), store, profile, &host, port))
+}
+
+/// Chromium forgot the store's remembered decisions; so does the record of them.
+pub(crate) fn forget_continued(store: &str) {
+    continued().retain(|(s, ..)| s != store);
+}
+
+/// The certificate's DER bytes followed by its issuers bounded by `cert::bounded_chain`.
+fn der_chain(cert: &X509Certificate) -> Vec<Vec<u8>> {
+    let bytes = |value: Option<BinaryValue>| {
+        let value = value?;
+        let mut buffer = vec![0; value.size().min(crate::cert::MAX_CERT_BYTES + 1)];
+        let read = value.data(Some(&mut buffer), 0);
+        buffer.truncate(read);
+        Some(buffer)
+    };
+    let mut issuers = vec![None; cert.issuer_chain_size().min(crate::cert::MAX_CHAIN)];
+    cert.derencoded_issuer_chain(Some(&mut issuers));
+    crate::cert::bounded_chain(std::iter::once(cert.derencoded()).chain(issuers).map(|value| bytes(value).unwrap_or_default()))
 }
 
 /// Whether the owning profile's choices put `url` at `lockdown`; before the first snapshot every
@@ -585,6 +647,9 @@ wrap_load_handler! {
 
         fn on_load_start(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, _transition_type: TransitionType) {
             let (Some(tab), Some(frame)) = (tab(self.id), frame) else { return };
+            if frame.is_main() == 1 {
+                tab.cert_failure.take();
+            }
             if frame.is_main() != 1 {
                 // A subframe, often in a renderer of its own, gets its host's list hiding through CEF, which reaches any frame.
                 #[cfg(windows)]
@@ -653,10 +718,15 @@ wrap_load_handler! {
             if !string(failed_url).starts_with("about:") {
                 drop_handover(&tab, browser);
             }
+            let url = Url::parse(&string(failed_url)).ok();
+            // A cancelled certificate decision fails the load as aborted or as the certificate error.
+            if let Some((url, problem, chain)) = tab.cert_failure.take().filter(|f| url.as_ref().and_then(crate::cert::host_port) == crate::cert::host_port(&f.0)) {
+                emit(&tab, Event::CertificateError { url, problem, chain });
+                return;
+            }
             if code == sys::cef_errorcode_t::ERR_ABORTED {
                 return;
             }
-            let url = Url::parse(&string(failed_url)).ok();
             emit(&tab, Event::Failed { url, code: code as isize, message: crate::page::bounded(&string(error_text)) });
         }
     }
@@ -715,6 +785,7 @@ wrap_request_handler! {
         fn on_before_browse(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, request: Option<&mut Request>, user_gesture: i32, is_redirect: i32) -> i32 {
             let (Some(tab), Some(frame), Some(request)) = (tab(self.id), frame, request) else { return 1 };
             let Ok(url) = Url::parse(&CefString::from(&request.url()).to_string()) else { return 1 };
+            forget_other_ports(&tab.store, &self.profile, &url, browser.as_deref());
             if let Some(allowed) = tarn::page_allows(&tab, &url, frame.is_main() == 1) {
                 if !allowed && frame.is_main() == 1 && user_gesture == 1 && crate::tarn_ext::opens_as_tab(&url) {
                     emit(&tab, Event::OpenTab { url, from: None, background: false, split: false });
@@ -887,7 +958,8 @@ wrap_request_handler! {
                 (Some(frame), Some(request)) if is_navigation == 1 && frame.is_main() == 1 => super::cookies::hold_for(&CefString::from(&request.url()).to_string()),
                 _ => None,
             };
-            Some(super::filter::TarnFilter::new(hold, self.profile.clone(), self.lockdown_view))
+            let store = tab(self.id).map(|t| t.store.clone()).unwrap_or_default();
+            Some(super::filter::TarnFilter::new(hold, self.profile.clone(), store, self.lockdown_view))
         }
 
         fn on_open_urlfrom_tab(&self, browser: Option<&mut Browser>, frame: Option<&mut Frame>, target_url: Option<&CefString>, target_disposition: WindowOpenDisposition, user_gesture: i32) -> i32 {
@@ -917,9 +989,25 @@ wrap_request_handler! {
             1
         }
 
-        fn on_certificate_error(&self, _browser: Option<&mut Browser>, _cert_error: Errorcode, _request_url: Option<&CefString>, _ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
+        // Chromium's own verification failed; only a certificate the user confirmed goes on (S7).
+        fn on_certificate_error(&self, _browser: Option<&mut Browser>, cert_error: Errorcode, request_url: Option<&CefString>, ssl_info: Option<&mut Sslinfo>, callback: Option<&mut Callback>) -> i32 {
+            let problem = crate::cert::Problem::from_chromium(sys::cef_errorcode_t::from(cert_error) as i64).unwrap_or(crate::cert::Problem::Refused);
+            let chain = ssl_info.and_then(|info| info.x509_certificate()).map(|c| der_chain(&c)).unwrap_or_default();
+            let url = Url::parse(&string(request_url)).ok();
+            let allowed = url.as_ref().is_some_and(|url| {
+                !lockdown(&self.profile, url)
+                    && crate::cert::host_port(url).zip(chain.first()).is_some_and(|((host, port), leaf)| {
+                        super::filter::cert_exceptions_for(&self.profile).is_some_and(|e| e.allows(&host, port, leaf, problem))
+                    })
+            });
+            if allowed && let (Some((host, port)), Some(tab)) = (url.as_ref().and_then(crate::cert::host_port), tab(self.id)) {
+                continued().insert((tab.store.clone(), self.profile.clone(), host, port));
+            }
+            if !allowed && let (Some(tab), Some(url)) = (tab(self.id), url) {
+                *tab.cert_failure.borrow_mut() = Some((url, problem, chain));
+            }
             if let Some(callback) = callback {
-                callback.cancel();
+                if allowed { callback.cont() } else { callback.cancel() }
             }
             1
         }
@@ -1967,6 +2055,7 @@ impl WebView {
             recent_downloads: RefCell::default(),
             recent_prompts: RefCell::default(),
             silenced: Rc::default(),
+            cert_failure: RefCell::default(),
             history_step: RefCell::default(),
             user_started: Cell::new(false),
             navigating: RefCell::new(None),
@@ -3054,5 +3143,19 @@ impl ExtensionView for WebView {
 
     fn post_extension_message(&self, world: &World, frame: Option<FrameId>, json: &str) {
         tarn::post(&self.0.tab, world, frame, json);
+    }
+}
+
+#[cfg(test)]
+mod cert_tests {
+    #[test]
+    fn a_continue_counts_elsewhere_for_other_ports_and_profiles_of_its_store_only() {
+        let continued: super::Continued = [("s1".to_owned(), "p1".to_owned(), "nas".to_owned(), 8006)].into();
+        let elsewhere = |store, profile, host, port| super::continued_elsewhere(&continued, store, profile, host, port);
+        assert!(!elsewhere("s1", "p1", "nas", 8006), "its own host and port");
+        assert!(elsewhere("s1", "p1", "nas", 443), "another port of the host");
+        assert!(elsewhere("s1", "p2", "nas", 8006), "another profile sharing the store");
+        assert!(!elsewhere("s2", "p2", "nas", 8006), "another store remembers nothing of it");
+        assert!(!elsewhere("s1", "p1", "other", 443), "another host");
     }
 }

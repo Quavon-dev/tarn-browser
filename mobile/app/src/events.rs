@@ -66,6 +66,7 @@ impl<D: Platform> Shell<D> {
                     page.error = text(data, "message");
                 }
             }
+            "certificate_error" => self.certificate_error(key, data),
             "blocked" => {
                 let url = text(data, "url").unwrap_or_default();
                 if let Some(page) = self.pages.get_mut(&key) {
@@ -158,13 +159,24 @@ impl<D: Platform> Shell<D> {
             self.record_visit(key, &url, &title, now);
         }
         if let Some(page) = self.pages.get_mut(&key) {
-            let error_page = committed && page.awaiting_commit && page.error.is_some() && page.url == url;
+            // Android commits its own error page at the URL that failed, whoever started the load.
+            let cert_failed_here = !page.engine_error_page && page.cert.as_ref().is_some_and(|c| Url::parse(&url).ok().as_ref() == Some(&c.error.url));
+            let failed_here = page.awaiting_commit && (page.error.is_some() || page.cert.is_some()) && page.url == url;
+            let error_page = committed && (failed_here || cert_failed_here);
+            let error_page_finished = !committed && page.engine_error_page && page.committed.as_deref() == Some(url.as_str());
+            if error_page_finished {
+                page.loading = false;
+                return Vec::new();
+            }
             page.url = url.clone();
             page.title = title.clone();
             if error_page {
                 page.committed = Some(url.clone());
                 page.awaiting_commit = false;
                 page.loading = false;
+                page.engine_error_page = true;
+                page.back = data.get("canGoBack").and_then(Value::as_bool).unwrap_or(false);
+                page.forward = data.get("canGoForward").and_then(Value::as_bool).unwrap_or(false);
                 return Vec::new();
             }
             if committed {
@@ -175,6 +187,8 @@ impl<D: Platform> Shell<D> {
             page.forward = data.get("canGoForward").and_then(Value::as_bool).unwrap_or(false);
             page.loading = committed;
             page.error = None;
+            page.cert = None;
+            page.engine_error_page = false;
         }
         let saved = if committed { Some(url) } else { self.pages.get(&key).and_then(|p| p.committed.clone()) };
         if let Some(saved) = saved {

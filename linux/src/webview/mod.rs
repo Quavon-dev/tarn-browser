@@ -1186,11 +1186,16 @@ fn connect(state: &Rc<State>, web: &WebView) {
         true
     });
     let w = weak.clone();
-    web.connect_load_failed_with_tls_errors(move |_, uri, _, flags| {
+    web.connect_load_failed_with_tls_errors(move |_, uri, cert, flags| {
         if let Some(s) = w.upgrade() {
             s.failed.set(true);
-            let message = format!("The site's certificate is not trusted ({flags:?}); the page was not loaded.");
-            s.emit("failed", json!({ "url": uri, "message": message }));
+            s.main_pending.set(false);
+            let chain = std::iter::successors(Some(cert.clone()), gio::prelude::TlsCertificateExt::issuer)
+                .take(engine::cert::MAX_CHAIN)
+                .map(|c| c.certificate().map(|der| der.to_vec()).unwrap_or_default());
+            let chain: Vec<String> = engine::cert::bounded_chain(chain).iter().map(|der| glib::base64_encode(der).to_string()).collect();
+            let problem = engine::cert::Problem::from_gtls(flags.bits());
+            s.emit("certificate_error", json!({ "url": uri, "problem": problem.as_str(), "chain": chain }));
         }
         true
     });

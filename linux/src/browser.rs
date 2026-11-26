@@ -65,6 +65,7 @@ pub struct Page {
     /// The user paused ad, tracker and cookie-banner blocking on the site of the shell's last load.
     pub paused: bool,
     pub blocked: Option<blocking::BlockedPage>,
+    pub cert: Option<browser_core::cert_error::CertPage>,
     pub zoom: f64,
     pub found: Option<u64>,
     pub error: Option<String>,
@@ -492,6 +493,7 @@ impl Browser {
         page.level = level;
         page.paused = paused;
         page.blocked = None;
+        page.cert = None;
         page.error = None;
         page.found = None;
         if page.url.is_empty() {
@@ -1050,6 +1052,7 @@ impl Browser {
                 suggest::typed_visit(&mut page.typed, &text("url"));
                 page.error = Some(text("message"));
             }
+            "certificate_error" => self.on_cert_error(key, data),
             "blocked" if data["popup"].as_bool() == Some(true) => {
                 if matches!(self.notice, None | Some(Notice::Message(_))) {
                     let url = Url::parse(&text("url")).ok();
@@ -1158,6 +1161,7 @@ impl Browser {
             page.crashed = false;
         } else {
             page.error = None;
+            page.cert = None;
             let host = Url::parse(&url).ok().and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()));
             page.prompts.retain(|p| {
                 let keep = p.kind == extensions::PROMPT_KIND && host.as_deref() == Some(p.origin.as_str());

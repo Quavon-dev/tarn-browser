@@ -86,6 +86,9 @@ impl Browser {
                 crate::tarn_ext::opened(&self.core, profile_id);
             }
             self.apply_site_styles(private, profile_id);
+            if !private {
+                self.apply_cert_exceptions(profile_id);
+            }
             crate::zaps::apply(&self.core, private, profile_id);
             // Chromium refuses a profile's requests until its Shield choices arrive.
             #[cfg(windows)]
@@ -491,7 +494,9 @@ impl Browser {
     pub fn navigate(&mut self, url: &Url, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(key) = self.model.active {
             self.link_loads.remove(&key);
-            self.pages.entry(key).or_default().retry = Some(url.clone());
+            let page = self.pages.entry(key).or_default();
+            page.retry = Some(url.clone());
+            page.loads += 1;
         }
         match (self.active_view(), self.model.active) {
             (Some(view), Some(key)) if view.is_chromium() && self.level_for(url.as_str()) == ShieldLevel::Lockdown => self.rebuild_view(key, url, cx),

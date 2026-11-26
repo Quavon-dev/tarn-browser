@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use browser_core::cert_error::{CertError, CertPage};
 use browser_core::permissions::{PermissionRow, permission_rows};
 use browser_core::site::{POPUPS, SET_SWITCHES, SiteRules, popup_origin, set_categories, site_host, stable};
 use browser_core::tabs::TabKey;
@@ -196,6 +197,29 @@ impl Browser {
     pub fn leave_blocked(&mut self) {
         if let Some(page) = self.model.active.and_then(|k| self.pages.get_mut(&k)) {
             page.blocked = None;
+            page.cert = None;
+        }
+    }
+
+    pub(super) fn on_cert_error(&mut self, key: TabKey, data: &Value) {
+        let Some(url) = data["url"].as_str().and_then(|u| Url::parse(u).ok()) else { return };
+        let chain = data["chain"].as_array().into_iter().flatten().filter_map(Value::as_str).map(webkit6::glib::base64_decode);
+        let error = CertError {
+            problem: browser_core::cert_error::Problem::parse(data["problem"].as_str().unwrap_or_default()),
+            chain: engine::cert::bounded_chain(chain),
+            url,
+        };
+        let page = self.pages.entry(key).or_default();
+        page.loading = false;
+        page.error = None;
+        page.blocked = None;
+        browser_core::suggest::typed_visit(&mut page.typed, error.url.as_str());
+        page.cert = Some(CertPage::new(error));
+    }
+
+    pub fn toggle_cert_viewer(&mut self) {
+        if let Some(cert) = self.model.active.and_then(|k| self.pages.get_mut(&k)).and_then(|p| p.cert.as_mut()) {
+            cert.toggle_viewer();
         }
     }
 

@@ -37,7 +37,7 @@ impl Browser {
             None if self.model.active == Some(key) => self.link_status.page.get(),
             None => return None,
         };
-        if self.pages.get(&key).is_some_and(|p| p.blocked.is_some()) || self.json_pages.contains_key(&key) {
+        if self.pages.get(&key).is_some_and(|p| p.blocked.is_some() || p.cert.is_some()) || self.json_pages.contains_key(&key) {
             return None;
         }
         (rect.2 > 0. && rect.3 > 0.).then_some(rect)

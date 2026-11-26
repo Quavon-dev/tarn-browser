@@ -17,6 +17,7 @@ pub mod agent;
 pub mod assistant;
 pub mod bookmarks;
 pub mod capture;
+pub mod cert_error;
 pub mod cleanup;
 pub mod closed;
 pub mod command;

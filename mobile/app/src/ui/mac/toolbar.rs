@@ -62,8 +62,9 @@ fn level_name(level: ShieldLevel) -> &'static str {
     }
 }
 
-fn host(ui: Ui) -> (String, bool) {
-    ui.read(|s| Url::parse(&s.active_url()).ok().map(|u| address(&u)).unwrap_or_default())
+fn host(ui: Ui, excepted: impl Fn() -> bool) -> (String, bool) {
+    let (host, insecure) = ui.read(|s| Url::parse(&s.active_url()).ok().map(|u| address(&u)).unwrap_or_default());
+    (host, insecure || excepted())
 }
 
 fn reload_button(ui: Ui) -> impl IntoElement {
@@ -166,6 +167,7 @@ fn shield(ui: Ui) -> impl IntoElement {
 
 fn address_field(ui: Ui) -> impl IntoElement {
     let open = move || ui.editing.get() || ui.screen.get() == Screen::Shield;
+    let excepted = super::super::cert::excepted(ui);
     let capsule = capsule(open)
         .test_id("capsule")
         .relative()
@@ -177,7 +179,7 @@ fn address_field(ui: Ui) -> impl IntoElement {
                 shield(ui).into_element()
             })
         }))
-        .child(address_text("Search or enter address", move || host(ui), move || open_palette(ui)))
+        .child(address_text("Search or enter address", move || host(ui, excepted), move || open_palette(ui)))
         .child(themed(move || {
             dynamic(move || {
                 ui.read(|s| s.active_page().is_some_and(|p| p.article))

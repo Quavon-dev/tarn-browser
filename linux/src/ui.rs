@@ -2530,8 +2530,11 @@ fn hang_bar(ui: Ui) -> AnyElement {
 }
 
 fn content(ui: Ui) -> View {
-    let covered =
-        move || ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.json.is_some()) || ui.panel.get() != Panel::None || ui.editing.get();
+    let covered = move || {
+        ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.cert.is_some() || s.json.is_some())
+            || ui.panel.get() != Panel::None
+            || ui.editing.get()
+    };
     let bare = move || covered() || ui.snap.with(|s| s.split.is_some() || s.fullscreen);
     view()
         .flex_col()
@@ -2547,6 +2550,7 @@ fn content(ui: Ui) -> View {
         .child(themed(move || devtools::json_view(ui)))
         .child(themed(move || start_card(ui)))
         .child(themed(move || blocking::page(ui)))
+        .child(themed(move || blocking::cert_page(ui)))
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 

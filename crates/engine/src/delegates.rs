@@ -22,13 +22,13 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     NSArray, NSData, NSDictionary, NSError, NSHTTPURLResponse, NSObject, NSProgressReporting, NSRect, NSString, NSTimer, NSURL, NSURLAuthenticationChallenge,
-    NSURLAuthenticationMethodClientCertificate, NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLCredential,
-    NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
+    NSURLAuthenticationMethodClientCertificate, NSURLAuthenticationMethodHTTPBasic, NSURLAuthenticationMethodHTTPDigest, NSURLAuthenticationMethodServerTrust,
+    NSURLCredential, NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
-    WKDownload, WKDownloadDelegate, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView,
-    WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin,
+    WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
 };
 use security_framework::identity::SecIdentity;
 use shield::ShieldLevel;
@@ -197,6 +197,9 @@ pub(crate) struct DelegateState {
     /// so they cannot launder a public page's navigation to a private address (S10).
     pub web_origin: RefCell<Option<String>>,
     pub last_title: RefCell<String>,
+    pub fullscreen: Cell<WKFullscreenState>,
+    /// The page's corner radius in the shell's window.
+    pub corner: Cell<f64>,
     pub after_commit: RefCell<Option<Box<dyn FnOnce()>>>,
     /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
     /// beside the page, and a later one does not.
@@ -208,6 +211,8 @@ pub(crate) struct DelegateState {
     /// The last restart of a new find, and whether it is still clearing the selection; a step
     /// meanwhile would start from the old selection.
     pub find_restart: Cell<(u64, bool)>,
+    /// The profile's certificate exceptions (S7), shared with its other views.
+    pub cert_exceptions: crate::cert::Exceptions,
 }
 
 pub(crate) type Found = Rc<dyn Fn(usize, Option<usize>)>;
@@ -246,8 +251,11 @@ impl DelegateState {
             committed_url: RefCell::default(),
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
+            fullscreen: Cell::new(WKFullscreenState::NotInFullscreen),
+            corner: Cell::new(0.),
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
+            cert_exceptions: crate::cert::Exceptions::default(),
             assistant_menu: RefCell::default(),
             found: RefCell::default(),
             find_restart: Cell::new((0, false)),
@@ -311,6 +319,23 @@ fn is_attachment(response: &NSURLResponse) -> bool {
     let Some(http) = response.downcast_ref::<NSHTTPURLResponse>() else { return false };
     http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition"))
         .is_some_and(|v| v.to_string().trim_start().to_ascii_lowercase().starts_with("attachment"))
+}
+
+pub(crate) fn fullscreen_state(view: &WKWebView) -> WKFullscreenState {
+    // SAFETY: main-thread read of a live web view.
+    unsafe { view.fullscreenState() }
+}
+
+/// WebKit holds the view in its own full-screen window, entering and leaving included: the shell
+/// neither lays it out nor rounds its corners.
+pub(crate) fn holds_view(state: WKFullscreenState) -> bool {
+    state != WKFullscreenState::NotInFullscreen
+}
+
+/// The page shows full screen, or is about to (`Event::FullScreen`); leaving it is already under way
+/// once WebKit is exiting.
+pub(crate) fn shows_fullscreen(state: WKFullscreenState) -> bool {
+    matches!(state, WKFullscreenState::EnteringFullscreen | WKFullscreenState::InFullscreen)
 }
 
 /// The page title, cut to `MAX_TITLE` characters.
@@ -441,6 +466,18 @@ define_class!(
             _context: *mut c_void,
         ) {
             let Some(view) = object.and_then(|o| o.downcast_ref::<WKWebView>()) else { return };
+            if key_path.is_some_and(|k| k.to_string() == "fullscreenState") {
+                // Each step is reported, so a shell refusing full screen can ask again once it is entered.
+                let state = fullscreen_state(view);
+                let was = self.ivars().fullscreen.replace(state);
+                if was != state {
+                    if holds_view(state) != holds_view(was) {
+                        crate::webview::round_corners(view, if holds_view(state) { 0. } else { self.ivars().corner.get() });
+                    }
+                    self.emit(Event::FullScreen(shows_fullscreen(state)));
+                }
+                return;
+            }
             if key_path.is_some_and(|k| matches!(k.to_string().as_str(), "URL" | "canGoBack" | "canGoForward")) {
                 // Loads report their URL through `Committed`; this catches same-document changes
                 // such as pushState.
@@ -694,7 +731,16 @@ define_class!(
                     method.isEqualToString(NSURLAuthenticationMethodClientCertificate),
                 )
             };
-            // Server trust keeps WebKit's default handling (S7).
+            // SAFETY: reading Foundation's constant string.
+            if unsafe { method.isEqualToString(NSURLAuthenticationMethodServerTrust) } {
+                // WebKit's default handling unless the user confirmed this certificate (S7).
+                let credential = self.server_trust(&space);
+                match credential {
+                    Some(credential) => handler.call((NSURLSessionAuthChallengeDisposition::UseCredential, Retained::as_ptr(&credential).cast_mut())),
+                    None => handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, std::ptr::null_mut())),
+                }
+                return;
+            }
             if !http_auth && !client_certificate {
                 handler.call((NSURLSessionAuthChallengeDisposition::PerformDefaultHandling, std::ptr::null_mut()));
                 return;
@@ -945,6 +991,7 @@ define_class!(
                 // Until its first commit a popup shows the opener-writable blank document, whatever it was asked to load (S5).
                 committed_url: RefCell::new(Url::parse("about:blank").ok()),
                 agent_gate: RefCell::new(state.agent_gate.borrow().clone()),
+                cert_exceptions: state.cert_exceptions.clone(),
                 ..DelegateState::new(Rc::new(|_| {}), state.site_for.clone(), state.level, state.filtered, state.downloads.clone(), true)
             };
             // SAFETY: main thread; WebKit requires the returned view to use this configuration.
@@ -1253,9 +1300,79 @@ impl Delegate {
         self.ivars().history_step.take();
         // SAFETY: main-thread access to a live web view.
         let url = to_url(unsafe { web_view.URL() });
+        // NSURLErrorSecureConnectionFailed through NSURLErrorServerCertificateNotYetValid, with a
+        // server trust attached that fails evaluation. A failed first load leaves the view without a URL; the error
+        // names the one that failed.
+        if (-1204..=-1200).contains(&error.code())
+            && let Some((problem, chain)) = peer_chain(error)
+            && let Some(url) = failing_url(error).or(url.clone())
+        {
+            self.emit(Event::CertificateError { url, problem, chain });
+            return;
+        }
         let message = error.localizedDescription().to_string();
         self.emit(Event::Failed { url, code: error.code(), message });
     }
+
+    /// The credential that answers a server-trust challenge for a certificate the user confirmed,
+    /// or `None` for WebKit's default handling. Only a host and port with an exception is evaluated
+    /// here, so other connections never wait on the main thread.
+    fn server_trust(&self, space: &NSURLProtectionSpace) -> Option<Retained<NSURLCredential>> {
+        let state = self.ivars();
+        let host = space.host().to_string();
+        let host = if host.contains(':') && !host.starts_with('[') { format!("[{host}]") } else { host };
+        let port = u16::try_from(space.port()).ok()?;
+        let site = Url::parse(&format!("https://{host}:{port}/")).ok()?;
+        if state.level == ShieldLevel::Lockdown || (state.site_for)(&site).level == ShieldLevel::Lockdown || !state.cert_exceptions.has(&host, port) {
+            return None;
+        }
+        type TrustGetter = unsafe extern "C-unwind" fn(*const NSURLProtectionSpace, Sel) -> *mut c_void;
+        // SAFETY: `objc_msgSend` with the exact signature of `-[NSURLProtectionSpace serverTrust]`,
+        // which returns a +0 SecTrustRef or NULL; it is retained by `wrap_under_get_rule`.
+        let raw = unsafe {
+            let send: TrustGetter = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            send(space, sel!(serverTrust))
+        };
+        if raw.is_null() {
+            return None;
+        }
+        // SAFETY: `raw` is a live SecTrustRef owned by the protection space.
+        let mut trust = unsafe { security_framework::trust::SecTrust::wrap_under_get_rule(raw.cast()) };
+        // The shell makes no request of its own for the certificate (S7): no intermediates or
+        // revocation fetched, which would also block the main thread.
+        trust.set_network_fetch_allowed(false).ok()?;
+        let problem = crate::cert::Problem::from_sec_trust(trust.evaluate_with_error().err()?.code() as i64);
+        let leaf = trust.chain().first()?.to_der();
+        if !state.cert_exceptions.allows(&host, port, &leaf, problem) {
+            return None;
+        }
+        type CredentialMaker = unsafe extern "C-unwind" fn(*const AnyClass, Sel, *mut c_void) -> *mut NSURLCredential;
+        let class = AnyClass::get(c"NSURLCredential")?;
+        // SAFETY: `objc_msgSend` with the exact signature of `+[NSURLCredential credentialForTrust:]`,
+        // given the live SecTrustRef; it returns a +0 credential, retained here.
+        unsafe {
+            let send: CredentialMaker = std::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn());
+            Retained::retain(send(class, sel!(credentialForTrust:), raw))
+        }
+    }
+}
+
+fn failing_url(error: &NSError) -> Option<Url> {
+    // SAFETY: reading Foundation's constant key.
+    to_url(error.userInfo().objectForKey(unsafe { objc2_foundation::NSURLErrorFailingURLErrorKey })?.downcast::<NSURL>().ok())
+}
+
+/// The problem and certificates of the server trust a TLS failure carries; `None` when that trust
+/// passes, as for a handshake that failed for another reason.
+fn peer_chain(error: &NSError) -> Option<(crate::cert::Problem, Vec<Vec<u8>>)> {
+    // SAFETY: reading Foundation's constant key.
+    let trust = error.userInfo().objectForKey(unsafe { objc2_foundation::NSURLErrorFailingURLPeerTrustErrorKey })?;
+    // SAFETY: Foundation stores a SecTrustRef under this key; the error keeps it alive while it is
+    // retained by `wrap_under_get_rule`.
+    let mut trust = unsafe { security_framework::trust::SecTrust::wrap_under_get_rule(Retained::as_ptr(&trust).cast_mut().cast()) };
+    trust.set_network_fetch_allowed(false).ok()?;
+    let problem = crate::cert::Problem::from_sec_trust(trust.evaluate_with_error().err()?.code() as i64);
+    Some((problem, crate::cert::bounded_chain(trust.chain().iter().map(|c| c.to_der()))))
 }
 
 define_class!(
@@ -1687,6 +1804,14 @@ fn page_state(web_view: &WKWebView) -> Option<(Url, String, bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webkit_keeps_the_view_until_it_has_left_full_screen_but_the_page_leaves_when_exiting_starts() {
+        use WKFullscreenState as S;
+        let states = [S::NotInFullscreen, S::EnteringFullscreen, S::InFullscreen, S::ExitingFullscreen];
+        assert_eq!(states.map(holds_view), [false, true, true, true]);
+        assert_eq!(states.map(shows_fullscreen), [false, true, true, false]);
+    }
 
     #[test]
     fn burst_limit_rejects_without_recording() {

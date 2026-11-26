@@ -17,6 +17,28 @@ static SHIELDS: RwLock<BTreeMap<String, Arc<Shield>>> = RwLock::new(BTreeMap::ne
 /// on macOS, where one profile owns Chromium.
 static EXTENSION_RULES: RwLock<BTreeMap<String, Arc<Vec<RuleList>>>> = RwLock::new(BTreeMap::new());
 
+/// Each profile's certificate exceptions (S7), by Shield key; one on macOS, where one profile owns
+/// Chromium.
+static CERT_EXCEPTIONS: RwLock<BTreeMap<String, crate::cert::Exceptions>> = RwLock::new(BTreeMap::new());
+
+pub(crate) fn set_cert_exceptions_for(key: &str, exceptions: Option<crate::cert::Exceptions>) {
+    let mut all = CERT_EXCEPTIONS.write().unwrap_or_else(PoisonError::into_inner);
+    match exceptions {
+        Some(exceptions) => all.insert(key.to_owned(), exceptions),
+        None => all.remove(key),
+    };
+}
+
+/// Hands Chromium the certificate exceptions of the profile that owns it on macOS.
+#[cfg(target_os = "macos")]
+pub fn set_cert_exceptions(exceptions: crate::cert::Exceptions) {
+    set_cert_exceptions_for("", Some(exceptions));
+}
+
+pub(crate) fn cert_exceptions_for(profile: &str) -> Option<crate::cert::Exceptions> {
+    CERT_EXCEPTIONS.read().unwrap_or_else(PoisonError::into_inner).get(profile).cloned()
+}
+
 /// Replaces the Tarn extension rules of the profile with this Shield key: content rule lists,
 /// one per install, already limited to the hosts it holds grants for. A list that does not parse
 /// is left out.
@@ -144,6 +166,7 @@ wrap_resource_request_handler! {
     pub(crate) struct TarnFilter {
         hold: Option<String>,
         profile: String,
+        store: String,
         lockdown_view: bool,
     }
 
@@ -164,6 +187,9 @@ wrap_resource_request_handler! {
             let first_party = parse(&request.first_party_for_cookies());
             let top = browser.and_then(|b| b.main_frame()).and_then(|f| parse(&f.url())).or_else(|| first_party.clone());
             if kind != "main_frame" && !crate::nav_policy::file_subresource_allowed(&url, top.as_ref()) {
+                return ReturnValue::CANCEL;
+            }
+            if !matches!(kind, "main_frame" | "sub_frame") && super::view::refused_elsewhere(&self.store, &self.profile, &url) {
                 return ReturnValue::CANCEL;
             }
             let referrer = parse(&request.referrer_url());
@@ -205,11 +231,12 @@ wrap_resource_request_handler! {
 wrap_request_context_handler! {
     pub(crate) struct TarnContextFilter {
         profile: String,
+        store: String,
     }
 
     impl RequestContextHandler {
         fn resource_request_handler(&self, _browser: Option<&mut Browser>, _frame: Option<&mut Frame>, _request: Option<&mut Request>, _is_navigation: i32, _is_download: i32, _request_initiator: Option<&CefString>, _disable_default_handling: Option<&mut i32>) -> Option<ResourceRequestHandler> {
-            Some(TarnFilter::new(None, self.profile.clone(), false))
+            Some(TarnFilter::new(None, self.profile.clone(), self.store.clone(), false))
         }
     }
 }
@@ -218,5 +245,5 @@ wrap_request_context_handler! {
 /// context sharing the profile's storage; this context exists only to be that handler.
 #[cfg(target_os = "macos")]
 pub(crate) fn worker_filter(global: &mut RequestContext) -> Option<RequestContext> {
-    request_context_cef_create_context_shared(Some(global), Some(&mut TarnContextFilter::new(String::new())))
+    request_context_cef_create_context_shared(Some(global), Some(&mut TarnContextFilter::new(String::new(), String::new())))
 }

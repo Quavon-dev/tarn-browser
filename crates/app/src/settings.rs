@@ -261,6 +261,7 @@ struct Snapshot {
     zooms: Vec<(String, f64)>,
     muted: Vec<String>,
     permissions: Vec<browser_core::permissions::SitePermission>,
+    cert_exceptions: Vec<(String, u16, String)>,
     zapped: Vec<(String, String)>,
     paused: Vec<String>,
     profiles: Vec<Profile>,
@@ -468,6 +469,10 @@ impl SettingsWindow {
             zooms: if self.pane == SettingsPane::Privacy { b.site_zooms() } else { Vec::new() },
             muted: if self.pane == SettingsPane::Privacy { b.muted_sites() } else { Vec::new() },
             permissions: if self.pane == SettingsPane::Permissions { b.profile_permissions() } else { Vec::new() },
+            cert_exceptions: match (self.pane, b.model.profile()) {
+                (SettingsPane::Permissions, Some((false, id))) => b.core.disk.cert_exceptions(id).unwrap_or_default(),
+                _ => Vec::new(),
+            },
             zapped: if self.pane == SettingsPane::Privacy { b.zapped(None) } else { Vec::new() },
             paused: if self.pane == SettingsPane::Privacy { b.paused_sites() } else { Vec::new() },
             notes: match (self.pane, b.model.profile()) {

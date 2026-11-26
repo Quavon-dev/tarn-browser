@@ -258,6 +258,10 @@ pub(crate) fn opened(core: &Rc<AppCore>, profile: Id) {
 /// The profile whose choices Chromium reads changed (macOS): its lists go to Chromium.
 #[cfg(feature = "chromium")]
 pub(crate) fn chromium_owner_changed(core: &Rc<AppCore>, profile: Id) {
+    #[cfg(target_os = "macos")]
+    if let Some(rt) = core.profiles.borrow().get(&(false, profile)) {
+        engine::chromium::set_cert_exceptions(rt.data.cert_exceptions());
+    }
     core.tarn.borrow_mut().chromium_rules.remove(&profile);
     apply_rules(core, profile);
 }

@@ -157,6 +157,7 @@ pub struct Snapshot {
     /// The shown page has stopped answering (`engine::lifecycle::Hang`).
     pub hung: bool,
     pub blocked: Option<crate::browser::blocking::BlockedPage>,
+    pub cert: Option<browser_core::cert_error::CertPage>,
     pub prompt: Option<Prompt>,
     pub notice: Option<Notice>,
     pub agent: Option<browser_core::agent::control::Banner>,
@@ -508,6 +509,7 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         error: page.error.clone(),
         hung: b.hung(),
         blocked: page.blocked.clone(),
+        cert: page.cert.clone(),
         prompt: page.prompts.front().cloned(),
         notice: b.notice.clone(),
         agent: b.agent_banner.clone(),
@@ -516,7 +518,7 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         link: b
             .hovered_link
             .get()
-            .filter(|(key, _)| !b.pages.get(key).is_some_and(|p| p.blocked.is_some()) && !b.json_pages.contains_key(key))
+            .filter(|(key, _)| !b.pages.get(key).is_some_and(|p| p.blocked.is_some() || p.cert.is_some()) && !b.json_pages.contains_key(key))
             .map(|(key, text)| (key, text.to_owned())),
         reader: b.reader.clone().filter(|r| Some(r.key) == key),
         article: key.is_some_and(|k| b.articles.contains(&k)),

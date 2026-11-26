@@ -41,7 +41,7 @@ and the web view contract in `shared-core.md`.
 
 | Interface | Direction | Clients | Description |
 |---|---|---|---|
-| Web pages over HTTP(S) | out | all | Through the engine; HTTPS-only where the Shield level sets it; certificate errors always fail (S7). Algorithms: `cryptography.md` |
+| Web pages over HTTP(S) | out | all | Through the engine; HTTPS-only where the Shield level sets it; certificate errors fail unless the user trusted that exact certificate (S7). Algorithms: `cryptography.md` |
 | Shell connections | out | all | Update checks, filter lists, extension and theme catalogs, site icons: `../PRIVACY.md`, "Connections the browser itself makes" |
 | URL handler | in | macOS (`CFBundleURLSchemes`), Windows (`packaging/windows/tarn.iss`), Linux (`linux/packaging/de.quavon.tarn.desktop`) | `http`/`https` links from other apps open in a new tab after `nav_policy` (S6). Linux registers `x-scheme-handler/http(s)` in its `.desktop` file and reads the URLs of its launch and, through NSH's single instance (GApplication over D-Bus), of later launches; iOS and Android do not register as browsers |
 | Command line and environment | in | macOS, Windows, Linux (URLs); macOS, Windows, Linux (`TARN_DATA_DIR`) | `tarn <url>…` opens URLs; Chromium switches on the command line are ignored (S22). `TARN_DATA_DIR` selects the profile directory |

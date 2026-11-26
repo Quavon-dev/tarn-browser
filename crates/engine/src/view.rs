@@ -127,6 +127,16 @@ impl WebView {
         both!(self, v => v.focus())
     }
 
+    /// Whether the engine shows an element's full screen in a window of its own (WebKit) rather
+    /// than across the shell's window, which the shell must then fill the screen with (Chromium).
+    pub fn owns_fullscreen_window(&self) -> bool {
+        !self.is_chromium()
+    }
+
+    pub fn exit_fullscreen(&self) {
+        webkit_only!(self, v => v.exit_fullscreen(), ())
+    }
+
     pub fn filtered(&self) -> bool {
         webkit_only!(self, v => v.filtered(), false)
     }

@@ -302,7 +302,7 @@ If item 1 fails, the fallback is a sidebar in its own WebView2 with the stricter
 | `interactionState` | No equivalent | The back list cannot be restored; only the URL is. Documented loss. |
 | Navigation delegate (`decidePolicyForNavigationAction`) | `NavigationStarting` (cancel), `FrameNavigationStarting`, `NewWindowRequested` (popups, gesture via `IsUserInitiated`) | `nav_policy::decide` called from the same places; `Source` mapping unchanged. |
 | JS dialogs, permissions, HTTP auth, client certificates | `ScriptDialogOpening` (deferral, tab-modal GPUI prompt), `PermissionRequested`, `BasicAuthenticationRequested`, CEF `OnSelectClientCertificate` | Origin shown in every prompt (S5). |
-| TLS errors | `ServerCertificateErrorDetected` | Never `AlwaysAllow`; no bypass at any level (S7). |
+| TLS errors | `ServerCertificateErrorDetected` | Never `AlwaysAllow` except for a certificate the user trusted for that host and port (S7). |
 | Content-process crash reload | `ProcessFailed` | Same rate limit. |
 | Script message handlers (none) | `AreHostObjectsAllowed = FALSE`, `IsWebMessageEnabled = FALSE`, no `AddHostObjectToScript` | S1 holds. Also `AreDevToolsEnabled` only in the dev profile; `AreDefaultContextMenusEnabled` reviewed. |
 | Downloads + `com.apple.quarantine` | `DownloadStarting` → our sanitised `unique_path`; Mark-of-the-Web: write `Zone.Identifier` ADS (`ZoneId=3`, `ReferrerUrl`, `HostUrl`) | Also call `IAttachmentExecute::Save` so Defender/SmartScreen scan; never auto-open. Same `is_dangerous` list plus Windows extensions (`.exe .msi .bat .cmd .ps1 .lnk .scr .hta .js .vbs .appx .msix`). |

@@ -27,15 +27,15 @@ pub(crate) mod view;
 mod zone;
 
 #[cfg(target_os = "macos")]
-pub use data::{clear_cache, clear_site, wipe};
-#[cfg(windows)]
-pub(crate) use filter::set_extension_rules_for;
+pub use data::{clear_cache, clear_cert_decisions, clear_site, wipe};
 #[cfg(not(windows))]
 pub use filter::take_blocked;
 #[cfg(windows)]
 pub(crate) use filter::{drop_shield, set_shield_for, shield_for, take_blocked_for};
 #[cfg(target_os = "macos")]
-pub use filter::{set_extension_rules, set_shield};
+pub use filter::{set_cert_exceptions, set_extension_rules, set_shield};
+#[cfg(windows)]
+pub(crate) use filter::{set_cert_exceptions_for, set_extension_rules_for};
 #[cfg(windows)]
 pub use pump_windows::open_next_window_inactive;
 #[cfg(windows)]

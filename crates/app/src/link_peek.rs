@@ -255,6 +255,7 @@ impl Render for LinkPeekWindow {
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         let crate::toolbar::Site { host, insecure, .. } = crate::toolbar::site_of(b.link_peek.url.clone());
+        let insecure = insecure || b.model.active.zip(b.link_peek.url.as_ref()).is_some_and(|(key, url)| b.cert_excepted(key, url));
         let title = bounded_title(&b.link_peek.title);
         let header = div()
             .h(px(HEADER))

@@ -34,7 +34,8 @@ One contract for iOS, Android and Linux (`linux/src/webview/`); the pure policy 
 (`decide`, `level_action`) for main-frame navigations and new windows, and Shield's rules
 (`WKContentRuleList` on iOS, `engine::content_rules` or `shield::matcher` on Android) for requests. Events
 only report. There is no page-to-app bridge: no script message handlers or JavaScript interfaces. JavaScript is
-off at Lockdown, TLS errors are never bypassed, and there is no remote debugging.
+off at Lockdown, a TLS error passes only for a certificate the user trusted for that host and port
+after the device owner's check, and there is no remote debugging.
 
 | Kind | Name | Payload | Meaning |
 |---|---|---|---|

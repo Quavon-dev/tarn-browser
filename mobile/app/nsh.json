@@ -15,7 +15,8 @@
       "LSSupportsOpeningDocumentsInPlace": true,
       "ITSAppUsesNonExemptEncryption": false,
       "NSCameraUsageDescription": "A website you visit asks to use the camera.",
-      "NSMicrophoneUsageDescription": "A website you visit asks to use the microphone."
+      "NSMicrophoneUsageDescription": "A website you visit asks to use the microphone.",
+      "NSFaceIDUsageDescription": "Tarn asks for Face ID before it trusts a site's certificate you confirmed."
     }
   }
 }

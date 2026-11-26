@@ -30,10 +30,31 @@ impl SettingsWindow {
             }
             list
         };
+        let certificates = (!s.cert_exceptions.is_empty()).then(|| {
+            s.cert_exceptions.into_iter().enumerate().fold(group(), |list, (ix, (host, port, fingerprint))| {
+                let site = if port == 443 { host.clone() } else { format!("{host}:{port}") };
+                let short = format!("SHA-256 {}…", fingerprint.get(..16).unwrap_or(&fingerprint).to_ascii_uppercase());
+                list.child(row(ix == 0).child(text_block(bounded_title(&site), short)).child(row_action(("forget-cert", ix), Icon::Trash, "Remove").on_click(
+                    cx.listener(move |this: &mut Self, _, _, cx| {
+                        let host = host.clone();
+                        this.with_browser(cx, move |b, _, cx| {
+                            if let Some((false, id)) = b.model.profile() {
+                                b.remove_cert_exception(id, &host, port, cx);
+                            }
+                        });
+                    }),
+                )))
+            })
+        });
         div()
             .child(section("Sites"))
             .child(body)
             .child(note("This profile's answers to sites. A site you forget asks again next time; Lockdown sites never ask."))
+            .when_some(certificates, |d, list| {
+                d.child(section("Trusted Certificates")).child(list).child(note(
+                    "Certificates you trusted on a certificate error page. These sites show as not secure; one you remove shows the error page again.",
+                ))
+            })
             .into_any_element()
     }
 

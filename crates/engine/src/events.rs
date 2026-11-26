@@ -51,6 +51,13 @@ pub enum Event {
         code: isize,
         message: String,
     },
+    /// The main frame's load failed on its certificate; nothing of the site was shown. `chain`
+    /// is the server's certificates, leaf first, bounded by `cert::bounded_chain`.
+    CertificateError {
+        url: Url,
+        problem: crate::cert::Problem,
+        chain: Vec<Vec<u8>>,
+    },
     /// A navigation was stopped by Shield; the current page is unchanged. With a category, a
     /// domain set named the host: `Category::warns` ones get the warning page, others a notice.
     Blocked {
@@ -107,8 +114,9 @@ pub enum Event {
     },
     ContentProcessTerminated,
     LinkHovered(Option<String>),
-    /// A Chromium page on Windows entered (`true`) or left full screen for an element (a video); the
-    /// shell shows the page alone, filling the screen. WebKit opens its own full-screen window.
+    /// A page entered (`true`) or left full screen for an element (a video). A Chromium page on
+    /// Windows fills the shell's window, which the shell shows alone, filling the screen; WebKit
+    /// shows it in a window of its own (`WebView::owns_fullscreen_window`).
     FullScreen(bool),
     /// With the upgraded page's host for an HTTPS upgrade; the shell names a refusal by the tab's page.
     Protected(Protection, Option<String>),

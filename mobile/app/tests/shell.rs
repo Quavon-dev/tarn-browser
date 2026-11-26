@@ -1185,3 +1185,80 @@ fn only_the_active_tab_sets_the_find_count() {
     shell.event(second, "found", &json!({}), 2);
     assert_eq!(shell.found, Some((3, Some(2))), "another tab's find does not change the bar");
 }
+
+#[test]
+fn a_certificate_error_page_keeps_a_confirmed_certificate_only_where_allowed() {
+    use browser_core::cert_error::Step;
+    let (_dir, mut shell) = open();
+    shell.navigate("https://192.168.1.2:8006/");
+    let key = active(&shell);
+    let error = json!({ "url": "https://192.168.1.2:8006/", "problem": "untrusted", "chain": ["3082"] });
+    shell.event(key, "certificate_error", &error, 1);
+    shell.event(key, "committed", &json!({ "url": "https://192.168.1.2:8006/", "title": "", "canGoBack": false }), 2);
+    shell.event(key, "finished", &json!({ "url": "https://192.168.1.2:8006/", "title": "" }), 2);
+    assert!(shell.active_page().unwrap().cert.is_some(), "Android commits and finishes its own error page after the error");
+    assert!(shell.begin_cert_trust().is_none(), "the confirmation comes first");
+    shell.set_cert_step(Step::Confirm);
+    let (at, cert) = shell.begin_cert_trust().unwrap();
+    assert!(shell.begin_cert_trust().is_none(), "a second press waits for the owner check");
+    shell.end_cert_trust(at, &cert, false);
+    assert!(shell.cert_exceptions().is_empty() && shell.notice.is_some(), "nothing is kept without the owner");
+    let (at, cert) = shell.begin_cert_trust().unwrap();
+    let seq = shell.views()[0].load.clone().unwrap().seq;
+    shell.end_cert_trust(at, &cert, true);
+    let view = shell.views().into_iter().next().unwrap();
+    assert_eq!(view.load.unwrap().seq, seq + 1, "the page loads again");
+    assert_eq!((view.cert_exceptions[0].host.as_str(), view.cert_exceptions[0].port), ("192.168.1.2", 8006));
+    assert!(shell.active_page().unwrap().cert.is_none());
+    finish(&mut shell, "https://192.168.1.2:8006/", "PVE");
+    assert!(shell.active_cert_excepted(), "the page shows as not secure");
+    shell.clear_data();
+    assert!(shell.cert_exceptions().is_empty() && shell.views()[0].cert_exceptions.is_empty());
+    assert!(shell.active_cert_excepted(), "a removed exception still shows as not secure until quit");
+
+    shell.event(key, "certificate_error", &error, 3);
+    shell.set_site_level(Some(ShieldLevel::Lockdown));
+    shell.set_cert_step(Step::Confirm);
+    assert!(!shell.cert_may_continue(key) && shell.begin_cert_trust().is_none(), "never at Lockdown");
+    shell.set_site_level(None);
+    shell.event(key, "certificate_error", &json!({ "url": "https://192.168.1.2:8006/", "problem": "revoked", "chain": ["3082"] }), 4);
+    assert!(!shell.cert_may_continue(key), "never for a revoked certificate");
+    assert!(shell.dismiss_error().is_empty() && shell.active_page().unwrap().cert.is_none());
+
+    shell.enter_private();
+    shell.navigate("https://192.168.1.2:8006/");
+    let private = active(&shell);
+    shell.event(private, "certificate_error", &error, 5);
+    assert!(!shell.cert_may_continue(private), "never in a private space");
+}
+
+#[test]
+fn go_back_on_a_certificate_error_leaves_only_an_error_page_the_engine_committed() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://a.test/", "A");
+    shell.navigate("https://b.test/");
+    let key = active(&shell);
+    let error = json!({ "url": "https://b.test/", "problem": "untrusted", "chain": ["3082"] });
+    shell.event(key, "certificate_error", &error, 3);
+    assert!(shell.leave_cert_page().is_empty(), "iOS: the failed load is no history entry");
+    assert!(shell.active_page().unwrap().cert.is_none());
+    shell.navigate("https://b.test/");
+    shell.event(key, "certificate_error", &error, 4);
+    shell.event(key, "committed", &json!({ "url": "https://b.test/", "title": "", "canGoBack": true }), 5);
+    assert_eq!(shell.leave_cert_page(), vec![Effect::Command(key, "back", Value::Null)], "Android: back past its error page");
+}
+
+#[test]
+fn a_page_started_load_keeps_its_certificate_page_through_the_engines_error_page() {
+    let (_dir, mut shell) = open();
+    finish(&mut shell, "https://a.test/", "A");
+    let key = active(&shell);
+    shell.event(key, "started", &json!({}), 3);
+    let error = json!({ "url": "https://b.test/x", "problem": "untrusted", "chain": ["3082"] });
+    shell.event(key, "certificate_error", &error, 4);
+    shell.event(key, "committed", &json!({ "url": "https://b.test/x", "title": "", "canGoBack": true }), 5);
+    shell.event(key, "finished", &json!({ "url": "https://b.test/x", "title": "" }), 6);
+    let page = shell.active_page().unwrap();
+    assert!(page.cert.is_some() && page.engine_error_page && !page.loading);
+    assert_eq!(shell.leave_cert_page(), vec![Effect::Command(key, "back", Value::Null)]);
+}
