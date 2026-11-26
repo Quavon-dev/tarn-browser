@@ -318,20 +318,24 @@ pub struct SettingsWindow {
 impl SettingsWindow {
     pub fn open(browser: WeakEntity<Browser>, main: WindowHandle<Browser>, cx: &mut App) -> Option<WindowHandle<SettingsWindow>> {
         let sheet = size(px(1000.), px(700.));
-        let over = main.update(cx, |_, window, cx| (window.bounds().center(), window.display(cx).map(|d| crate::shared::usable_bounds(&*d)))).ok();
-        let primary = || cx.primary_display().map(|d| crate::shared::usable_bounds(&*d)).map(|s| (s.center(), s));
-        let bounds = match over.and_then(|(at, screen)| screen.map(|s| (at, s))).or_else(primary) {
-            Some((center, screen)) => {
+        let over = main
+            .update(cx, |_, window, cx| window.display(cx).map(|d| (window.bounds().center(), crate::shared::usable_bounds(&*d), Some(d.id()))))
+            .ok()
+            .flatten();
+        let primary = || cx.primary_display().map(|d| crate::shared::usable_bounds(&*d)).map(|s| (s.center(), s, None));
+        let (bounds, display_id) = match over.or_else(primary) {
+            Some((center, screen, display)) => {
                 let sheet = size(sheet.width.min(screen.size.width), sheet.height.min(screen.size.height));
                 let at = center - point(sheet.width / 2., sheet.height / 2.);
                 let x = at.x.clamp(screen.origin.x, screen.right() - sheet.width);
                 let y = at.y.clamp(screen.origin.y, screen.bottom() - sheet.height);
-                Bounds::new(point(x, y), sheet)
+                (Bounds::new(point(x, y), sheet), display)
             }
-            None => Bounds::centered(None, sheet, cx),
+            None => (Bounds::centered(None, sheet, cx), None),
         };
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
+            display_id,
             window_min_size: Some(size(px(720.), px(480.))),
             titlebar: Some(TitlebarOptions {
                 title: Some("Settings".into()),

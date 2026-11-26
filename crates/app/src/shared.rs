@@ -460,7 +460,9 @@ fn link_window(cx: &mut App) -> Option<gpui::WindowHandle<Browser>> {
 
 /// A saved row for a new, centred window.
 fn new_window_row(cx: &mut App) -> SavedWindow {
-    let [x, y, width, height] = frame(Bounds::centered(None, size(px(1280.), px(820.)), cx));
+    let window = size(px(1280.), px(820.));
+    let centred = cx.primary_display().map_or_else(|| Bounds::centered(None, window, cx), |d| Bounds::centered_at(usable_bounds(&*d).center(), window));
+    let [x, y, width, height] = frame(centred);
     let row = SavedWindow { x, y, width, height, ..Default::default() };
     core(cx).disk.create_window(&row).unwrap_or(row)
 }
