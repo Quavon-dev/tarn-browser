@@ -15,7 +15,7 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux%20%C2%B7%20iOS%20%C2%B7%20Android-1f75b0.svg)
 <a href="https://www.opensourcealternatives.to"><img src="https://www.opensourcealternatives.to/badge-osa.svg" alt="As seen on Open Source Alternatives" height="20" /></a>
 
-[Get Tarn](#get-tarn) · [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Contributing](#contributing) · [Privacy](#privacy-and-security)
+[Get Tarn](#get-tarn) · [Features](#features) · [Screenshots](#screenshots) · [Platforms](#platforms) · [Build](#build-and-run) · [Shortcuts](#shortcuts) · [Development](#development) · [Contributing](#contributing) · [Privacy](#privacy-and-security)
 
 <a name="demo"></a>
 <img src="docs/media/demo.gif" alt="Tarn demo: the address field switching to an open tab, a command opening Split View, link peek, Reader, the Shield site card, the shortcut sheet and the Ember theme" width="100%" />
@@ -37,7 +37,7 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 | **Windows** | Unsigned preview: setup `.exe` from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), PowerShell installer or portable zip (below) |
 | **iOS / Android** | Still in testing |
 
-Requirements are under [Platforms](#platforms); repository setup and more options on [tarnbrowser.com/download](https://tarnbrowser.com/download).
+Requirements are under [Platforms](#platforms); more installation options on [tarnbrowser.com/download](https://tarnbrowser.com/download).
 
 **macOS, with Homebrew:**
 
@@ -114,7 +114,7 @@ opens a New Private Window or a New Burner Window. Hosts can be routed to a spac
 
 ### 🪟 Tabs that stay out of the way
 Vertical tabs, pinned tabs that remember their page, tiles, folders, tab groups, Split View and
-link peek. Unused tabs sleep, and the heaviest background tabs sleep once they use over 1 GB (macOS).
+link peek. Unused tabs sleep, and the heaviest background tabs sleep once they use over 1 GB (desktop).
 
 </td>
 <td valign="top">
@@ -129,8 +129,8 @@ catalog. Reader view, per-site zoom, dark mode and CSS, Picture in Picture and e
 <td valign="top">
 
 ### 🤖 AI only when you ask
-An assistant that reads the page with you, through the Claude API or, on desktop, Ollama on your
-own computer. On desktop, agents such as Claude Code or Codex can browse in a window of their own
+An assistant that reads the page with you, through the Claude API, the system's on-device model
+where it can answer or, on desktop, Ollama on your own computer. On desktop, agents such as Claude Code or Codex can browse in a window of their own
 (`tarn --mcp`). Both are off until you turn them on in Settings › AI, and Tarn asks before each
 agent and site.
 
@@ -138,8 +138,8 @@ agent and site.
 <td valign="top">
 
 ### 📚 Your library, on your device
-Open tabs, history, bookmarks, Reading List and downloads in one Library; notes per profile that
-are never synced. On desktop, import history and bookmarks from Firefox, Chrome and other Chromium
+Open tabs, history, bookmarks, Reading List and downloads in one Library, and notes per profile in
+Settings › Notes that are never synced. On desktop, import history and bookmarks from Firefox, Chrome and other Chromium
 browsers, and cookies where the browser allows it.
 
 </td>
