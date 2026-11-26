@@ -107,6 +107,14 @@ impl WebView {
         self.view.focus();
     }
 
+    /// Chromium fills the shell's window with an element's full screen; the shell fills the screen.
+    pub fn owns_fullscreen_window(&self) -> bool {
+        false
+    }
+
+    /// The page may stay full screen inside its tab; putting the view away ends it.
+    pub fn exit_fullscreen(&self) {}
+
     pub fn filtered(&self) -> bool {
         self.filtered
     }

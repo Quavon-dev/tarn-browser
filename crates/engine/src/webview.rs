@@ -319,7 +319,11 @@ impl WebView {
 
     /// Positions the view in shell coordinates: logical points, origin top-left.
     /// A frame that is already in place is not set again: AppKit would lay the page out anew.
+    /// WebKit's full-screen window lays the view out itself until it hands it back.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
+        if self.in_fullscreen() {
+            return;
+        }
         let rect = self.host.rect(x, y, width, height);
         let current = self.view.frame();
         if current != rect {
@@ -328,13 +332,11 @@ impl WebView {
         }
     }
 
+    /// In WebKit's full-screen window the page keeps square corners until it is handed back.
     pub fn set_corner_radius(&self, radius: f64) {
-        self.view.setWantsLayer(true);
-        if let Some(layer) = self.view.layer() {
-            layer.setCornerRadius(radius);
-            layer.setMasksToBounds(true);
-            // SAFETY: a constant string static exported by Core Animation.
-            layer.setCornerCurve(unsafe { objc2_quartz_core::kCACornerCurveContinuous });
+        objc2::DefinedClass::ivars(&*self._delegate).corner.set(radius);
+        if !self.in_fullscreen() {
+            round_corners(&self.view, radius);
         }
     }
 
@@ -383,6 +385,9 @@ impl WebView {
     }
 
     pub fn set_visible(&self, visible: bool) {
+        if !visible {
+            self.exit_fullscreen();
+        }
         self.view.setHidden(!visible);
         if let Some(tab) = self.tab.as_ref().filter(|_| visible) {
             tab.activate();
@@ -397,7 +402,23 @@ impl WebView {
 
     /// Orders the view above the other web views in the window.
     pub fn raise(&self) {
+        if self.in_fullscreen() {
+            return;
+        }
         self.host.view.addSubview_positioned_relativeTo(&self.view, NSWindowOrderingMode::Above, None);
+    }
+
+    fn in_fullscreen(&self) -> bool {
+        crate::delegates::holds_view(crate::delegates::fullscreen_state(&self.view))
+    }
+
+    /// Ends an element's full screen, and with it any other out-of-window presentation of the page;
+    /// nothing once WebKit is already leaving it.
+    pub fn exit_fullscreen(&self) {
+        if crate::delegates::shows_fullscreen(crate::delegates::fullscreen_state(&self.view)) {
+            // SAFETY: main-thread call on a live web view; no completion handler.
+            unsafe { self.view.closeAllMediaPresentationsWithCompletionHandler(None) };
+        }
     }
 
     pub fn focus(&self) {
@@ -914,8 +935,21 @@ impl Drop for WebView {
     }
 }
 
-/// `canGoBack`/`canGoForward` too, since `pushState` to the current URL changes only those.
-const OBSERVED: [&str; 4] = ["title", "URL", "canGoBack", "canGoForward"];
+/// Without a radius nothing is clipped: a mask makes Core Animation composite the page, its video
+/// included, off screen.
+pub(crate) fn round_corners(view: &WKWebView, radius: f64) {
+    view.setWantsLayer(true);
+    if let Some(layer) = view.layer() {
+        layer.setCornerRadius(radius);
+        layer.setMasksToBounds(radius > 0.);
+        // SAFETY: a constant string static exported by Core Animation.
+        layer.setCornerCurve(unsafe { objc2_quartz_core::kCACornerCurveContinuous });
+    }
+}
+
+/// `canGoBack`/`canGoForward` too, since `pushState` to the current URL changes only those;
+/// `fullscreenState` tells the shell when WebKit takes the view into its own window.
+const OBSERVED: [&str; 5] = ["title", "URL", "canGoBack", "canGoForward", "fullscreenState"];
 
 fn observe(view: &WKWebView, delegate: &Delegate) {
     for key in OBSERVED {

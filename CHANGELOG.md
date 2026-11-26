@@ -20,6 +20,13 @@ All notable changes to Tarn are documented in this file. The format is based on
   Linux shows the page and the certificate but offers no way through: WebKitGTK can only accept a
   certificate for a host everywhere until Tarn quits.
 
+### Fixed
+
+- A video in full screen in a WebKit tab on macOS fills the screen instead of sitting lower with
+  rounded corners: Tarn no longer moves the page while WebKit shows it full screen. A dialog or
+  switching tabs ends the video's full screen, and a page without rounded corners is no longer
+  clipped, which spares the compositor an off-screen pass.
+
 ## [0.1.7] - 2026-11-25
 
 ### Added
