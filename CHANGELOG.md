@@ -9,9 +9,10 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Added
 
 - Agents can upload files: the `upload_file` tool puts a file from your computer into a page's file
-  field. Tarn asks you first every time, naming the file, its size and the site; hidden files and
-  app-data folders, network paths and files over 10 MB are refused, and a file that changed
-  since you allowed it is not sent. On macOS, Windows and Linux.
+  field. Tarn asks you first every time, naming the site, the file, its size and its path; hidden
+  files, hidden and app-data folders, network share paths, the system's automounted network folders
+  and files over 10 MB are refused, and a file that changed since you allowed it is not sent. On
+  macOS, Windows and Linux.
 - Settings › AI › Give AI full access turns on agent control and the profile's assistant with one
   switch; turning it off turns both off. Letting agents use your profile or your tabs keeps its own
   switch, and Tarn still asks before each agent, site, upload and sensitive click. Off by default.
