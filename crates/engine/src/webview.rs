@@ -1051,6 +1051,28 @@ pub fn shift_held() -> bool {
     objc2_app_kit::NSEvent::modifierFlags_class().contains(objc2_app_kit::NSEventModifierFlags::Shift)
 }
 
+/// The `[left, top, right, bottom]` fractions of display `display` (its CGDirectDisplayID, which
+/// GPUI uses as the display id) the menu bar and Dock cover.
+pub fn screen_insets(display: u32) -> [f64; 4] {
+    let Some(mtm) = MainThreadMarker::new() else { return [0.; 4] };
+    let key = NSString::from_str("NSScreenNumber");
+    let number =
+        |s: &objc2_app_kit::NSScreen| s.deviceDescription().objectForKey(&key).and_then(|n| n.downcast::<NSNumber>().ok()).map(|n| n.unsignedIntValue());
+    let Some(screen) = objc2_app_kit::NSScreen::screens(mtm).iter().find(|s| number(s) == Some(display)) else { return [0.; 4] };
+    let (f, v) = (screen.frame(), screen.visibleFrame());
+    let (w, h) = (f.size.width, f.size.height);
+    if w <= 0. || h <= 0. {
+        return [0.; 4];
+    }
+    // AppKit's y axis points up.
+    [
+        (v.origin.x - f.origin.x) / w,
+        (f.origin.y + h - v.origin.y - v.size.height) / h,
+        (f.origin.x + w - v.origin.x - v.size.width) / w,
+        (v.origin.y - f.origin.y) / h,
+    ]
+}
+
 /// Whether Tarn is the frontmost app.
 pub fn app_active() -> bool {
     objc2::MainThreadMarker::new().is_some_and(|mtm| objc2_app_kit::NSApplication::sharedApplication(mtm).isActive())

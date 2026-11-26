@@ -6,12 +6,27 @@ pub type Frame = [f64; 4];
 /// A window keeps its frame while this much of it shows on some screen.
 const MIN_VISIBLE: f64 = 80.;
 
-/// `frame`, or, when no screen shows enough of it, the frame moved and shrunk onto the first screen.
+/// `screen` less the `[left, top, right, bottom]` fractions of it the menu bar, Dock or taskbar
+/// cover; whole when the fractions leave less than half of it.
+pub fn work_area(screen: Frame, insets: [f64; 4]) -> Frame {
+    let [l, t, r, b] = insets.map(|v| if v.is_finite() { v.max(0.) } else { 0. });
+    if l + r > 0.5 || t + b > 0.5 {
+        return screen;
+    }
+    let [x, y, w, h] = screen;
+    [x + w * l, y + h * t, w * (1. - l - r), h * (1. - t - b)]
+}
+
+/// `frame` shrunk to the screen that shows it with its top edge on it, so the title bar
+/// stays reachable; or, when no screen shows enough of it, moved and shrunk onto the first screen.
 pub fn onto_screen(frame: Frame, screens: &[Frame]) -> Frame {
     let [x, y, w, h] = frame;
-    let shows = |s: &Frame| (x + w).min(s[0] + s[2]) - x.max(s[0]) >= MIN_VISIBLE && (y + h).min(s[1] + s[3]) - y.max(s[1]) >= MIN_VISIBLE;
+    let shows = |s: &&Frame| (x + w).min(s[0] + s[2]) - x.max(s[0]) >= MIN_VISIBLE && (y + h).min(s[1] + s[3]) - y.max(s[1]) >= MIN_VISIBLE;
+    if let Some(&[sx, sy, sw, sh]) = screens.iter().find(shows) {
+        let (x, y) = (if w > sw { sx } else { x }, if h > sh { sy } else { y.max(sy) });
+        return [x, y, w.min(sw), h.min(sh)];
+    }
     match screens.first() {
-        Some(_) if screens.iter().any(shows) => frame,
         Some(&[sx, sy, sw, sh]) => {
             let (w, h) = (w.min(sw), h.min(sh));
             [sx + (sw - w) / 2., sy + (sh - h) / 2., w, h]
@@ -50,6 +65,28 @@ mod tests {
         assert_eq!(onto_screen([-790., 50., 800., 600.], &SCREENS), [320., 150., 800., 600.], "a sliver is not enough");
         assert_eq!(onto_screen([5000., 0., 3000., 2000.], &SCREENS), [0., 0., 1440., 900.], "shrunk to fit");
         assert_eq!(onto_screen([5000., 0., 800., 600.], &[]), [5000., 0., 800., 600.]);
+    }
+
+    #[test]
+    fn frames_taller_than_their_screen_fit_it() {
+        let screen = [[0., 0., 1280., 720.]];
+        assert_eq!(onto_screen([0., -50., 1280., 820.], &screen), [0., 0., 1280., 720.], "centred but taller than the screen");
+        assert_eq!(onto_screen([100., -30., 800., 600.], &screen), [100., 0., 800., 600.], "title bar above the screen");
+        assert_eq!(onto_screen([100., 500., 800., 600.], &screen), [100., 500., 800., 600.], "may hang below the screen");
+        assert_eq!(onto_screen([-700., 50., 800., 600.], &screen), [-700., 50., 800., 600.], "partly off to the side");
+        assert_eq!(onto_screen([-2000., 0., 3000., 600.], &screen), [0., 0., 1280., 600.], "wider than the screen");
+        assert_eq!(onto_screen([1500., 10., 800., 600.], &SCREENS), [1500., 10., 800., 600.], "on the second screen");
+    }
+
+    #[test]
+    fn work_area_leaves_out_the_taskbar() {
+        let screen = [0., 0., 1000., 800.];
+        assert_eq!(work_area(screen, [0., 0., 0., 0.1]), [0., 0., 1000., 720.], "taskbar at the bottom");
+        assert_eq!(work_area(screen, [0.1, 0.05, 0., 0.]), [100., 40., 900., 760.], "Dock on the left, menu bar on top");
+        assert_eq!(work_area(screen, [0., 0., 0., 0.9]), screen, "a work area this small is not trusted");
+        assert_eq!(work_area(screen, [f64::NAN, -0.1, 0., 0.]), screen);
+        let [_, y, _, h] = onto_screen([0., -50., 1280., 820.], &[work_area([0., 0., 1280., 720.], [0., 0., 0., 48. / 720.])]);
+        assert_eq!((y, h), (0., 672.), "a window fits above the taskbar");
     }
 
     #[test]
