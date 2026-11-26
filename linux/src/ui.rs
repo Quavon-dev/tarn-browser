@@ -1454,15 +1454,13 @@ fn close_palette(ui: Ui) {
 
 /// Share inside the address field, shown while the pointer is over the field or the button has focus.
 fn share_chip(ui: Ui, hovered: Signal<bool>) -> AnyElement {
-    let focused = signal(false);
     themed(move || {
         (!ui.snap.with(|s| s.host.is_empty())).then(|| {
             icon_button(icons::SHARE, "Share", move || show(ui, Panel::Share))
                 .h(px(CHIP))
                 .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
-                .opacity(move || if hovered.get() || focused.get() { 1_f32 } else { 0. })
-                .on_focus(move || focused.set(true))
-                .on_blur(move || focused.set(false))
+                .opacity(move || if hovered.get() { 1_f32 } else { 0. })
+                .focus(|s| s.opacity(1_f32))
         })
     })
     .into_element()
