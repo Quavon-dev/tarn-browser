@@ -33,8 +33,8 @@ Switch tabs by typing, browse with separate profiles, and set privacy controls p
 | Platform | How |
 |---|---|
 | **macOS** | DMG from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), or Homebrew (below) |
-| **Linux** | `.deb`, `.rpm` or Arch `.pkg.tar.zst` from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest); also in the AUR and Tarn's apt and dnf repositories |
-| **Windows** | Unsigned preview: setup `.exe` from the [latest release](https://github.com/Quavon-dev/tarn-browser/releases/latest), PowerShell installer or portable zip (below) |
+| **Linux** | `.deb`, `.rpm` or Arch `.pkg.tar.zst` from the [newest release that lists them](https://github.com/Quavon-dev/tarn-browser/releases); also in the AUR and Tarn's apt and dnf repositories |
+| **Windows** | Unsigned preview: setup `.exe` from the [newest release that lists them](https://github.com/Quavon-dev/tarn-browser/releases), PowerShell installer or portable zip (below) |
 | **iOS / Android** | Still in testing |
 
 Requirements are under [Platforms](#platforms); more installation options on [tarnbrowser.com/download](https://tarnbrowser.com/download).
@@ -55,7 +55,7 @@ irm https://github.com/Quavon-dev/tarn-browser/releases/latest/download/install.
 <summary><b>Windows, without installing (portable)</b></summary>
 
 Download `Tarn-<version>-windows-x64-portable-unsigned.zip` from the
-release, unzip it anywhere (a USB stick works) and start `tarn.exe`. It keeps its profiles, history and site data in the
+newest release that lists it, unzip it anywhere (a USB stick works) and start `tarn.exe`. It keeps its profiles, history and site data in the
 `Data` folder next to it. At start Tarn tries to limit that folder to you, SYSTEM and
 administrators and warns when it cannot, as on FAT or exFAT sticks; a folder that already has its
 own protected permissions keeps them, so unzip it where only you can write. Downloads still go to your Downloads folder and an AI key
@@ -140,7 +140,7 @@ agent and site.
 ### 📚 Your library, on your device
 Open tabs, history, bookmarks, Reading List and downloads in one Library, and notes per profile in
 Settings › Notes that are never synced. On desktop, import history and bookmarks from Firefox, Chrome and other Chromium
-browsers, and cookies where the browser allows it.
+browsers, and cookies from Firefox everywhere and from Chromium browsers on macOS and Linux.
 
 </td>
 </tr>
