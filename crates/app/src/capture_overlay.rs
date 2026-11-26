@@ -57,11 +57,13 @@ impl Browser {
         let Some(key) = self.model.active else { return };
         let (Some(view), Some((_, _, width, height))) = (self.views.get(&key).cloned(), self.link_rect(key)) else { return };
         let (weak, zoom, (tx, mut rx)) = (Rc::downgrade(&view), view.zoom(), mpsc::unbounded());
+        self.overlay_request = (self.overlay_request.0 + 1, purpose == Purpose::Measure);
+        let request = self.overlay_request.0;
         view.snapshot_png(None, move |png| drop(tx.unbounded_send(png)));
         cx.spawn_in(window, async move |this, cx| {
             let Some(png) = rx.next().await else { return };
             this.update_in(cx, |b, window, cx| {
-                if b.model.active != Some(key) || !b.same_view(key, &weak) {
+                if b.overlay_request.0 != request || b.model.active != Some(key) || !b.same_view(key, &weak) {
                     return;
                 }
                 let Some(png) = png else {
@@ -102,7 +104,9 @@ impl Browser {
 
     /// Measure from the toolbar, the palette or its menu: a second use closes it.
     pub(crate) fn toggle_measure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.measuring() {
+        let pending = self.overlay_request.1 && self.capture_overlay.is_none();
+        if self.measuring() || pending {
+            self.overlay_request = (self.overlay_request.0 + 1, false);
             self.close_capture_overlay(cx);
         } else if self.devtools_on() {
             self.open_overlay(Purpose::Measure, window, cx);

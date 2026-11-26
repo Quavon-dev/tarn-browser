@@ -290,6 +290,8 @@ pub struct Browser {
     pub(crate) toast: crate::toast::Toasts,
     pub(crate) link_status: crate::link_status::LinkStatus,
     pub(crate) capture_overlay: Option<crate::capture_overlay::Overlay>,
+    /// The latest overlay request, and whether it was Measure; a still that answers an older one is dropped.
+    pub(crate) overlay_request: (u64, bool),
     pub(crate) mini_player: crate::mini_player::MiniPlayer,
     /// The tab and committed address Insert Snippet opened on.
     pub(crate) snippet_page: Option<(TabKey, String)>,
@@ -542,6 +544,7 @@ impl Browser {
             toast: Default::default(),
             link_status: Default::default(),
             capture_overlay: None,
+            overlay_request: (0, false),
             mini_player: Default::default(),
             snippet_page: None,
             link_loads: HashMap::new(),

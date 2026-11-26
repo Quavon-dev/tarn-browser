@@ -128,8 +128,8 @@ struct Call<C> {
     token: C,
     /// The user allowed submitting what the agent already typed: submit only, type nothing again.
     submit_only: bool,
-    /// The site the user allowed this call to upload a file to, and the file.
-    upload: Option<(String, Upload)>,
+    /// The page the user allowed this call to upload a file to, and the file.
+    upload: Option<(Url, Upload)>,
     /// The user allowed this call where a password or payment field holds a value, or to submit.
     sensitive_ok: bool,
 }
@@ -281,8 +281,9 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             }
             (Ask::Site(_) | Ask::Held(_), Then::Load(key, url)) if allowed => out.push(Effect::Run { run: 0, tab: Some(key), op: Op::Follow(url) }),
             (Ask::Sensitive(_), Then::Call(call)) if allowed => out.extend(self.run(Call { sensitive_ok: true, ..call }, held.page, false, ctx)),
-            (Ask::Upload(site, upload), Then::Call(call)) if allowed => {
-                out.extend(self.run(Call { upload: Some((site, upload)), ..call }, held.page, false, ctx))
+            (Ask::Upload(_, upload), Then::Call(call)) if allowed => {
+                let upload = held.page.clone().map(|page| (page, upload));
+                out.extend(self.run(Call { upload, ..call }, held.page, false, ctx))
             }
             (Ask::Sensitive(_) | Ask::Upload(..), Then::Call(call)) => out.extend(self.finish(call, None, Outcome::Error(super::DENIED.into()), ctx.now)),
             (Ask::User(_), Then::Call(call)) => {
@@ -640,7 +641,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             Tool::Scroll { target, down, .. } => act(target.unwrap_or(0), Act::Scroll { down: *down }),
             Tool::UploadFile { target, path, .. } => {
                 let here = page.as_ref().and_then(super::site_of);
-                let checked = match call.upload.as_ref().filter(|(site, _)| confirmed && here.as_ref() == Some(site)) {
+                let checked = match call.upload.as_ref().filter(|(allowed, _)| confirmed && page.as_ref() == Some(allowed)) {
                     Some((_, allowed)) => allowed.read().map(|bytes| (allowed.clone(), Some(bytes))),
                     None => Upload::check(path).map(|u| (u, None)),
                 };

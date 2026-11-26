@@ -212,8 +212,8 @@ const run = () => { switch (act.kind) {
     }
     case 'upload': {
         if (el.localName !== 'input' || el.type !== 'file') return 'error:not a file field';
-        if (el.disabled) return 'error:the file field is disabled';
-        if (guard(false)) return ask();
+        if (el.matches(':disabled')) return 'error:the file field is disabled';
+        if (guard(true)) return ask();
         const bytes = Uint8Array.from(atob(act.data), c => c.charCodeAt(0));
         const files = new DataTransfer();
         files.items.add(new File([bytes], act.name, { type: act.mime }));
@@ -234,7 +234,7 @@ return 'error:unknown action'; };
 addEventListener('submit', catcher, true);
 let out;
 try { out = run(); } finally { removeEventListener('submit', catcher, true); }
-if (caught && out.startsWith('ok')) { if (act.kind === 'upload') el.value = ''; st.typed = new WeakRef(el); return act.kind === 'type' ? 'confirm:typed' : 'confirm'; }
+if (caught && out.startsWith('ok')) { st.typed = new WeakRef(el); return act.kind === 'type' ? 'confirm:typed' : 'confirm'; }
 return out;";
 
 impl AgentScript<'_> {

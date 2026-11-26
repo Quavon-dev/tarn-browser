@@ -264,8 +264,9 @@ impl Upload {
             return Err(changed());
         }
         let mut bytes = Vec::new();
-        file.take(MAX_UPLOAD_BYTES + 1).read_to_end(&mut bytes).map_err(|_| "Tarn could not read the file.".to_string())?;
-        if bytes.len() as u64 != self.size {
+        (&file).take(MAX_UPLOAD_BYTES + 1).read_to_end(&mut bytes).map_err(|_| "Tarn could not read the file.".to_string())?;
+        let after = file.metadata().map_err(|_| changed())?;
+        if bytes.len() as u64 != self.size || after.len() != self.size || after.modified().ok() != self.modified {
             return Err(changed());
         }
         Ok(bytes)
