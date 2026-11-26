@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::ops::Deref;
 use std::rc::Rc;
 
-use browser_core::windows::{Frame, onto_screen};
+use browser_core::windows::{Frame, onto_screen, work_area};
 use engine::Event;
 use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
@@ -424,6 +424,12 @@ fn frame(bounds: Bounds<Pixels>) -> Frame {
     [bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height].map(f64::from)
 }
 
+/// The part of `display` a window may cover: without the menu bar, Dock or taskbar.
+pub(crate) fn usable_bounds(display: &dyn gpui::PlatformDisplay) -> Bounds<Pixels> {
+    let [x, y, w, h] = work_area(frame(display.bounds()), engine::screen_insets(display.id().into())).map(|v| px(v as f32));
+    Bounds::new(point(x, y), size(w, h))
+}
+
 /// shortcut: GPUI 0.2.2 reports frames relative to the window's display and every display at
 /// origin zero, so a window from a second display reopens on the primary one; keeping the display
 /// needs its UUID saved with the row.
@@ -554,7 +560,7 @@ pub(crate) fn open_window(
     cx: &mut App,
 ) -> Option<gpui::WindowHandle<Browser>> {
     let screen = display.and_then(|id| cx.find_display(id)).or_else(|| cx.primary_display());
-    let screens: Vec<Frame> = screen.map(|d| frame(d.bounds())).into_iter().collect();
+    let screens: Vec<Frame> = screen.map(|d| frame(usable_bounds(&*d))).into_iter().collect();
     let [x, y, width, height] = onto_screen([row.x, row.y, row.width, row.height], &screens).map(|v| v as f32);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(point(px(x), px(y)), size(px(width), px(height))))),

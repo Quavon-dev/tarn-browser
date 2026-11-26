@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use url::Url;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
-use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, ScreenToClient, SetWindowRgn};
+use windows_sys::Win32::Graphics::Gdi::{
+    ClientToScreen, CreateRoundRectRgn, EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITORINFO, ScreenToClient, SetWindowRgn,
+};
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
@@ -17,6 +19,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     SPI_GETCLIENTAREAANIMATION, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos, SystemParametersInfoW, WM_NCDESTROY,
     WM_NCHITTEST, WM_SIZE,
 };
+use windows_sys::core::BOOL;
 
 pub(crate) fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(Some(0)).collect()
@@ -204,6 +207,34 @@ pub fn reduce_motion() -> bool {
     // SAFETY: SPI_GETCLIENTAREAANIMATION writes a BOOL to `animate`.
     let ok = unsafe { SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, (&raw mut animate).cast(), 0) };
     ok != 0 && animate == 0
+}
+
+/// The `[left, top, right, bottom]` fractions of display `display` (GPUI's index into the
+/// monitor list) the taskbar covers. GPUI places windows in workspace coordinates, which already
+/// start below or beside a top or left taskbar, so those count only as size.
+pub fn screen_insets(display: u32) -> [f64; 4] {
+    unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
+        // SAFETY: `data` is the `Vec` that `screen_insets` lends EnumDisplayMonitors, which calls
+        // back synchronously on this thread while nothing else touches it.
+        unsafe { (*(data as *mut Vec<HMONITOR>)).push(monitor) };
+        1
+    }
+    let mut monitors: Vec<HMONITOR> = Vec::new();
+    // SAFETY: `collect` only pushes onto `monitors`, which outlives the call.
+    unsafe { EnumDisplayMonitors(std::ptr::null_mut(), std::ptr::null(), Some(collect), (&raw mut monitors) as LPARAM) };
+    let Some(&monitor) = monitors.get(display as usize) else { return [0.; 4] };
+    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    // SAFETY: `info` is a MONITORINFO with `cbSize` set, as GetMonitorInfoW requires.
+    if unsafe { GetMonitorInfoW(monitor, &raw mut info) } == 0 {
+        return [0.; 4];
+    }
+    let [ml, mt, mr, mb] = [info.rcMonitor.left, info.rcMonitor.top, info.rcMonitor.right, info.rcMonitor.bottom].map(f64::from);
+    let [wl, wt, wr, wb] = [info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom].map(f64::from);
+    let (fw, fh) = (mr - ml, mb - mt);
+    if fw <= 0. || fh <= 0. {
+        return [0.; 4];
+    }
+    [0., 0., ((wl - ml) + (mr - wr)) / fw, ((wt - mt) + (mb - wb)) / fh]
 }
 
 /// Whether a window of this process is the foreground window.

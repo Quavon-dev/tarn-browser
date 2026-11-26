@@ -42,7 +42,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 ### Fixed
 
 - A window no longer opens taller than a small or scaled screen with its title bar out of reach:
-  Tarn shrinks it to fit and keeps its top edge on the screen. On macOS and Windows.
+  Tarn shrinks it to fit and keeps its title bar on the screen, clear of the menu bar, Dock and
+  taskbar. The Settings window fits the same way. On macOS and Windows.
 - A video in full screen in a WebKit tab on macOS fills the screen instead of sitting lower with
   rounded corners: Tarn no longer moves the page while WebKit shows it full screen. A dialog or
   switching tabs ends the video's full screen, and a page without rounded corners is no longer
