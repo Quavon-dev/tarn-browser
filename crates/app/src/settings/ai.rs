@@ -256,6 +256,38 @@ impl SettingsWindow {
     }
 
     pub(super) fn ai(&mut self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        div().child(self.full_access(s, cx)).child(self.ai_features(s, window, cx)).into_any_element()
+    }
+
+    /// One switch for every AI feature this window can turn on; the questions Tarn asks stay.
+    fn full_access(&self, s: &Snapshot, cx: &mut Context<Self>) -> gpui::Div {
+        let assistant = s.profile.as_ref().filter(|p| !s.private && !s.burner && p.shield_level != ShieldLevel::Lockdown).map(|p| (p.id, p.ai_enabled));
+        let full = s.prefs.get(Pref::AgentControl) && assistant.is_none_or(|(_, ai)| ai);
+        let full_row = switch_row(
+            "ai-full-access",
+            true,
+            div()
+                .flex_1()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(leading_icon(Icon::Sparkles))
+                .child(text_block(browser_core::agent::FULL_ACCESS, browser_core::agent::DETAIL_FULL_ACCESS)),
+            full,
+        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.with_browser(cx, |b, _, cx| {
+                if let Some((id, _)) = assistant {
+                    b.set_profile_ai(id, !full, cx);
+                }
+                b.set_pref(Pref::AgentControl, !full, cx);
+            })
+        }));
+        div().pt_6().child(group().child(full_row))
+    }
+
+    fn ai_features(&mut self, s: &Snapshot, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let agent = self.agent_control(s, cx);
         let Some(profile) = s.profile.clone() else {
             return div().pt_6().child(empty_state(Icon::Person, "No profile is open.")).child(agent).into_any_element();

@@ -19,8 +19,11 @@ pub(super) fn capture_element(ui: Ui) {
     }
 }
 
-/// Capture Area or Measure over a still of the active page.
+/// Capture Area or Measure over a still of the active page; Measure again closes it.
 pub(super) fn open(ui: Ui, purpose: Purpose) {
+    if purpose == Purpose::Measure && ui.page_overlay.with_untracked(|o| o.as_ref().is_some_and(|o| o.purpose == Purpose::Measure)) {
+        return ui.page_overlay.set(None);
+    }
     let Some((_, page)) = active_page(ui) else { return };
     let mut overlay = None;
     act(ui, |b| overlay = b.page_still(purpose, page));

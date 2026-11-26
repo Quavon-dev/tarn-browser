@@ -1452,7 +1452,24 @@ fn close_palette(ui: Ui) {
     ui.address_ref.blur();
 }
 
+/// Share inside the address field, shown while the pointer is over the field or the button has focus.
+fn share_chip(ui: Ui, hovered: Signal<bool>) -> AnyElement {
+    let focused = signal(false);
+    themed(move || {
+        (!ui.snap.with(|s| s.host.is_empty())).then(|| {
+            icon_button(icons::SHARE, "Share", move || show(ui, Panel::Share))
+                .h(px(CHIP))
+                .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
+                .opacity(move || if hovered.get() || focused.get() { 1_f32 } else { 0. })
+                .on_focus(move || focused.set(true))
+                .on_blur(move || focused.set(false))
+        })
+    })
+    .into_element()
+}
+
 fn address(ui: Ui) -> View {
+    let hovered = signal(false);
     let host = move || ui.snap.with(|s| if s.url == START_URL || s.url.is_empty() { String::new() } else { crate::input::display_host(&s.url) });
     let shown = controls::pressable("Address", move || open_palette(ui)).flex_1().min_w(px(0.)).h_full().items_center().justify_center().px_2().child(dynamic(
         move || {
@@ -1476,6 +1493,8 @@ fn address(ui: Ui) -> View {
         .border_color(move || if ui.editing.get() { Theme::accent_text() } else { Secure::hairline() })
         .font_family(SYSTEM_FONT)
         .text_color(Theme::faint)
+        .on_mouse_enter(move |_: &MouseEvent| hovered.set(true))
+        .on_mouse_leave(move |_: &MouseEvent| hovered.set(false))
         .child(themed(move || {
             if ui.snap.with(|s| s.host.is_empty()) {
                 view().w(px(28.)).items_center().child(icons::icon(icons::SEARCH, CHIP_GLYPH)).into_element()
@@ -1498,7 +1517,8 @@ fn address(ui: Ui) -> View {
                     })
                 },
             )
-        }));
+        }))
+        .child(share_chip(ui, hovered));
     view().flex_row().flex_1().justify_center().child(capsule)
 }
 
@@ -1536,9 +1556,6 @@ fn toolbar(ui: Ui) -> View {
         let split = controls::icon_button_at(icons::SPLIT_ADD, &tip, Placement::Left, move || act(ui, Browser::toggle_split))
             .disabled(no_tab)
             .disabled_style(|s| s.text_color(Theme::faint()));
-        let share = controls::icon_button_at(icons::SHARE, "Share", Placement::Left, move || show(ui, Panel::Share))
-            .disabled(no_tab)
-            .disabled_style(|s| s.text_color(Theme::faint()));
         view()
             .flex_row()
             .items_center()
@@ -1547,7 +1564,6 @@ fn toolbar(ui: Ui) -> View {
             .child(devtools::measure_button(ui))
             .child(extensions::buttons(ui))
             .child(split)
-            .child(share)
     };
     let compact = computed(move || ui.snap.with(|s| s.compact));
     let address = move || if compact.get() { compact_address(ui) } else { address(ui) };
@@ -1557,6 +1573,7 @@ fn toolbar(ui: Ui) -> View {
 fn compact_address(ui: Ui) -> View {
     let host = move || ui.snap.with(|s| if s.url == START_URL || s.url.is_empty() { String::new() } else { crate::input::display_host(&s.url) });
     let title = move || ui.snap.with(|s| if s.host.is_empty() { String::new() } else { browser_core::text::bounded_title(&s.title) });
+    let hovered = signal(false);
     let field = controls::pressable("Address", move || open_palette(ui))
         .flex_1()
         .min_w(px(0.))
@@ -1587,19 +1604,29 @@ fn compact_address(ui: Ui) -> View {
                     .child(small(title).text_color(Theme::muted()).max_w(px(COMPACT_TITLE)).truncate())
             })
         }));
-    view().flex_row().flex_1().min_w(px(0.)).items_center().gap_1().child(field).child(themed(move || {
-        when(
-            move || ui.snap.with(|s| s.article),
-            move || {
-                dynamic(move || {
-                    Some(
-                        icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
-                            .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
-                    )
-                })
-            },
-        )
-    }))
+    view()
+        .flex_row()
+        .flex_1()
+        .min_w(px(0.))
+        .items_center()
+        .gap_1()
+        .on_mouse_enter(move |_: &MouseEvent| hovered.set(true))
+        .on_mouse_leave(move |_: &MouseEvent| hovered.set(false))
+        .child(field)
+        .child(themed(move || {
+            when(
+                move || ui.snap.with(|s| s.article),
+                move || {
+                    dynamic(move || {
+                        Some(
+                            icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                                .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                        )
+                    })
+                },
+            )
+        }))
+        .child(share_chip(ui, hovered))
 }
 
 /// Tabs on top hide this window's sidebar; back at the side it shows unless it hides automatically.

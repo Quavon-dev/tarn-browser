@@ -22,11 +22,7 @@ actions!(tarn, [TakeScreenshot, Measure, CaptureArea, CaptureElement, CaptureFul
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &TakeScreenshot, _, cx| b.capture(true, cx)))
         .on_action(cx.listener(|b, _: &CaptureArea, w, cx| b.open_overlay(Purpose::Area, w, cx)))
-        .on_action(cx.listener(|b, _: &Measure, w, cx| {
-            if b.devtools_on() {
-                b.open_overlay(Purpose::Measure, w, cx);
-            }
-        }))
+        .on_action(cx.listener(|b, _: &Measure, w, cx| b.toggle_measure(w, cx)))
         .on_action(cx.listener(|b, _: &CaptureElement, _, cx| b.capture_element(cx)))
         .on_action(cx.listener(|b, _: &CaptureFullPage, _, cx| b.capture_full_page(cx)))
         .on_action(cx.listener(|b, _: &SavePdf, _, cx| b.capture(false, cx)))

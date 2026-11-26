@@ -185,6 +185,37 @@ fn a_signed_in_snapshot_shows_only_values_the_agent_set() {
 }
 
 #[test]
+#[ignore = "needs a display and WebKitGTK; run scripts/test-display.sh"]
+fn an_allowed_upload_reaches_the_pages_file_field_and_nothing_else() {
+    use engine::agent_scripts::{Act, AgentScript};
+    gtk::init().expect("a display");
+    let state = view(ShieldLevel::Standard, "burner:0123456789abcdef0123456789abcdef");
+    let web = open(&state);
+    let html = "<html><body><input type=\"file\" id=\"f\"><input id=\"t\"><p id=\"out\"></p>\
+        <script>const f = document.getElementById('f'); f.addEventListener('change', async () => { const x = f.files[0];\
+        document.getElementById('out').textContent = x.name + ':' + x.size + ':' + x.type + ':' + await x.text(); });</script></body></html>";
+    state.events.borrow_mut().clear();
+    web.load_html(html, Some("http://page.test/"));
+    assert!(spin_until(|| event(&state, "finished").is_some(), 30), "the page loaded");
+    let run = |seq: u32, body: String| ask(&state, "agent", json!({ "seq": seq, "body": body }), "agentAnswer")["text"].as_str().unwrap_or_default().to_owned();
+    let snapshot = run(1, AgentScript::Snapshot { signed_in: false }.source());
+    assert!(snapshot.contains("[2]"), "{snapshot}");
+    let upload =
+        |target| AgentScript::Act { target, act: Act::Upload { name: "cv.txt", mime: "text/plain", data: "aGk=" }, confirmed: true, submits: false }.source();
+    assert_eq!(run(2, upload(2)), "error:not a file field");
+    assert_eq!(run(3, upload(1)), "ok");
+    let out = std::cell::RefCell::new(String::new());
+    spin_until(
+        || {
+            *out.borrow_mut() = run(4, "return document.getElementById('out').textContent;".into());
+            !out.borrow().is_empty()
+        },
+        20,
+    );
+    assert_eq!(out.into_inner(), "cv.txt:2:text/plain:hi", "the page heard the change");
+}
+
+#[test]
 fn the_agent_gate_reports_only_a_known_main_frame_navigation() {
     let state = State::default();
     let away = Url::parse("https://other.test/away").unwrap();

@@ -226,6 +226,11 @@ fn parse_tool(name: &str, args: &Map<String, Value>) -> Result<Tool, String> {
             ms: args.get("ms").and_then(Value::as_u64).map_or(MAX_WAIT_MS, |ms| ms.min(u64::from(MAX_WAIT_MS)) as u32),
         },
         "ask_user" => Tool::AskUser { message: text("message")?.chars().take(500).collect() },
+        "upload_file" => Tool::UploadFile {
+            tab: tab()?,
+            target: num("element").and_then(|n| if n > 0 { Ok(n) } else { Err("`element` must be a file field".into()) })?,
+            path: text("path")?,
+        },
         _ => return Err(format!("Unknown tool `{name}`")),
     })
 }
@@ -326,6 +331,17 @@ fn tools() -> Value {
             false
         ),
         tool(
+            "upload_file",
+            "Upload a file",
+            "Puts a file from this computer into a file field. Tarn asks the user first, naming the site, the file and its size; network paths, hidden files, hidden and app-data folders (also behind a link) and files over 10 MB are refused.",
+            schema(
+                json!({ "tab": tab, "element": element, "path": { "type": "string", "description": "The absolute path of the file." } }),
+                &["tab", "element", "path"]
+            ),
+            false,
+            true
+        ),
+        tool(
             "ask_user",
             "Ask the user",
             "Shows the user a message in Tarn, for example to sign in or solve a check, and waits until they press Done.",
@@ -373,7 +389,7 @@ mod tests {
         assert_eq!(r["result"]["resultType"], "complete");
         assert_eq!(r["result"]["cacheScope"], "private");
         assert!(r["result"]["ttlMs"].is_u64());
-        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 17);
+        assert_eq!(r["result"]["tools"].as_array().unwrap().len(), 18);
     }
 
     #[test]
@@ -401,7 +417,13 @@ mod tests {
             call("press_key", r#"{"tab":1,"key":"Enter"}"#),
             Incoming::Call { id: json!(5), tool: Tool::PressKey { tab: 1, key: Key::Enter }, modern: false }
         );
+        assert_eq!(
+            call("upload_file", r#"{"tab":1,"element":4,"path":"/tmp/a.pdf"}"#),
+            Incoming::Call { id: json!(5), tool: Tool::UploadFile { tab: 1, target: 4, path: "/tmp/a.pdf".into() }, modern: false }
+        );
         for (name, args) in [
+            ("upload_file", r#"{"tab":1,"element":0,"path":"/tmp/a.pdf"}"#),
+            ("upload_file", r#"{"tab":1,"element":4}"#),
             ("click", r#"{"tab":1}"#),
             ("click", r#"{"tab":-1,"element":1}"#),
             ("scroll", r#"{"tab":1,"direction":"left"}"#),

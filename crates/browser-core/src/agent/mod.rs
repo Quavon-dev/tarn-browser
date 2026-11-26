@@ -5,6 +5,8 @@ pub mod control;
 pub mod mcp;
 
 use std::collections::{HashMap, VecDeque};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 
 use url::Url;
 
@@ -18,6 +20,7 @@ pub const PROMPT_TIMEOUT_MS: i64 = 60 * 1000;
 pub const MAX_WAIT_MS: u32 = 10_000;
 pub const MAX_ANSWER_BYTES: usize = 48 * 1024;
 pub const SCREENSHOT_WIDTH: f64 = 1280.;
+pub const MAX_UPLOAD_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_LOG: usize = 200;
 const MAX_URL_BYTES: usize = 2048;
 
@@ -31,6 +34,9 @@ pub const LOCKED: &str = "Tarn cannot read or act on this page (Lockdown, or no 
 /// The switch's description in Settings › AI, as every client shows it.
 pub const DETAIL: &str = "An AI agent on this computer, such as Claude Code or Codex, can browse for you in a window of its own that keeps nothing. You allow each agent, each site and each click on a page with a filled password or payment field; it never types passwords. Pause or Stop it in the bar at the top of its window.";
 pub const DETAIL_PROFILE: &str = "When an agent connects, you may let it open its own tabs in the profile of your front window, signed in with that profile's cookies. It still needs your approval for each site, gets no extensions, passkeys or saved passwords, and leaves no history.";
+/// The switch in Settings › AI that turns on every AI feature at once, as every client shows it.
+pub const FULL_ACCESS: &str = "Give AI full access";
+pub const DETAIL_FULL_ACCESS: &str = "Turns on, at once, agent control and, where the assistant is offered, the assistant for this profile. Letting agents use your profile or your tabs keeps its own switch. Tarn still asks you before each agent, each site, each file upload and each click on a page with a filled password or payment field.";
 pub const DETAIL_TABS: &str = "When an agent connects, you may let it use the web pages in your open tabs, private ones excepted. It still needs your approval for each site, and a bar with Stop shows in every window while it does.";
 
 /// How to add the Tarn at `exe` to Claude Code and Codex, the path as a TOML basic string.
@@ -112,6 +118,7 @@ pub enum Tool {
     Scroll { tab: u32, target: Option<u32>, down: bool },
     WaitFor { tab: u32, text: Option<String>, ms: u32 },
     AskUser { message: String },
+    UploadFile { tab: u32, target: u32, path: String },
 }
 
 impl Tool {
@@ -134,6 +141,7 @@ impl Tool {
             Tool::Scroll { .. } => "scroll",
             Tool::WaitFor { .. } => "wait_for",
             Tool::AskUser { .. } => "ask_user",
+            Tool::UploadFile { .. } => "upload_file",
         }
     }
 
@@ -162,7 +170,8 @@ impl Tool {
             | Tool::Select { tab, .. }
             | Tool::PressKey { tab, .. }
             | Tool::Scroll { tab, .. }
-            | Tool::WaitFor { tab, .. } => Some(*tab),
+            | Tool::WaitFor { tab, .. }
+            | Tool::UploadFile { tab, .. } => Some(*tab),
         }
     }
 
@@ -179,6 +188,7 @@ impl Tool {
                 | Tool::PressKey { .. }
                 | Tool::Scroll { .. }
                 | Tool::WaitFor { text: Some(_), .. }
+                | Tool::UploadFile { .. }
         )
     }
 
@@ -188,6 +198,196 @@ impl Tool {
             _ => None,
         }
     }
+}
+
+/// A file the agent asked to upload, checked before the user is asked about it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Upload {
+    pub path: PathBuf,
+    pub name: String,
+    pub size: u64,
+    modified: Option<std::time::SystemTime>,
+    /// The file's device and inode, so a different file put at the path after the question is refused.
+    id: (u64, u64),
+}
+
+impl Upload {
+    /// An absolute path on a local disk, shown to the user, to a regular file that lies in no
+    /// hidden or app-data folder, also once links are resolved, and holds at most `MAX_UPLOAD_BYTES`.
+    /// Network paths are refused before the filesystem is touched, so no check reaches another host.
+    pub fn check(raw: &str) -> Result<Upload, String> {
+        let unshown = |text: &str| text.chars().any(|c| c.is_control() || store::is_bidi(c) || store::is_invisible(c));
+        if unshown(raw) {
+            return Err("`path` holds characters Tarn does not show.".into());
+        }
+        let path = Path::new(raw);
+        if !path.is_absolute() || !on_local_disk(path) {
+            return Err("`path` must be the absolute path of a file on this computer's disks.".into());
+        }
+        let private = "Tarn does not let an agent upload a hidden file or one from a hidden or app-data folder.";
+        if path.components().any(private_part) {
+            return Err(private.into());
+        }
+        let path = resolve(path)?;
+        if path.components().any(private_part) {
+            return Err(private.into());
+        }
+        if unshown(&path.to_string_lossy()) {
+            return Err("`path` leads to a name with characters Tarn does not show.".into());
+        }
+        let meta = std::fs::metadata(&path).map_err(|_| "There is no such file.".to_string())?;
+        if !meta.is_file() {
+            return Err("`path` must name a file, not a folder.".into());
+        }
+        if links(&meta) > 1 {
+            return Err("Tarn does not let an agent upload a file with more than one name (a hard link).".into());
+        }
+        if meta.len() > MAX_UPLOAD_BYTES {
+            return Err(format!("Tarn lets an agent upload files of at most {} MB.", MAX_UPLOAD_BYTES / (1024 * 1024)));
+        }
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).ok_or("`path` must name a file.")?;
+        Ok(Upload { name, size: meta.len(), modified: meta.modified().ok(), id: file_id(&meta), path })
+    }
+
+    /// The file's bytes, read only while the file the user allowed is still the one at its path.
+    pub fn read(&self) -> Result<Vec<u8>, String> {
+        let changed = || "The file changed since the user allowed it.".to_string();
+        if resolve(&self.path).ok().as_ref() != Some(&self.path) {
+            return Err(changed());
+        }
+        if !std::fs::symlink_metadata(&self.path).is_ok_and(|m| m.is_file()) {
+            return Err(changed());
+        }
+        let file = std::fs::File::open(&self.path).map_err(|_| "Tarn could not read the file.".to_string())?;
+        let meta = file.metadata().map_err(|_| changed())?;
+        if !meta.is_file() || meta.len() != self.size || meta.modified().ok() != self.modified || file_id(&meta) != self.id || links(&meta) > 1 {
+            return Err(changed());
+        }
+        let mut bytes = Vec::new();
+        file.take(MAX_UPLOAD_BYTES + 1).read_to_end(&mut bytes).map_err(|_| "Tarn could not read the file.".to_string())?;
+        if bytes.len() as u64 != self.size {
+            return Err(changed());
+        }
+        Ok(bytes)
+    }
+
+    /// The question the user answers: the site first, so no file name or path can push it out of view.
+    pub fn question(&self, site: &str) -> String {
+        let size = match self.size {
+            n if n < 1024 => format!("{n} bytes"),
+            n if n < 1024 * 1024 => format!("{:.0} KB", n as f64 / 1024.),
+            n => format!("{:.1} MB", n as f64 / (1024. * 1024.)),
+        };
+        format!("Upload to {site}? The agent wants to send “{}” ({size}) from {}.", self.name, self.path.display())
+    }
+
+    pub fn mime(&self) -> &'static str {
+        crate::tarn_ext::resources::mime(&self.name)
+    }
+}
+
+/// A disk path, not a network share (UNC on Windows) or an automounted network folder. Names are
+/// compared as a disk that ignores case and Unicode forms compares them.
+fn on_local_disk(path: &Path) -> bool {
+    let mut parts = path.components();
+    match parts.next() {
+        Some(Component::Prefix(prefix)) => matches!(prefix.kind(), std::path::Prefix::Disk(_) | std::path::Prefix::VerbatimDisk(_)),
+        Some(Component::RootDir) => {
+            let names: Vec<String> = parts.take(4).map(|c| fold(&c.as_os_str().to_string_lossy())).collect();
+            // macOS keeps the same automounted folders under the data volume's own path.
+            let names = match names.as_slice() {
+                [a, b, c, rest @ ..] if cfg!(target_os = "macos") && [a, b, c] == ["system", "volumes", "data"] => rest,
+                all => all,
+            };
+            !names.first().is_some_and(|top| top == "net" || top == "network" || (cfg!(target_os = "macos") && top == "home"))
+        }
+        _ => false,
+    }
+}
+
+fn fold(name: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    name.nfkc().collect::<String>().to_lowercase()
+}
+
+/// `path` with every link followed, like `canonicalize`, but each step is checked to be on a local
+/// disk before the filesystem sees it, so no link, absolute or relative, sends the lookup to another host.
+fn resolve(path: &Path) -> Result<PathBuf, String> {
+    let missing = || "There is no such file.".to_string();
+    let mut pending: VecDeque<std::ffi::OsString> = VecDeque::new();
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            Component::Prefix(_) | Component::RootDir => out.push(part.as_os_str()),
+            other => pending.push_back(other.as_os_str().to_owned()),
+        }
+    }
+    let mut hops = 0;
+    while let Some(part) = pending.pop_front() {
+        match part.to_str() {
+            Some(".") => continue,
+            Some("..") => {
+                out.pop();
+                continue;
+            }
+            _ => out.push(&part),
+        }
+        if !on_local_disk(&out) {
+            return Err("`path` leads through a link Tarn does not follow.".into());
+        }
+        if !std::fs::symlink_metadata(&out).map_err(|_| missing())?.file_type().is_symlink() {
+            continue;
+        }
+        hops += 1;
+        let target = std::fs::read_link(&out).map_err(|_| missing())?;
+        if hops > 40 || (!target.is_absolute() && target.has_root()) {
+            return Err("`path` leads through a link Tarn does not follow.".into());
+        }
+        out.pop();
+        if target.is_absolute() {
+            out = target.components().take_while(|c| matches!(c, Component::Prefix(_) | Component::RootDir)).collect();
+        }
+        let rest = target.components().filter(|c| !matches!(c, Component::Prefix(_) | Component::RootDir)).map(|c| c.as_os_str().to_owned());
+        pending = rest.chain(pending).collect();
+    }
+    Ok(out)
+}
+
+/// A part of a path that leads into hidden files or app data, where browsers and apps keep logins.
+/// On Windows a short name (`APPDAT~1`), a stream name (`AppData::$INDEX_ALLOCATION`) or a name with a
+/// trailing dot or space, which Windows opens as another name, is refused too, so `AppData` cannot be
+/// named another way.
+fn private_part(part: Component) -> bool {
+    match part {
+        Component::ParentDir => true,
+        Component::Normal(name) => {
+            let name = fold(&name.to_string_lossy());
+            let aliased = cfg!(windows) && (name.contains(['~', ':']) || name.ends_with('.') || name.ends_with(' '));
+            aliased || name.starts_with('.') || name == "library" || name == "appdata"
+        }
+        _ => false,
+    }
+}
+
+#[cfg(unix)]
+fn file_id(meta: &std::fs::Metadata) -> (u64, u64) {
+    use std::os::unix::fs::MetadataExt;
+    (meta.dev(), meta.ino())
+}
+
+#[cfg(not(unix))]
+fn file_id(_: &std::fs::Metadata) -> (u64, u64) {
+    (0, 0)
+}
+
+#[cfg(unix)]
+fn links(meta: &std::fs::Metadata) -> u64 {
+    std::os::unix::fs::MetadataExt::nlink(meta)
+}
+
+#[cfg(not(unix))]
+fn links(_: &std::fs::Metadata) -> u64 {
+    1
 }
 
 /// An address the agent may load: what a link from another app may open, loaded as a link so
@@ -601,6 +801,82 @@ args = ["--mcp"]"#
         assert_eq!(client_name("a\u{202e}b\nc"), "abc");
         assert_eq!(client_name("   "), "An unnamed agent");
         assert_eq!(client_name(&"x".repeat(200)).len(), 64);
+    }
+
+    #[test]
+    fn uploads_take_only_plain_files_the_user_can_read_in_the_question() {
+        let dir = tempfile::Builder::new().prefix("tarn").tempdir().unwrap();
+        let file = dir.path().join("report.pdf");
+        std::fs::write(&file, b"%PDF-1").unwrap();
+        let upload = Upload::check(file.to_str().unwrap()).unwrap();
+        assert_eq!((upload.name.as_str(), upload.size, upload.mime()), ("report.pdf", 6, "application/pdf"));
+        assert_eq!(upload.path, std::fs::canonicalize(&file).unwrap());
+        assert!(upload.question("jobs.test").starts_with("Upload to jobs.test? The agent wants to send “report.pdf” (6 bytes) from /"));
+        assert_eq!(upload.read().unwrap(), b"%PDF-1");
+        std::fs::write(&file, b"%PDF-1.7").unwrap();
+        assert!(upload.read().is_err(), "a file changed after the question");
+
+        assert!(Upload::check("report.pdf").is_err(), "a relative path");
+        assert!(Upload::check(dir.path().to_str().unwrap()).is_err(), "a folder");
+        assert!(Upload::check(dir.path().join("missing").to_str().unwrap()).is_err());
+        let off_disk = Err("`path` must be the absolute path of a file on this computer's disks.".to_string());
+        for network in ["/net/evil.test/cv.pdf", "/Network/Servers/evil.test/cv.pdf"] {
+            assert_eq!(Upload::check(network), off_disk, "{network}");
+        }
+        #[cfg(target_os = "macos")]
+        for network in ["/System/Volumes/Data/home/evil/cv.pdf", "/system/volumes/data/home/evil/cv.pdf", "/NET/evil.test/cv.pdf", "/Networ\u{212a}/Servers/x"]
+        {
+            assert_eq!(Upload::check(network), off_disk, "{network}");
+        }
+        let hidden = dir.path().join(".ssh");
+        std::fs::create_dir(&hidden).unwrap();
+        std::fs::write(hidden.join("id"), b"k").unwrap();
+        assert!(Upload::check(hidden.join("id").to_str().unwrap()).is_err(), "a hidden folder");
+        let library = dir.path().join("Library");
+        std::fs::create_dir(&library).unwrap();
+        std::fs::write(library.join("Cookies"), b"k").unwrap();
+        assert!(Upload::check(library.join("Cookies").to_str().unwrap()).is_err(), "app data");
+        assert!(Upload::check(dir.path().join("..").join("x").to_str().unwrap()).is_err());
+        assert!(Upload::check(&format!("{}/\u{202e}fdp.exe", dir.path().display())).is_err(), "a bidi control");
+        let big = dir.path().join("big.bin");
+        std::fs::File::create(&big).unwrap().set_len(MAX_UPLOAD_BYTES + 1).unwrap();
+        assert!(Upload::check(big.to_str().unwrap()).is_err(), "too large");
+        #[cfg(unix)]
+        {
+            let docs = dir.path().join("docs");
+            std::os::unix::fs::symlink(&hidden, &docs).unwrap();
+            assert!(Upload::check(docs.join("id").to_str().unwrap()).is_err(), "a link into a hidden folder");
+            let away = dir.path().join("away");
+            std::os::unix::fs::symlink("/net/evil.test/share", &away).unwrap();
+            let not_followed = Err("`path` leads through a link Tarn does not follow.".to_string());
+            assert_eq!(Upload::check(away.join("cv.pdf").to_str().unwrap()), not_followed, "a link to a network folder");
+            let climb = dir.path().join("climb");
+            std::os::unix::fs::symlink(format!("{}net/evil.test/share", "../".repeat(40)), &climb).unwrap();
+            assert_eq!(Upload::check(climb.join("cv.pdf").to_str().unwrap()), not_followed, "a relative link up into a network folder");
+
+            let allowed = Upload::check(file.to_str().unwrap()).unwrap();
+            let when = std::fs::metadata(&file).unwrap().modified().unwrap();
+            let other = dir.path().join("other.pdf");
+            std::fs::write(&other, vec![b'x'; allowed.size as usize]).unwrap();
+            std::fs::File::options().write(true).open(&other).unwrap().set_modified(when).unwrap();
+            std::fs::rename(&other, &file).unwrap();
+            assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), when);
+            assert!(allowed.read().is_err(), "another file of the same size and time put at the path");
+
+            let allowed = Upload::check(file.to_str().unwrap()).unwrap();
+            std::fs::remove_file(&file).unwrap();
+            assert!(std::process::Command::new("mkfifo").arg(&file).status().unwrap().success());
+            assert!(allowed.read().is_err(), "a pipe put at the path is not opened");
+            std::fs::remove_file(&file).unwrap();
+            std::fs::write(&file, b"%PDF-1").unwrap();
+            let twin = dir.path().join("twin.pdf");
+            std::fs::hard_link(&file, &twin).unwrap();
+            assert!(Upload::check(twin.to_str().unwrap()).is_err(), "a hard link");
+            std::fs::remove_file(&twin).unwrap();
+            let link = dir.path().join("link.pdf");
+            std::os::unix::fs::symlink(&file, &link).unwrap();
+            assert_eq!(Upload::check(link.to_str().unwrap()).unwrap().name, "report.pdf", "a link to a plain file is shown as its target");
+        }
     }
 
     #[test]

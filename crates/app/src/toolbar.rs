@@ -5,7 +5,7 @@ use gpui::{
 use shield::ShieldLevel;
 use std::time::Duration;
 use store::WebEngine;
-use ui::controls::{icon_button, icon_frame, spinner, tab_stop, tooltip};
+use ui::controls::{icon_button, icon_frame, shown_on_hover, spinner, tab_stop, tooltip};
 use ui::icon::{ICON, Icon, icon};
 use ui::text::bounded_title;
 use ui::theme::{SYSTEM_FONT, Secure, TEXT, TEXT_SMALL, TOOLBAR_HEIGHT, TRAFFIC_LIGHT_INSET, Theme};
@@ -121,25 +121,12 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
 fn page_actions(b: &Browser) -> Div {
     let page = b.model.active.is_some();
     let split = if b.model.active.is_some_and(|a| b.splits.contains(a)) { "Close Split View" } else { "Open Split View" };
-    div()
-        .occlude()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(2.))
-        .child(
-            icon_button("split-view", Icon::SplitAdd, page)
-                .when(page, tab_stop)
-                .tooltip(crate::shortcuts::tip(split, &crate::split::ToggleSplitView))
-                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::split::ToggleSplitView), cx)),
-        )
-        .child(
-            icon_button("share", Icon::Share, page)
-                .when(page, tab_stop)
-                .child(measure(b.share_menu.anchor.clone()))
-                .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
-                .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::qr::ShareLink), cx)),
-        )
+    div().occlude().flex().flex_none().items_center().gap(px(2.)).child(
+        icon_button("split-view", Icon::SplitAdd, page)
+            .when(page, tab_stop)
+            .tooltip(crate::shortcuts::tip(split, &crate::split::ToggleSplitView))
+            .on_click(|_, w, cx| w.dispatch_action(Box::new(crate::split::ToggleSplitView), cx)),
+    )
 }
 
 /// Windows has no menu bar; this button opens the same menus.
@@ -258,11 +245,37 @@ fn chip_button(id: &'static str, glyph: Icon, enabled: bool) -> Stateful<Div> {
     chip_frame(id, enabled).child(icon(glyph, 14., if enabled { Secure::muted() } else { Secure::faint() }))
 }
 
-fn bookmark_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
+/// Shown while the pointer is over the address field `group` or the button has keyboard focus, or always when `pinned`.
+fn on_hover(button: Stateful<Div>, group: &'static str, pinned: bool) -> Stateful<Div> {
+    if pinned { button } else { shown_on_hover(button, group) }
+}
+
+/// Share sits in the address field only for a page with a host; elsewhere its menu opens under the field, not where the button last was.
+fn forget_share_anchor(b: &Browser, site: &Site) {
+    if !site.controls {
+        b.share_menu.anchor.set(Default::default());
+    }
+}
+
+fn share_button(b: &Browser, group: &'static str, cx: &mut Context<Browser>) -> impl IntoElement {
+    let open = b.share_menu.is_open();
+    on_hover(chip_button("share", Icon::Share, true), group, open)
+        .occlude()
+        .when(open, |d| d.bg(Secure::pressed()))
+        .relative()
+        .child(measure(b.share_menu.anchor.clone()))
+        .tooltip(crate::shortcuts::tip("Share", &crate::qr::ShareLink))
+        .on_click(cx.listener(|b, _, w, cx| {
+            cx.stop_propagation();
+            b.toggle_share_menu(w, cx);
+        }))
+}
+
+fn bookmark_button(b: &Browser, site: &Site, group: &'static str, cx: &mut Context<Browser>) -> impl IntoElement {
     let url = site.url.as_ref().map(Url::to_string);
     let marked = url.as_deref().is_some_and(|u| b.is_bookmarked(u));
     let (glyph, tip) = if marked { (Icon::StarFill, "Remove Bookmark") } else { (Icon::Star, "Bookmark This Tab") };
-    chip_button("bookmark", glyph, url.is_some())
+    on_hover(chip_button("bookmark", glyph, url.is_some()), group, marked)
         .occlude()
         .tooltip(tooltip(tip, (!marked).then(|| crate::shortcuts::shown(&crate::BookmarkTab, cx).into())))
         .on_click(cx.listener(move |b, _, _, cx| {
@@ -321,6 +334,7 @@ const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
 
 fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let site = site(b);
+    forget_share_anchor(b, &site);
     let (text, color) = address_text(&site);
     tab_stop(div().id("origin"))
         .occlude()
@@ -362,13 +376,14 @@ fn origin_chip(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .children(reader_button(b, cx))
                 .children(mute_button(b, cx))
                 .children(engine_badge(b, cx))
-                .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
+                .when(site.controls, |d| d.child(share_button(b, "origin", cx)).child(bookmark_button(b, &site, "origin", cx))),
         )
 }
 
 fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
     let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
     let site = site(b);
+    forget_share_anchor(b, &site);
     let (text, color) = address_text(&site);
     let title = b.model.active_tab().map(|t| bounded_title(&t.title)).filter(|t| !t.is_empty() && site.controls);
     div()
@@ -378,6 +393,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
             div().flex_1().min_w_0().relative().flex().child(measure(b.address.slot.clone())).child(
                 tab_stop(div().id("address"))
                     .occlude()
+                    .group("address")
                     .flex_1()
                     .min_w_0()
                     .h(px(CHIP + 2. * CHIP_INSET))
@@ -413,7 +429,7 @@ fn render_compact(b: &Browser, cx: &mut Context<Browser>) -> Div {
                             .children(reader_button(b, cx))
                             .children(mute_button(b, cx))
                             .children(engine_badge(b, cx))
-                            .when(site.controls, |d| d.child(bookmark_button(b, &site, cx))),
+                            .when(site.controls, |d| d.child(share_button(b, "address", cx)).child(bookmark_button(b, &site, "address", cx))),
                     ),
             ),
         )
@@ -484,8 +500,9 @@ fn devtools(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .child(
             icon_button("measure", Icon::Code, has_page)
                 .when(has_page, tab_stop)
-                .tooltip(tooltip("Measure", None))
-                .on_click(cx.listener(|b, _, w, cx| b.open_overlay(crate::capture_overlay::Purpose::Measure, w, cx))),
+                .when(b.measuring(), |d| d.bg(Theme::pressed()))
+                .tooltip(tooltip(if b.measuring() { "Close Measure" } else { "Measure" }, None))
+                .on_click(cx.listener(|b, _, w, cx| b.toggle_measure(w, cx))),
         )
         .child(
             icon_button("clear-site-data", Icon::Trash, has_page)

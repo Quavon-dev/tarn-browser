@@ -8,7 +8,7 @@ use engine::agent_scripts::{Act, AgentScript};
 use url::Url;
 
 use super::mcp::Outcome;
-use super::{Entry, LOCKED, Mode, NO_ANSWER, PROMPT_TIMEOUT_MS, Scope, Session, Tool, Verdict};
+use super::{Entry, LOCKED, Mode, NO_ANSWER, PROMPT_TIMEOUT_MS, Scope, Session, Tool, Upload, Verdict};
 
 pub const ASK_USER_TIMEOUT_MS: i64 = 10 * 60 * 1000;
 pub const MAX_TEXT_CHARS: usize = 40_000;
@@ -43,6 +43,8 @@ pub enum Ask {
     /// A page in the agent's window tried to open this site.
     Held(String),
     Sensitive(String),
+    /// The site and the file the agent wants to upload to it.
+    Upload(String, Upload),
     User(String),
 }
 
@@ -126,6 +128,10 @@ struct Call<C> {
     token: C,
     /// The user allowed submitting what the agent already typed: submit only, type nothing again.
     submit_only: bool,
+    /// The site the user allowed this call to upload a file to, and the file.
+    upload: Option<(String, Upload)>,
+    /// The user allowed this call where a password or payment field holds a value, or to submit.
+    sensitive_ok: bool,
 }
 
 enum Then<K, C> {
@@ -187,7 +193,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
 
     /// A tool call from connection `conn`.
     pub fn call(&mut self, conn: u64, client: Option<&str>, tool: Tool, token: C, ctx: &Ctx<K>) -> Vec<Effect<K, C>> {
-        let call = Call { tool, token, submit_only: false };
+        let call = Call { tool, token, submit_only: false, upload: None, sensitive_ok: false };
         if !ctx.enabled {
             return vec![Effect::Reply(call.token, Outcome::Error(super::OFF.into()))];
         }
@@ -274,8 +280,11 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 out.extend(self.finish(call, None, Outcome::Error(why), ctx.now))
             }
             (Ask::Site(_) | Ask::Held(_), Then::Load(key, url)) if allowed => out.push(Effect::Run { run: 0, tab: Some(key), op: Op::Follow(url) }),
-            (Ask::Sensitive(_), Then::Call(call)) if allowed => out.extend(self.run(call, held.page, false, ctx)),
-            (Ask::Sensitive(_), Then::Call(call)) => out.extend(self.finish(call, None, Outcome::Error(super::DENIED.into()), ctx.now)),
+            (Ask::Sensitive(_), Then::Call(call)) if allowed => out.extend(self.run(Call { sensitive_ok: true, ..call }, held.page, false, ctx)),
+            (Ask::Upload(site, upload), Then::Call(call)) if allowed => {
+                out.extend(self.run(Call { upload: Some((site, upload)), ..call }, held.page, false, ctx))
+            }
+            (Ask::Sensitive(_) | Ask::Upload(..), Then::Call(call)) => out.extend(self.finish(call, None, Outcome::Error(super::DENIED.into()), ctx.now)),
             (Ask::User(_), Then::Call(call)) => {
                 let text = if allowed { "The user pressed Done." } else { "The user cancelled." };
                 out.extend(self.finish(call, None, Outcome::Text(text.into()), ctx.now));
@@ -490,6 +499,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
                 vec![("Allow Once", Choice::Allow, false), ("Deny", Choice::Deny, true), stop],
                 true,
             ),
+            Some(Ask::Upload(site, file)) => (file.question(site), vec![("Allow Once", Choice::Allow, false), ("Deny", Choice::Deny, true), stop], true),
             Some(Ask::User(message)) => {
                 (format!("The agent asks: {message}"), vec![("Done", Choice::Allow, true), ("Cancel", Choice::Deny, false), stop], true)
             }
@@ -628,6 +638,26 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
             Tool::Select { target, value, .. } => act(*target, Act::Select(value)),
             Tool::PressKey { key, .. } => act(0, Act::Key(key.name())),
             Tool::Scroll { target, down, .. } => act(target.unwrap_or(0), Act::Scroll { down: *down }),
+            Tool::UploadFile { target, path, .. } => {
+                let here = page.as_ref().and_then(super::site_of);
+                let checked = match call.upload.as_ref().filter(|(site, _)| confirmed && here.as_ref() == Some(site)) {
+                    Some((_, allowed)) => allowed.read().map(|bytes| (allowed.clone(), Some(bytes))),
+                    None => Upload::check(path).map(|u| (u, None)),
+                };
+                match (checked, here) {
+                    (Err(why), _) => return self.finish(call, page.as_ref(), Outcome::Error(why), ctx.now),
+                    (Ok(_), None) => return self.finish(call, None, Outcome::Error(LOCKED.into()), ctx.now),
+                    (Ok((upload, None)), Some(site)) => {
+                        let call = Call { sensitive_ok: false, upload: None, ..call };
+                        return self.hold(Ask::Upload(site, upload), Then::Call(call), page, ctx.now);
+                    }
+                    (Ok((upload, Some(bytes))), Some(_)) => {
+                        let data = engine::agent_scripts::base64(&bytes);
+                        let act = Act::Upload { name: &upload.name, mime: upload.mime(), data: &data };
+                        script(AgentScript::Act { target: *target, act, confirmed: confirmed && call.sensitive_ok, submits })
+                    }
+                }
+            }
         };
         let deadline = match &call.tool {
             Tool::WaitFor { ms, .. } => ctx.now + i64::from(*ms),
@@ -635,6 +665,7 @@ impl<K: Copy + PartialEq, C> Controller<K, C> {
         };
         self.next_run += 1;
         let run = self.next_run;
+        let confirmed = if matches!(call.tool, Tool::UploadFile { .. }) { confirmed && call.sensitive_ok } else { confirmed };
         let Some(active) = self.active.as_mut() else { return Vec::new() };
         active.running = Some(Running { run, tab, call, confirmed, deadline, origin, png: None, doc: None });
         vec![Effect::Run { run, tab, op }]
@@ -927,6 +958,69 @@ mod tests {
         assert!(src.contains("confirmed = true"));
         let e = c.raw(*run, Raw::Script("ok".into()), &ctx(&tabs, 4400));
         assert!(matches!(&replies(&e)[0].1, Outcome::Text(t) if t.starts_with("Done")));
+    }
+
+    #[test]
+    fn an_upload_names_the_file_and_site_and_runs_only_once_allowed() {
+        let dir = tempfile::Builder::new().prefix("tarn").tempdir().unwrap();
+        let file = dir.path().join("cv.pdf");
+        std::fs::write(&file, b"%PDF").unwrap();
+        let path = file.to_str().unwrap().to_owned();
+        let upload = |n| Tool::UploadFile { tab: 1, target: 4, path: if n == 0 { path.clone() } else { format!("{path}.missing") } };
+        let mut c = approved(Choice::Act);
+        let tabs = [page(3, "https://jobs.test/apply")];
+        c.call(1, None, Tool::TabsList, "l", &ctx(&tabs, 2000));
+        c.call(1, None, upload(0), "a", &ctx(&tabs, 4000));
+        ans(&mut c, Choice::Allow, &ctx(&tabs, 4100));
+        let text = c.banner().unwrap().text;
+        assert!(text.starts_with("Upload to jobs.test?") && text.contains("“cv.pdf” (4 bytes)"), "{text}");
+        let e = ans(&mut c, Choice::Deny, &ctx(&tabs, 4200));
+        assert_eq!(replies(&e)[0].1, Outcome::Error(super::super::DENIED.into()));
+        assert!(runs(&e).is_empty());
+
+        c.call(1, None, upload(0), "b", &ctx(&tabs, 6000));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 6100));
+        let [(run, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert!(src.contains("kind: 'upload', name: \"cv.pdf\", mime: \"application/pdf\", data: \"JVBERg==\"") && src.contains("confirmed = false"));
+        let e = c.raw(*run, Raw::Script("confirm".into()), &ctx(&tabs, 6200));
+        assert!(c.banner().unwrap().text.contains("password or payment"), "a submit the upload set off still asks: {e:?}");
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 6300));
+        let [(run, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert!(src.contains("kind: 'upload'") && src.contains("confirmed = true"));
+        c.raw(*run, Raw::Script("ok".into()), &ctx(&tabs, 6400));
+
+        c.call(1, None, upload(0), "c", &ctx(&tabs, 9000));
+        std::fs::write(&file, b"%PDF-swapped").unwrap();
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 9100));
+        assert!(runs(&e).is_empty() && matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("changed")), "{e:?}");
+
+        c.call(1, None, upload(0), "e", &ctx(&tabs, 10_000));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 10_100));
+        let run = runs(&e)[0].0;
+        c.raw(run, Raw::Script("confirm".into()), &ctx(&tabs, 10_200));
+        let moved = [page(3, "https://jobs.test/next")];
+        ans(&mut c, Choice::Allow, &ctx(&moved, 10_300));
+        assert!(c.banner().unwrap().text.starts_with("Upload to jobs.test?"), "a moved page asks for the upload again");
+        let e = ans(&mut c, Choice::Allow, &ctx(&moved, 10_400));
+        let [(run, Some(3), Op::Script(src))] = &runs(&e)[..] else { panic!("{e:?}") };
+        assert!(src.contains("confirmed = false"), "an Allow Once on the earlier page does not carry over");
+        c.raw(*run, Raw::Script("ok".into()), &ctx(&moved, 10_500));
+
+        c.call(1, None, Tool::Navigate { tab: 1, url: "https://evil.test/".into() }, "g", &ctx(&tabs, 10_800));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 10_900));
+        c.raw(runs(&e)[0].0, Raw::Done, &ctx(&tabs, 10_950));
+        c.call(1, None, upload(0), "f", &ctx(&tabs, 11_000));
+        let e = ans(&mut c, Choice::Allow, &ctx(&tabs, 11_100));
+        let run = runs(&e)[0].0;
+        let elsewhere = [page(3, "https://evil.test/")];
+        c.raw(run, Raw::Script("confirm".into()), &ctx(&elsewhere, 11_200));
+        let e = ans(&mut c, Choice::Allow, &ctx(&elsewhere, 11_300));
+        assert!(runs(&e).is_empty(), "a file allowed for jobs.test is not put into evil.test: {e:?}");
+        assert!(c.banner().unwrap().text.starts_with("Upload to evil.test?"), "{:?}", c.banner());
+        ans(&mut c, Choice::Deny, &ctx(&elsewhere, 11_400));
+
+        let e = c.call(1, None, upload(1), "d", &ctx(&tabs, 12_000));
+        assert!(matches!(&replies(&e)[0].1, Outcome::Error(t) if t.contains("no such file")), "refused before the user is asked");
     }
 
     #[test]
