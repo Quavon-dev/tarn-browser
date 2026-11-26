@@ -962,7 +962,7 @@ mod tests {
 
     #[test]
     fn an_upload_names_the_file_and_site_and_runs_only_once_allowed() {
-        let dir = tempfile::Builder::new().prefix("tarn").tempdir().unwrap();
+        let dir = super::super::tests::upload_dir();
         let file = dir.path().join("cv.pdf");
         std::fs::write(&file, b"%PDF").unwrap();
         let path = file.to_str().unwrap().to_owned();

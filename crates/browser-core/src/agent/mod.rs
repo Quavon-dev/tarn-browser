@@ -635,6 +635,12 @@ pub fn client_name(raw: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A folder for upload tests. Windows keeps its temporary folder under `AppData`, which uploads refuse.
+    pub(super) fn upload_dir() -> tempfile::TempDir {
+        let builder = tempfile::Builder::new().prefix("tarn").clone();
+        if cfg!(windows) { builder.tempdir_in(env!("CARGO_MANIFEST_DIR")) } else { builder.tempdir() }.unwrap()
+    }
+
     fn session() -> Session<u8> {
         Session::new(Scope::Act, Mode::Throwaway, "test".into(), 0)
     }
@@ -805,13 +811,16 @@ args = ["--mcp"]"#
 
     #[test]
     fn uploads_take_only_plain_files_the_user_can_read_in_the_question() {
-        let dir = tempfile::Builder::new().prefix("tarn").tempdir().unwrap();
+        let dir = upload_dir();
         let file = dir.path().join("report.pdf");
         std::fs::write(&file, b"%PDF-1").unwrap();
         let upload = Upload::check(file.to_str().unwrap()).unwrap();
         assert_eq!((upload.name.as_str(), upload.size, upload.mime()), ("report.pdf", 6, "application/pdf"));
-        assert_eq!(upload.path, std::fs::canonicalize(&file).unwrap());
-        assert!(upload.question("jobs.test").starts_with("Upload to jobs.test? The agent wants to send “report.pdf” (6 bytes) from /"));
+        assert!(upload.path.is_absolute() && upload.path.ends_with("report.pdf"));
+        assert_eq!(
+            upload.question("jobs.test"),
+            format!("Upload to jobs.test? The agent wants to send “report.pdf” (6 bytes) from {}.", upload.path.display())
+        );
         assert_eq!(upload.read().unwrap(), b"%PDF-1");
         std::fs::write(&file, b"%PDF-1.7").unwrap();
         assert!(upload.read().is_err(), "a file changed after the question");
