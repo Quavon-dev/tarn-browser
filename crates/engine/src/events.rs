@@ -107,8 +107,9 @@ pub enum Event {
     },
     ContentProcessTerminated,
     LinkHovered(Option<String>),
-    /// A Chromium page on Windows entered (`true`) or left full screen for an element (a video); the
-    /// shell shows the page alone, filling the screen. WebKit opens its own full-screen window.
+    /// A page entered (`true`) or left full screen for an element (a video). A Chromium page on
+    /// Windows fills the shell's window, which the shell shows alone, filling the screen; WebKit
+    /// shows it in a window of its own (`WebView::owns_fullscreen_window`).
     FullScreen(bool),
     /// With the upgraded page's host for an HTTPS upgrade; the shell names a refusal by the tab's page.
     Protected(Protection, Option<String>),

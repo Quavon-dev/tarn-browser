@@ -26,9 +26,9 @@ use objc2_foundation::{
     NSURLCredentialPersistence, NSURLProtectionSpace, NSURLQuarantinePropertiesKey, NSURLResponse, NSURLSessionAuthChallengeDisposition,
 };
 use objc2_web_kit::{
-    WKDownload, WKDownloadDelegate, WKFrameInfo, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy, WKNavigationDelegate,
-    WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin, WKUIDelegate, WKWebView,
-    WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
+    WKDownload, WKDownloadDelegate, WKFrameInfo, WKFullscreenState, WKMediaCaptureType, WKNavigation, WKNavigationAction, WKNavigationActionPolicy,
+    WKNavigationDelegate, WKNavigationResponse, WKNavigationResponsePolicy, WKNavigationType, WKOpenPanelParameters, WKPermissionDecision, WKSecurityOrigin,
+    WKUIDelegate, WKWebView, WKWebViewConfiguration, WKWebpagePreferences, WKWebsiteDataStore, WKWindowFeatures,
 };
 use security_framework::identity::SecIdentity;
 use shield::ShieldLevel;
@@ -197,6 +197,9 @@ pub(crate) struct DelegateState {
     /// so they cannot launder a public page's navigation to a private address (S10).
     pub web_origin: RefCell<Option<String>>,
     pub last_title: RefCell<String>,
+    pub fullscreen: Cell<WKFullscreenState>,
+    /// The page's corner radius in the shell's window.
+    pub corner: Cell<f64>,
     pub after_commit: RefCell<Option<Box<dyn FnOnce()>>>,
     /// When the user chose Open Link in Split View: the window WebKit asks for within moments opens
     /// beside the page, and a later one does not.
@@ -246,6 +249,8 @@ impl DelegateState {
             committed_url: RefCell::default(),
             web_origin: RefCell::default(),
             last_title: RefCell::default(),
+            fullscreen: Cell::new(WKFullscreenState::NotInFullscreen),
+            corner: Cell::new(0.),
             after_commit: RefCell::default(),
             split_link: Cell::new(None),
             assistant_menu: RefCell::default(),
@@ -311,6 +316,23 @@ fn is_attachment(response: &NSURLResponse) -> bool {
     let Some(http) = response.downcast_ref::<NSHTTPURLResponse>() else { return false };
     http.valueForHTTPHeaderField(&NSString::from_str("Content-Disposition"))
         .is_some_and(|v| v.to_string().trim_start().to_ascii_lowercase().starts_with("attachment"))
+}
+
+pub(crate) fn fullscreen_state(view: &WKWebView) -> WKFullscreenState {
+    // SAFETY: main-thread read of a live web view.
+    unsafe { view.fullscreenState() }
+}
+
+/// WebKit holds the view in its own full-screen window, entering and leaving included: the shell
+/// neither lays it out nor rounds its corners.
+pub(crate) fn holds_view(state: WKFullscreenState) -> bool {
+    state != WKFullscreenState::NotInFullscreen
+}
+
+/// The page shows full screen, or is about to (`Event::FullScreen`); leaving it is already under way
+/// once WebKit is exiting.
+pub(crate) fn shows_fullscreen(state: WKFullscreenState) -> bool {
+    matches!(state, WKFullscreenState::EnteringFullscreen | WKFullscreenState::InFullscreen)
 }
 
 /// The page title, cut to `MAX_TITLE` characters.
@@ -441,6 +463,18 @@ define_class!(
             _context: *mut c_void,
         ) {
             let Some(view) = object.and_then(|o| o.downcast_ref::<WKWebView>()) else { return };
+            if key_path.is_some_and(|k| k.to_string() == "fullscreenState") {
+                // Each step is reported, so a shell refusing full screen can ask again once it is entered.
+                let state = fullscreen_state(view);
+                let was = self.ivars().fullscreen.replace(state);
+                if was != state {
+                    if holds_view(state) != holds_view(was) {
+                        crate::webview::round_corners(view, if holds_view(state) { 0. } else { self.ivars().corner.get() });
+                    }
+                    self.emit(Event::FullScreen(shows_fullscreen(state)));
+                }
+                return;
+            }
             if key_path.is_some_and(|k| matches!(k.to_string().as_str(), "URL" | "canGoBack" | "canGoForward")) {
                 // Loads report their URL through `Committed`; this catches same-document changes
                 // such as pushState.
@@ -1687,6 +1721,14 @@ fn page_state(web_view: &WKWebView) -> Option<(Url, String, bool, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn webkit_keeps_the_view_until_it_has_left_full_screen_but_the_page_leaves_when_exiting_starts() {
+        use WKFullscreenState as S;
+        let states = [S::NotInFullscreen, S::EnteringFullscreen, S::InFullscreen, S::ExitingFullscreen];
+        assert_eq!(states.map(holds_view), [false, true, true, true]);
+        assert_eq!(states.map(shows_fullscreen), [false, true, true, false]);
+    }
 
     #[test]
     fn burst_limit_rejects_without_recording() {

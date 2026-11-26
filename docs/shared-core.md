@@ -145,7 +145,11 @@ Every shell's web view offers the same operations and reports the same events. T
   `{on, windowFullScreen}`, the latter whether the window was already in full screen), whose
   element full screen fills the browser's view or, on WebKitGTK, puts the shell's own window in
   full screen; the shell hides itself while `browser_core::fullscreen` lets the page fill the
-  window. WebKit on macOS and iOS and Android WebView open their own full-screen window;
+  window. WebKit on macOS reports it too (`fullscreenState`) but shows the page in a full-screen
+  window of its own (`WebView::owns_fullscreen_window`): the shell leaves its window as it is,
+  does not lay the view out until WebKit hands it back, and ends WebKit's full screen whenever it
+  needs its window (a prompt, an overlay, another tab) and for a tab that is not the active one.
+  iOS and Android WebView open their own full-screen window;
 - `DownloadFinished`, `DownloadFailed`, `DownloadsActive`;
 - `pressed`: Linux, iOS and Android, a pointer or touch press on the page, which still reaches the
   page, so a split pane takes the focus. macOS and Windows see the same press through the shell's
