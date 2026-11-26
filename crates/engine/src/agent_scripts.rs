@@ -29,6 +29,12 @@ pub enum Act<'a> {
     },
     /// Submit the form of a field the agent already typed into, after the user allowed it.
     Submit,
+    /// Put a file the user allowed into a file field; `data` is its bytes in base64.
+    Upload {
+        name: &'a str,
+        mime: &'a str,
+        data: &'a str,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -204,6 +210,20 @@ const run = () => { switch (act.kind) {
         fire(el, 'keyup', init);
         return 'ok';
     }
+    case 'upload': {
+        if (el.localName !== 'input' || el.type !== 'file') return 'error:not a file field';
+        if (el.matches(':disabled')) return 'error:the file field is disabled';
+        if (guard(true)) return ask();
+        const bytes = Uint8Array.from(atob(act.data), c => c.charCodeAt(0));
+        const files = new DataTransfer();
+        files.items.add(new File([bytes], act.name, { type: act.mime }));
+        el.scrollIntoView({ block: 'center' });
+        flash(el);
+        el.files = files.files;
+        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return 'ok';
+    }
     case 'scroll': {
         if (target === 0) scrollBy(0, (act.down ? 1 : -1) * innerHeight * 0.8);
         else { el.scrollIntoView({ block: 'center' }); flash(el); }
@@ -229,6 +249,9 @@ impl AgentScript<'_> {
                     Act::Key(key) => format!("{{ kind: 'key', key: {} }}", js_string(key)),
                     Act::Scroll { down } => format!("{{ kind: 'scroll', down: {down} }}"),
                     Act::Submit => "{ kind: 'submit' }".to_string(),
+                    Act::Upload { name, mime, data } => {
+                        format!("{{ kind: 'upload', name: {}, mime: {}, data: {} }}", js_string(name), js_string(mime), js_string(data))
+                    }
                 };
                 format!("const target = {target}, confirmed = {confirmed}, submits = {submits}, act = {act};\n{COMMON}\n{ACT}")
             }
@@ -260,6 +283,10 @@ mod tests {
         let wait = AgentScript::Wait { text: Some(hostile) }.source();
         assert!(!wait.contains("'; alert(1)"));
         assert!(AgentScript::Wait { text: None }.source().starts_with("const want = null;"));
+        let upload =
+            AgentScript::Act { target: 2, act: Act::Upload { name: hostile, mime: "text/plain", data: "QQ==" }, confirmed: true, submits: false }.source();
+        assert!(upload.starts_with("const target = 2, confirmed = true, submits = false, act = { kind: 'upload', name: \""));
+        assert!(!upload.contains("'; alert(1)"));
     }
 
     #[test]

@@ -21,6 +21,35 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Share in the address field (2026-11-26)
+
+What it does: Share sits in the address field beside the bookmark star instead of the toolbar;
+with a pointer both show while it is over the field or a button has keyboard focus, and the star
+stays shown for a bookmarked page.
+Shared API: none; layout only.
+Reference: `crates/app/src/toolbar.rs` (`share_button`, `on_hover`), `linux/src/ui.rs` (`share_chip`).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux — Share only; its address field has no star
+- [ ] iOS — the desktop-style toolbar in `mobile/app/src/ui/mac/toolbar.rs` (iPad with a pointer)
+  still shows Share as its own button
+- [ ] Android — the same toolbar on tablets with a pointer
+
+### Give AI full access (2026-11-26)
+
+What it does: one switch at the top of Settings › AI turns on, or off, agent control and the
+profile's assistant; the profile and tabs modes keep their own switches. Every question Tarn asks
+an agent stays.
+Shared API: `browser_core::agent::{FULL_ACCESS, DETAIL_FULL_ACCESS}`, the existing
+`agent::SETTING*` settings and `Store::set_profile_ai`.
+Reference: `crates/app/src/settings/ai.rs` (`full_access`).
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui/agent.rs` `settings` with the assistant switch of
+  `tarn_nsh_shared::assistant::settings_pane`, which must then redraw
+- [ ] iOS — after agent control reaches mobile; until then the switch would be the assistant's alone
+- [ ] Android — same as iOS
+
 ### Owner check before trusting a certificate (2026-11-26)
 
 What it does: before Tarn keeps a certificate exception from the certificate error page, the
@@ -210,8 +239,9 @@ Reference: `crates/app/src/snippets.rs`, `linux/src/browser/snippets.rs`,
 ### Measure (2026-11-22)
 
 What it does: a developer tool that shows rulers and a box the user drags over a still of the page,
-labelled with its size and position in CSS pixels; offered only with the developer tools on.
-Shared API: `browser_core::measure::{ticks, css_box, label, HINT}`, `palette::Command::Measure`
+labelled with its size and position in CSS pixels, with guides at the pointer; a click or a second
+use closes it; offered only with the developer tools on.
+Shared API: `browser_core::measure::{ticks, css_box, label, is_click, point_label, HINT}`, `palette::Command::Measure`
 with `palette::State::developer`; `tarn_nsh_shared::page_overlay` (`Purpose::Measure`).
 Reference: `crates/app/src/capture_overlay.rs`, `linux/src/ui/capture.rs`.
 

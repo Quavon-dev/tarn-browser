@@ -55,6 +55,12 @@ pub struct ShareMenu {
     closed: Option<Instant>,
 }
 
+impl ShareMenu {
+    pub(crate) fn is_open(&self) -> bool {
+        self.window.is_some()
+    }
+}
+
 impl Browser {
     pub(crate) fn toggle_share_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         match self.share_menu.window.take() {
@@ -87,7 +93,12 @@ impl Browser {
             let (handle, _) = open_popup(cx, bounds, display, true, inset, Theme::radius_panel(), |window, cx| {
                 ShareMenuWindow::new(browser.clone(), main, title.into(), favicon_url.into(), window, cx)
             });
-            browser.update(cx, |b, _| b.share_menu.window = handle).ok();
+            browser
+                .update(cx, |b, cx| {
+                    b.share_menu.window = handle;
+                    cx.notify();
+                })
+                .ok();
         });
     }
 
@@ -146,9 +157,10 @@ impl ShareMenuWindow {
         }
         remove_after_exit(self.reduce(cx), window, cx);
         self.browser
-            .update(cx, |b, _| {
+            .update(cx, |b, cx| {
                 b.share_menu.window = None;
                 b.share_menu.closed = (!refocus).then(Instant::now);
+                cx.notify();
             })
             .ok();
         if let Some(main) = self.main.filter(|_| refocus) {

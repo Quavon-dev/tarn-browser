@@ -62,15 +62,16 @@ impl Overlay {
         self.drag.map(|(from, to)| capture::drag_rect(from, to, self.page))
     }
 
-    /// The area the drag ending at `at` selects; `None` for a click, which keeps the overlay open.
-    /// Measure keeps its box shown until the next drag and selects nothing.
-    pub fn release(&mut self, at: (f64, f64)) -> Option<[f64; 4]> {
+    /// What the press ending at `at` does: a drag over Capture Area captures its area and a click
+    /// keeps the overlay open; Measure keeps a dragged box shown until the next drag and closes on a click.
+    pub fn release(&mut self, at: (f64, f64)) -> Option<Outcome> {
         if self.purpose == Purpose::Measure {
+            let (from, _) = self.drag?;
             self.drag_to(at);
-            return None;
+            return measure::is_click(from, at).then_some(Outcome::Cancel);
         }
         let (from, _) = self.drag.take()?;
-        capture::drag_area(from, at, self.page).map(|_| capture::drag_rect(from, at, self.page))
+        capture::drag_area(from, at, self.page).map(|_| Outcome::Capture(self.key, capture::drag_rect(from, at, self.page)))
     }
 }
 
@@ -80,10 +81,11 @@ impl Overlay {
 pub fn layer(state: Signal<Option<Overlay>>, area_hint: &'static str, done: impl Fn(Outcome) + Copy + 'static) -> AnyElement {
     let shown = computed(move || state.with(|o| o.as_ref().map(|o| (o.key, o.seq, o.purpose))));
     dynamic(move || {
-        let (key, _, purpose) = shown.get()?;
+        let (_, _, purpose) = shown.get()?;
         let measuring = purpose == Purpose::Measure;
         let hint = if measuring { measure::HINT } else { area_hint };
         let size = signal((0f32, 0f32));
+        let cursor: Signal<Option<(f64, f64)>> = signal(None);
         let scale = move |tracked: bool| {
             let width = if tracked { size.get().0 } else { size.get_untracked().0 };
             let page = state.with_untracked(|o| o.as_ref().map_or(0., |o| o.page.0));
@@ -123,6 +125,25 @@ pub fn layer(state: Signal<Option<Overlay>>, area_hint: &'static str, done: impl
                     .child(text(measure::label(rect)).text_size(px(TEXT_SMALL)).text_color(|| Theme::on_fill(Theme::accent())).number_of_lines(1_u32)),
             )
         });
+        let crosshair = dynamic(move || {
+            let (x, y) = cursor.get()?;
+            let s = scale(true);
+            let (left, top) = ((x * s) as f32, (y * s) as f32);
+            let (width, height) = size.get();
+            let (label_left, label_top) = ((left + 10.).min(width - 90.).max(0.), (top + 10.).min(height - 28.).max(0.));
+            let line = || view().absolute().bg(Theme::accent()).pointer_events(PointerEvents::None);
+            Some(
+                view()
+                    .absolute()
+                    .inset_0()
+                    .pointer_events(PointerEvents::None)
+                    .child(line().left(px(left)).top(px(0.)).bottom(px(0.)).w(px(1.)))
+                    .child(line().top(px(top)).left(px(0.)).right(px(0.)).h(px(1.)))
+                    .child(view().absolute().left(px(label_left)).top(px(label_top)).px_2().rounded(px(Theme::radius_row())).bg(Theme::accent()).child(
+                        text(measure::point_label((x, y))).text_size(px(TEXT_SMALL)).text_color(|| Theme::on_fill(Theme::accent())).number_of_lines(1_u32),
+                    )),
+            )
+        });
         let surface = view()
             .absolute()
             .inset_0()
@@ -130,20 +151,30 @@ pub fn layer(state: Signal<Option<Overlay>>, area_hint: &'static str, done: impl
             .label(hint)
             .on_layout(move |b: &Bounds<Points>| size.set((b.size.width.0, b.size.height.0)))
             .claim_touches(TouchClaim::on_start())
-            .on_responder_grant(move |e: &ResponderEvent| edit(&|o| o.press(css(e.location))))
+            .on_responder_grant(move |e: &ResponderEvent| {
+                cursor.set(None);
+                edit(&|o| o.press(css(e.location)));
+            })
             .on_responder_move(move |e: &ResponderEvent| edit(&|o| o.drag_to(css(e.location))))
             .on_responder_release(move |e: &ResponderEvent| {
-                let mut area = None;
-                state.update(|o| area = o.as_mut().and_then(|o| o.release(css(e.location))));
-                if let Some(area) = area {
-                    done(Outcome::Capture(key, area));
+                let mut outcome = None;
+                state.update(|o| outcome = o.as_mut().and_then(|o| o.release(css(e.location))));
+                if let Some(outcome) = outcome {
+                    done(outcome);
                 }
             })
+            .on_mouse_move(move |e: &MouseEvent| {
+                if measuring && e.pressed_button.is_none() {
+                    cursor.set(Some(css(e.position)));
+                }
+            })
+            .on_mouse_leave(move |_: &MouseEvent| cursor.set(None))
             .on_responder_terminate(move |_: &ResponderEvent| edit(&|o| o.drag = None))
             .child(still)
             .children((!measuring).then(|| view().absolute().inset_0().bg(Rgba { a: 0.35, ..rgb(0) }).pointer_events(PointerEvents::None)))
             .child(outline)
             .child(size_label)
+            .child(crosshair)
             .children(measuring.then(|| ruler(size, move || scale(true), true)))
             .children(measuring.then(|| ruler(size, move || scale(true), false)));
         let inset = if measuring { 12. + measure::RULER as f32 } else { 12. };
@@ -214,13 +245,13 @@ mod tests {
         overlay.press((10., 20.));
         overlay.drag_to((5., 300.));
         assert_eq!(overlay.rect(), Some([5., 20., 5., 280.]));
-        assert_eq!(overlay.release((110., 70.)), Some([10., 20., 100., 50.]));
+        assert_eq!(overlay.release((110., 70.)), Some(Outcome::Capture(KEY, [10., 20., 100., 50.])));
         assert_eq!(overlay.drag, None);
         overlay.press((40., 40.));
         assert_eq!(overlay.release((41., 41.)), None, "a click");
         assert_eq!(overlay.release((200., 200.)), None, "no drag held");
         overlay.press((700., 500.));
-        assert_eq!(overlay.release((900., 900.)), Some([700., 500., 100., 100.]), "cut to the page");
+        assert_eq!(overlay.release((900., 900.)), Some(Outcome::Capture(KEY, [700., 500., 100., 100.])), "cut to the page");
     }
 
     #[test]
@@ -232,6 +263,16 @@ mod tests {
         overlay.press((300., 300.));
         overlay.drag_to((350., 320.));
         assert_eq!(overlay.rect(), Some([300., 300., 50., 20.]), "a new drag replaces it");
+    }
+
+    #[test]
+    fn a_click_closes_measure_and_a_drag_keeps_its_box() {
+        let mut overlay = Overlay::measure(KEY, 7, (800., 600.));
+        overlay.press((10., 20.));
+        overlay.drag_to((110., 70.));
+        assert_eq!(overlay.release((110., 70.)), None);
+        overlay.press((300., 300.));
+        assert_eq!(overlay.release((301., 302.)), Some(Outcome::Cancel), "a click closes");
     }
 
     #[test]

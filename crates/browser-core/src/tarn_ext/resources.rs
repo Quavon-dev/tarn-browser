@@ -41,6 +41,7 @@ pub fn mime(path: &str) -> &'static str {
         Some("ttf") => "font/ttf",
         Some("otf") => "font/otf",
         Some("txt") => "text/plain",
+        Some("pdf") => "application/pdf",
         _ => "application/octet-stream",
     }
 }

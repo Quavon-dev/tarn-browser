@@ -12,7 +12,8 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use gpui::{
     AnyElement, AppContext, Bounds, Context, CursorStyle, Focusable, Image, ImageFormat, InteractiveElement, IntoElement, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Pixels, Point, Styled, StyledImage, Window, canvas, div, img, prelude::FluentBuilder, px, relative,
+    MouseMoveEvent, MouseUpEvent, ObjectFit, ParentElement, Pixels, Point, StatefulInteractiveElement, Styled, StyledImage, Window, canvas, div, img,
+    prelude::FluentBuilder, px, relative,
 };
 use ui::controls::surface;
 use ui::theme::{Elevation, TEXT_SMALL, TEXT_TINY, Theme};
@@ -33,6 +34,8 @@ pub struct Overlay {
     page: (f32, f32),
     zoom: f64,
     drag: Option<((f32, f32), (f32, f32))>,
+    /// Where the pointer rests over Measure with no button down, in page points.
+    cursor: Option<(f32, f32)>,
     bounds: Rc<Cell<Bounds<Pixels>>>,
 }
 
@@ -54,10 +57,16 @@ impl Browser {
         let Some(key) = self.model.active else { return };
         let (Some(view), Some((_, _, width, height))) = (self.views.get(&key).cloned(), self.link_rect(key)) else { return };
         let (weak, zoom, (tx, mut rx)) = (Rc::downgrade(&view), view.zoom(), mpsc::unbounded());
+        self.overlay_request = (self.overlay_request.0 + 1, purpose == Purpose::Measure);
+        let request = self.overlay_request.0;
         view.snapshot_png(None, move |png| drop(tx.unbounded_send(png)));
         cx.spawn_in(window, async move |this, cx| {
             let Some(png) = rx.next().await else { return };
             this.update_in(cx, |b, window, cx| {
+                if b.overlay_request.0 != request {
+                    return;
+                }
+                b.overlay_request.1 = false;
                 if b.model.active != Some(key) || !b.same_view(key, &weak) {
                     return;
                 }
@@ -73,6 +82,7 @@ impl Browser {
                     page: (width, height),
                     zoom,
                     drag: None,
+                    cursor: None,
                     bounds: Default::default(),
                 });
                 if let Some(host) = &b.host {
@@ -96,19 +106,51 @@ impl Browser {
         true
     }
 
+    /// Measure from the toolbar, the palette or its menu: a second use closes it.
+    pub(crate) fn toggle_measure(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.measuring() || self.overlay_request.1 {
+            self.overlay_request = (self.overlay_request.0 + 1, false);
+            self.close_capture_overlay(cx);
+        } else if self.devtools_on() {
+            self.open_overlay(Purpose::Measure, window, cx);
+        }
+    }
+
+    pub(crate) fn measuring(&self) -> bool {
+        self.capture_overlay.as_ref().is_some_and(|o| o.purpose == Purpose::Measure)
+    }
+
+    fn hover_capture(&mut self, at: Option<Point<Pixels>>, cx: &mut Context<Self>) {
+        let Some(overlay) = self.capture_overlay.as_mut().filter(|o| o.purpose == Purpose::Measure) else { return };
+        let cursor = at.map(|at| overlay.local(at));
+        if overlay.cursor != cursor {
+            overlay.cursor = cursor;
+            cx.notify();
+        }
+    }
+
     fn drag_capture(&mut self, at: Point<Pixels>, start: bool, cx: &mut Context<Self>) {
         let Some(overlay) = self.capture_overlay.as_mut() else { return };
         let point = overlay.local(at);
         match &mut overlay.drag {
-            _ if start => overlay.drag = Some((point, point)),
+            _ if start => {
+                overlay.drag = Some((point, point));
+                overlay.cursor = None;
+            }
             Some((_, to)) => *to = point,
             None => return,
         }
         cx.notify();
     }
 
-    /// A drag selects the area; a click keeps the overlay open. A measured box stays until the next drag.
+    /// A drag selects the area; a click keeps Capture Area open and closes Measure. A measured box stays until the next drag.
     fn end_capture_drag(&mut self, cx: &mut Context<Self>) {
+        if let Some(overlay) = self.capture_overlay.as_ref().filter(|o| o.purpose == Purpose::Measure) {
+            if overlay.drag.is_some_and(|(from, to)| measure::is_click(overlay.css(from), overlay.css(to))) {
+                self.close_capture_overlay(cx);
+            }
+            return;
+        }
         let Some(overlay) = self.capture_overlay.as_mut().filter(|o| o.purpose == Purpose::Area) else { return };
         let Some((from, to)) = overlay.drag.take() else { return };
         let area = drag_area(overlay.css(from), overlay.css(to), overlay.css(overlay.page));
@@ -196,17 +238,47 @@ pub(crate) fn render(b: &Browser, key: TabKey, cx: &mut Context<Browser>) -> Opt
         .child(img(overlay.image.clone()).size_full().object_fit(ObjectFit::Fill))
         .child(canvas(move |b, _, _| bounds.set(b), |_, _, _, _| {}).absolute().inset_0())
         .children(shade)
-        .when(overlay.purpose == Purpose::Measure, |d| d.children(rulers(overlay)))
+        .when(overlay.purpose == Purpose::Measure, |d| d.children(rulers(overlay)).children(crosshair(overlay).into_iter().flatten()))
         .when(rect.is_none(), |d| d.child(div().absolute().top(px(hint_top)).left_0().right_0().flex().justify_center().child(hint)))
         .on_mouse_down(MouseButton::Left, cx.listener(|b, e: &MouseDownEvent, _, cx| b.drag_capture(e.position, true, cx)))
         .on_mouse_move(cx.listener(|b, e: &MouseMoveEvent, _, cx| {
             if e.dragging() {
                 b.drag_capture(e.position, false, cx);
+            } else {
+                b.hover_capture(Some(e.position), cx);
+            }
+        }))
+        .on_hover(cx.listener(|b, hovered: &bool, _, cx| {
+            if !hovered {
+                b.hover_capture(None, cx);
             }
         }))
         .on_mouse_up(MouseButton::Left, cx.listener(end))
         .on_mouse_up_out(MouseButton::Left, cx.listener(end));
     Some(layer.into_any_element())
+}
+
+/// Guides through the resting pointer and its position in CSS pixels, while no button is down.
+fn crosshair(overlay: &Overlay) -> Option<[gpui::Div; 3]> {
+    let (x, y) = overlay.cursor?;
+    let (w, h) = overlay.page;
+    let (lx, ly) = (x.min(w - LABEL.0).max(0.), y.min(h - LABEL.1).max(0.));
+    let line = || div().absolute().bg(Theme::accent());
+    let label = div()
+        .absolute()
+        .left(relative(lx / w))
+        .top(relative(ly / h))
+        .ml(px(10.))
+        .mt(px(10.))
+        .px_1p5()
+        .py_0p5()
+        .rounded(px(Theme::radius_small()))
+        .bg(Theme::accent())
+        .text_color(Theme::on_accent())
+        .text_size(px(TEXT_SMALL))
+        .whitespace_nowrap()
+        .child(measure::point_label(overlay.css((x, y))));
+    Some([line().left(relative(x / w)).top_0().bottom_0().w(px(1.)), line().top(relative(y / h)).left_0().right_0().h(px(1.)), label])
 }
 
 fn from_to(overlay: &Overlay) -> ((f32, f32), (f32, f32)) {
@@ -220,6 +292,8 @@ fn pill_origin([x, y, _, h]: [f32; 4], page_height: f32) -> [f32; 2] {
 }
 
 const PILL: f32 = 22.;
+/// Room the pointer's position label needs, so it stays inside the page near its right and bottom edges.
+const LABEL: (f32, f32) = (90., 32.);
 
 /// The top and left rulers, numbered in the page's CSS pixels.
 fn rulers(overlay: &Overlay) -> [gpui::Div; 2] {

@@ -3,7 +3,7 @@
 //! (`devkit::SETTING` or a Developer profile).
 
 /// What every client says while Measure is open.
-pub const HINT: &str = "Drag to measure. Esc closes.";
+pub const HINT: &str = "Drag to measure. Click or Esc closes.";
 /// Ruler ticks every `MINOR` CSS pixels, labelled every `MAJOR`.
 pub const MINOR: f64 = 10.;
 pub const MAJOR: f64 = 100.;
@@ -41,6 +41,16 @@ pub fn css_box(from: (f64, f64), to: (f64, f64), page: (f64, f64), zoom: f64) ->
     crate::capture::drag_rect(from, to, page).map(|v| v / zoom)
 }
 
+/// Whether a press released at `to` was a click rather than a drag, in CSS pixels; a click closes Measure.
+pub fn is_click(from: (f64, f64), to: (f64, f64)) -> bool {
+    (to.0 - from.0).abs() < crate::capture::MIN_SIDE && (to.1 - from.1).abs() < crate::capture::MIN_SIDE
+}
+
+/// Where the pointer rests, in whole CSS pixels.
+pub fn point_label((x, y): (f64, f64)) -> String {
+    format!("{:.0}, {:.0}", x.max(0.), y.max(0.))
+}
+
 /// The box's label: its size and position in whole CSS pixels.
 pub fn label(css: [f64; 4]) -> String {
     let [x, y, w, h] = css.map(f64::round);
@@ -72,5 +82,14 @@ mod tests {
         assert_eq!(css_box((110., 70.), (10., 20.), (800., 600.), 2.), [5., 10., 50., 25.]);
         assert_eq!(css_box((700., 500.), (900., 900.), (800., 600.), 1.), [700., 500., 100., 100.]);
         assert_eq!(label([10.4, 20., 99.6, 50.]), "100 \u{d7} 50 px  at 10, 20");
+    }
+
+    #[test]
+    fn a_click_closes_but_a_thin_box_is_measured() {
+        assert!(is_click((10., 10.), (11., 12.)));
+        assert!(!is_click((10., 10.), (210., 11.)), "a one-pixel line is still a measure");
+        assert!(!is_click((10., 10.), (10., 300.)));
+        assert_eq!(point_label((12.4, 7.6)), "12, 8");
+        assert_eq!(point_label((-3., 0.)), "0, 0");
     }
 }

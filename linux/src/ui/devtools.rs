@@ -124,7 +124,12 @@ pub(super) fn responsive_button(ui: Ui) -> AnyElement {
 pub(super) fn measure_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         ui.snap.with(|s| s.devtools && s.tab && !super::no_page(s)).then(|| {
-            icon_button(icons::CODE, "Measure", move || super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Measure)).text_color(Theme::muted())
+            let on = ui.page_overlay.with(|o| o.as_ref().is_some_and(|o| o.purpose == tarn_nsh_shared::page_overlay::Purpose::Measure));
+            icon_button(icons::CODE, if on { "Close Measure" } else { "Measure" }, move || {
+                super::capture::open(ui, tarn_nsh_shared::page_overlay::Purpose::Measure)
+            })
+            .text_color(Theme::muted())
+            .when(on, |b| b.bg(Theme::pressed()))
         })
     })
 }

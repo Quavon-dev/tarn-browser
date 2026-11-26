@@ -8,6 +8,15 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Agents can upload files: the `upload_file` tool puts a file from your computer into a page's file
+  field. Tarn asks you first every time, naming the site, the file, its size and its path; hidden
+  files, hidden and app-data folders, network share paths, the system's automounted network folders
+  and files over 10 MB are refused, and a file that changed since you allowed it is not sent. On
+  macOS, Windows and Linux.
+- Settings › AI › Give AI full access turns on agent control and the profile's assistant with one
+  switch; turning it off turns both off. Letting agents use your profile or your tabs keeps its own
+  switch, and Tarn still asks before each agent, site, upload and sensitive click. Off by default.
+  On macOS and Windows.
 - A page whose certificate is not valid shows Tarn's own error page instead of a banner: it says
   what is wrong, and Show Certificate lists the server's certificates with their names, dates and
   SHA-256 fingerprint. For a site you know, such as a router, NAS or Proxmox server on your own
@@ -19,6 +28,16 @@ All notable changes to Tarn are documented in this file. The format is based on
   private space or at Lockdown.
   Linux shows the page and the certificate but offers no way through: WebKitGTK can only accept a
   certificate for a host everywhere until Tarn quits.
+
+### Changed
+
+- Measure: a second click on its button (or Measure in the command palette) closes it, and so does
+  a click on the page; guides and the position in CSS pixels follow the pointer. On macOS, Windows
+  and Linux.
+- Share moved from the toolbar into the address field, next to the bookmark star; both show while
+  the pointer is over the field or the button has keyboard focus, and the star stays shown for a
+  bookmarked page. On macOS and Windows; on Linux Share moved the same way (its address field has
+  no star).
 
 ### Fixed
 
