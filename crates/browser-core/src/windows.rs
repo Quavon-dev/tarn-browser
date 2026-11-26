@@ -6,12 +6,17 @@ pub type Frame = [f64; 4];
 /// A window keeps its frame while this much of it shows on some screen.
 const MIN_VISIBLE: f64 = 80.;
 
-/// `frame`, or, when no screen shows enough of it, the frame moved and shrunk onto the first screen.
+/// `frame` shrunk to the screen that shows it and moved down or up into its height, so the title
+/// bar stays reachable; or, when no screen shows enough of it, moved and shrunk onto the first screen.
 pub fn onto_screen(frame: Frame, screens: &[Frame]) -> Frame {
     let [x, y, w, h] = frame;
-    let shows = |s: &Frame| (x + w).min(s[0] + s[2]) - x.max(s[0]) >= MIN_VISIBLE && (y + h).min(s[1] + s[3]) - y.max(s[1]) >= MIN_VISIBLE;
+    let shows = |s: &&Frame| (x + w).min(s[0] + s[2]) - x.max(s[0]) >= MIN_VISIBLE && (y + h).min(s[1] + s[3]) - y.max(s[1]) >= MIN_VISIBLE;
+    if let Some(&[sx, sy, sw, sh]) = screens.iter().find(shows) {
+        let x = if w > sw { sx } else { x };
+        let (w, h) = (w.min(sw), h.min(sh));
+        return [x, y.clamp(sy, sy + sh - h), w, h];
+    }
     match screens.first() {
-        Some(_) if screens.iter().any(shows) => frame,
         Some(&[sx, sy, sw, sh]) => {
             let (w, h) = (w.min(sw), h.min(sh));
             [sx + (sw - w) / 2., sy + (sh - h) / 2., w, h]
@@ -50,6 +55,17 @@ mod tests {
         assert_eq!(onto_screen([-790., 50., 800., 600.], &SCREENS), [320., 150., 800., 600.], "a sliver is not enough");
         assert_eq!(onto_screen([5000., 0., 3000., 2000.], &SCREENS), [0., 0., 1440., 900.], "shrunk to fit");
         assert_eq!(onto_screen([5000., 0., 800., 600.], &[]), [5000., 0., 800., 600.]);
+    }
+
+    #[test]
+    fn frames_taller_than_their_screen_fit_it() {
+        let screen = [[0., 0., 1280., 720.]];
+        assert_eq!(onto_screen([0., -50., 1280., 820.], &screen), [0., 0., 1280., 720.], "centred but taller than the screen");
+        assert_eq!(onto_screen([100., -30., 800., 600.], &screen), [100., 0., 800., 600.], "title bar above the screen");
+        assert_eq!(onto_screen([100., 500., 800., 600.], &screen), [100., 120., 800., 600.], "bottom below the screen");
+        assert_eq!(onto_screen([-700., 50., 800., 600.], &screen), [-700., 50., 800., 600.], "partly off to the side");
+        assert_eq!(onto_screen([-2000., 0., 3000., 600.], &screen), [0., 0., 1280., 600.], "wider than the screen");
+        assert_eq!(onto_screen([1500., 10., 800., 600.], &SCREENS), [1500., 10., 800., 600.], "on the second screen");
     }
 
     #[test]
