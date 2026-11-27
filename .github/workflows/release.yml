@@ -597,14 +597,15 @@ jobs:
     permissions:
       contents: read
     steps:
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: "1.99.1"
+      # Installed before the checkout, so the checked-out rust-toolchain.toml cannot choose the toolchain that builds it.
+      - run: cargo install cargo-cyclonedx --version "=$CYCLONEDX_VERSION" --locked
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.commit }}
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          toolchain: "1.99.1"
-      - run: cargo install cargo-cyclonedx --version "=$CYCLONEDX_VERSION" --locked
       - env:
           CLIENTS: ${{ github.event_name == 'push' && inputs.commit == '' || inputs.nightly || inputs.full }}
         run: |
