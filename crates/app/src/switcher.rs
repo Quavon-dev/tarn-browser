@@ -13,21 +13,20 @@ use gpui::{
 };
 use ui::motion::{EXIT, fade_in, pop_in, progress};
 use ui::text::OneLine;
-use ui::theme::{Elevation, TEXT_SMALL, TEXT_TINY, TEXT_TITLE, Theme};
+use ui::theme::{Elevation, TEXT, TEXT_SMALL, Theme};
 
 use crate::browser::{Browser, TabKey};
 use crate::prefs::Pref;
 
 /// Cards grow with the page between these widths, filling one row.
-const MIN_CARD: f32 = 120.;
-const MAX_CARD: f32 = 220.;
+const MIN_CARD: f32 = 150.;
+const MAX_CARD: f32 = 240.;
+/// The selected card's ring stands this far off its edge.
 const RING: f32 = 4.;
-const GAP: f32 = 12.;
-/// The page left around the panel, and the panel's own padding.
-const MARGIN: f32 = 32.;
-const PAD: f32 = 20.;
+const GAP: f32 = 20.;
+const MARGIN: f32 = 40.;
 /// A quick press and release switches without the strip flashing over the page.
-const SHOW_DELAY: Duration = Duration::from_millis(150);
+const SHOW_DELAY: Duration = Duration::from_millis(120);
 const RELEASE_POLL: Duration = Duration::from_millis(30);
 
 type Shots = HashMap<TabKey, Arc<RenderImage>>;
@@ -41,6 +40,17 @@ pub struct Open {
     _deactivated: Subscription,
 }
 
+/// The strip draws the switcher's state; the main window shows none of it, so it is left alone.
+fn open_strip(b: &Browser) -> Option<WindowHandle<Strip>> {
+    b.tab_switcher.as_ref().and_then(|o| o.strip)
+}
+
+fn redraw(strip: Option<WindowHandle<Strip>>, cx: &mut gpui::App) {
+    if let Some(strip) = strip {
+        cx.defer(move |cx| drop(strip.update(cx, |_, _, cx| cx.notify())));
+    }
+}
+
 impl Browser {
     pub fn recent_tab(&mut self, forward: bool, window: &mut Window, cx: &mut Context<Self>) {
         // The peek window gets the modifier release, so from there switch without the strip.
@@ -52,10 +62,10 @@ impl Browser {
         }
         if let Some(open) = &mut self.tab_switcher {
             open.state.step(forward);
-            return cx.notify();
+            return redraw(open.strip, cx);
         }
         // As many cards as fit on one row of this window.
-        let fits = ((f32::from(self.page_area(window).size.width) - 2. * (MARGIN + PAD) + GAP) / (MIN_CARD + 2. * RING + GAP)).floor().max(2.) as usize;
+        let fits = ((f32::from(self.page_area(window).size.width) - 2. * MARGIN + GAP) / (MIN_CARD + 2. * RING + GAP)).floor().max(2.) as usize;
         let Some(state) = self.model.open_switcher(forward, fits) else { return };
         // A focused web view takes the modifier's key events, so ask the system what is held.
         if !engine::modifier_held() {
@@ -158,7 +168,7 @@ impl Browser {
             this.update(cx, |b, cx| {
                 if let Some(open) = &mut b.tab_switcher {
                     open.shots.insert(key, image);
-                    cx.notify();
+                    redraw(open.strip, cx);
                 }
             })
             .ok();
@@ -181,7 +191,7 @@ impl Strip {
     fn new(browser: &gpui::Entity<Browser>, opened: Instant, main: AnyWindowHandle, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let watch = cx.observe_in(browser, window, move |this: &mut Self, browser, window, cx| {
             if browser.read(cx).tab_switcher.as_ref().is_some_and(|o| o.opened == opened) {
-                return cx.notify();
+                return;
             }
             if this.reduce || this.shown.is_none() {
                 return window.remove_window();
@@ -218,7 +228,7 @@ impl Strip {
                             b.commit_switcher(window, cx);
                             window.activate_window();
                         } else {
-                            cx.notify();
+                            redraw(open_strip(b), cx);
                         }
                     })
                     .ok();
@@ -230,8 +240,6 @@ impl Strip {
 
 impl Render for Strip {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let tint = |a: f32| Rgba { a, ..Theme::text() };
-        let accent = |a: f32| Rgba { a, ..Theme::accent() };
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         if let Some(open) = b.tab_switcher.as_ref().filter(|_| self.leaving.is_none()) {
@@ -242,11 +250,12 @@ impl Render for Strip {
         if self.leaving.is_some() {
             window.request_animation_frame();
         }
+        let text = |a: f32| Rgba { a, ..Theme::text() };
         let n = order.len().max(1) as f32;
         let width = f32::from(window.viewport_size().width);
-        let card = ((width - 2. * (MARGIN + PAD) - (n - 1.) * GAP) / n - 2. * RING).clamp(MIN_CARD, MAX_CARD);
-        let radius = (card * 0.06).clamp(8., 12.);
-        let badge = (card * 0.16).clamp(24., 34.);
+        let card = ((width - 2. * MARGIN - (n - 1.) * GAP) / n - 2. * RING).clamp(MIN_CARD, MAX_CARD);
+        let radius = (card * 0.06).clamp(10., 14.);
+        let badge = (card * 0.15).clamp(26., 36.);
         let cards: Vec<_> = order
             .iter()
             .enumerate()
@@ -261,40 +270,38 @@ impl Render for Strip {
                     .overflow_hidden()
                     .bg(Theme::panel())
                     .border_1()
-                    .border_color(tint(0.1))
-                    .when(!selected, |d| d.opacity(0.72));
+                    .border_color(text(0.12))
+                    .shadow(Elevation::Page.shadow());
                 let still = match shots.get(key) {
                     Some(shot) => still.child(img(shot.clone()).size_full().object_fit(ObjectFit::Cover)).child(
                         div()
                             .absolute()
-                            .left(px(6.))
-                            .bottom(px(6.))
+                            .left(px(8.))
+                            .bottom(px(8.))
                             .size(px(badge))
-                            .rounded(px(badge * 0.28))
+                            .rounded(px(badge * 0.3))
                             .bg(Theme::surface())
-                            .border_1()
-                            .border_color(tint(0.12))
                             .shadow(Elevation::Popover.shadow())
                             .flex()
                             .items_center()
                             .justify_center()
                             .child(crate::sidebar::site_icon(b, &tab.url, badge * 0.6)),
                     ),
-                    None => still.flex().items_center().justify_center().child(crate::sidebar::site_icon(b, &tab.url, badge)),
+                    None => still.flex().items_center().justify_center().child(crate::sidebar::site_icon(b, &tab.url, badge * 1.2)),
                 };
+                // A ring that stands off the card, so the still keeps its own edge.
                 let ring = div()
                     .p(px(RING))
                     .rounded(px(radius + RING))
                     .border_2()
-                    .border_color(if selected { Theme::accent() } else { accent(0.) })
-                    .bg(accent(if selected { 0.14 } else { 0. }))
+                    .border_color(if selected { Theme::accent() } else { Rgba { a: 0., ..Theme::accent() } })
                     .child(still);
                 let title = div()
-                    .mt(px(6.))
+                    .mt(px(8.))
                     .px(px(RING + 2.))
-                    .text_size(px(TEXT_SMALL))
-                    .text_color(if selected { Theme::text() } else { Theme::muted() })
-                    .when(selected, |d| d.font_weight(FontWeight::MEDIUM))
+                    .text_size(px(TEXT))
+                    .text_color(if selected { Theme::text() } else { text(0.7) })
+                    .when(selected, |d| d.font_weight(FontWeight::SEMIBOLD))
                     .one_line(crate::tabs::display_title(tab));
                 Some(
                     div()
@@ -303,6 +310,7 @@ impl Render for Strip {
                         .flex()
                         .flex_col()
                         .cursor_pointer()
+                        .when(!selected, |d| d.opacity(0.85))
                         // Moving the pointer selects, so a strip opening under a still pointer keeps Tab's choice.
                         .when(!selected, |d| d.on_mouse_move(cx.listener(move |this, _: &MouseMoveEvent, _, cx| this.select(Some(ix), false, cx))))
                         .on_click(cx.listener(move |this, _, _, cx| this.select(Some(ix), true, cx)))
@@ -311,59 +319,28 @@ impl Render for Strip {
                 )
             })
             .collect();
-        let chosen = order.get(*index).and_then(|key| b.model.tab(*key));
-        let detail = chosen.map(|tab| {
-            let host = url::Url::parse(&tab.url).ok().and_then(|u| u.host_str().map(|h| h.trim_start_matches("www.").to_owned())).unwrap_or_default();
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap(px(2.))
-                .child(
-                    div()
-                        .max_w_full()
-                        .text_size(px(TEXT_TITLE))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(Theme::text())
-                        .one_line(crate::tabs::display_title(tab)),
-                )
-                .when(!host.is_empty(), |d| d.child(div().max_w_full().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(host)))
-        });
         let modifier = if cfg!(target_os = "macos") { "⌃" } else { "Ctrl" };
-        let hint = div().text_size(px(TEXT_TINY)).text_color(Theme::muted()).child(format!("Tab to move · release {modifier} to switch · Esc to stay"));
-        let panel = div()
-            .max_w_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .gap(px(14.))
-            .p(px(PAD))
-            .rounded(px(22.))
-            .bg(Theme::surface())
-            .border_1()
-            .border_color(tint(0.1))
-            .shadow(Elevation::Modal.shadow())
-            .child(div().flex().gap(px(GAP)).children(cards))
-            .children(detail)
-            .child(hint);
-        // A click makes this window key, so the Ctrl release can arrive here instead of the main window.
+        let hint = div().mt(px(28.)).text_size(px(TEXT_SMALL)).text_color(text(0.55)).child(format!("Release {modifier} to switch  ·  Esc to stay"));
+        // The page shows faintly through, while cards and titles stay clear of it in either theme.
         let scrim = div()
             .id("tab-switcher-scrim")
             .size_full()
             .flex()
+            .flex_col()
             .items_center()
             .justify_center()
             .px(px(MARGIN))
-            .bg(Rgba { r: 0., g: 0., b: 0., a: 0.35 })
+            .bg(Rgba { a: 0.8, ..Theme::page() })
             .opacity(fade)
             .font_family(Theme::font())
+            // A click makes this window key, so the Ctrl release can arrive here instead of the main window.
             .on_modifiers_changed(cx.listener(|this, e: &ModifiersChangedEvent, _, cx| {
                 if !e.modifiers.modified() {
                     this.select(None, true, cx);
                 }
             }))
-            .child(pop_in(panel, "tab-switcher", self.reduce));
+            .child(pop_in(div().flex().gap(px(GAP)).children(cards), "tab-switcher", self.reduce))
+            .child(hint);
         fade_in(scrim, "tab-switcher-fade", self.reduce)
     }
 }
