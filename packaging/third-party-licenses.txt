@@ -13532,7 +13532,7 @@ Source: https://github.com/rutrum/convert-case
 Authors: David Purdum <purdum41@gmail.com>
 (The crate ships no licence file; the licence named above applies, its text is at the end.)
 =====
-cookie 0.18.2
+cookie 0.18.3
 Licence: MIT OR Apache-2.0
 Source: https://github.com/SergioBenitez/cookie-rs
 

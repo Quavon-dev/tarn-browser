@@ -11,6 +11,8 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.CancellationSignal;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyProperties;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.Voice;
 import android.os.Handler;
@@ -24,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.security.GeneralSecurityException;
+import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -196,26 +200,24 @@ final class Host {
         try {
             if (shown == null) {
                 ownerAnswered(request, false);
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                BiometricPrompt.Builder builder = new BiometricPrompt.Builder(shown).setTitle(title).setDescription(description);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    builder.setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL);
-                } else {
-                    builder.setDeviceCredentialAllowed(true);
-                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                BiometricPrompt.CryptoObject crypto = new BiometricPrompt.CryptoObject(ownerCipher());
                 CancellationSignal cancel = new CancellationSignal();
                 ownerPrompt = cancel;
-                builder.build().authenticate(cancel, shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
-                    @Override
-                    public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
-                        ownerAnswered(request, true);
-                    }
+                new BiometricPrompt.Builder(shown).setTitle(title).setDescription(description)
+                        .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG | BiometricManager.Authenticators.DEVICE_CREDENTIAL)
+                        .build()
+                        .authenticate(crypto, cancel, shown.getMainExecutor(), new BiometricPrompt.AuthenticationCallback() {
+                            @Override
+                            public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                                ownerAnswered(request, keyUnlocked(result.getCryptoObject()));
+                            }
 
-                    @Override
-                    public void onAuthenticationError(int code, CharSequence message) {
-                        ownerAnswered(request, false);
-                    }
-                });
+                            @Override
+                            public void onAuthenticationError(int code, CharSequence message) {
+                                ownerAnswered(request, false);
+                            }
+                        });
             } else {
                 KeyguardManager keyguard = shown.getSystemService(KeyguardManager.class);
                 Intent ask = keyguard == null ? null : keyguard.createConfirmDeviceCredentialIntent(title, description);
@@ -226,8 +228,30 @@ final class Host {
                     shown.startActivityForResult(ask, CONFIRM_OWNER | (request & CHECK_BITS));
                 }
             }
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | GeneralSecurityException e) {
             ownerAnswered(request, false);
+        }
+    }
+
+    /** A fresh Keystore key that encrypts only right after the owner confirmed, so a success the system did not send cannot use it. */
+    private static Cipher ownerCipher() throws GeneralSecurityException {
+        KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
+        generator.init(new KeyGenParameterSpec.Builder("tarn-owner-check", KeyProperties.PURPOSE_ENCRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setUserAuthenticationRequired(true)
+                .setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG | KeyProperties.AUTH_DEVICE_CREDENTIAL)
+                .build());
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, generator.generateKey());
+        return cipher;
+    }
+
+    private static boolean keyUnlocked(BiometricPrompt.CryptoObject crypto) {
+        try {
+            return crypto != null && crypto.getCipher() != null && crypto.getCipher().doFinal(new byte[16]).length > 0;
+        } catch (GeneralSecurityException | RuntimeException e) {
+            return false;
         }
     }
 
