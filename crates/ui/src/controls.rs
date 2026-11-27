@@ -496,7 +496,8 @@ impl Render for TooltipAnchor {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         let (tip, popup) = (self.tip.clone(), self.popup.clone());
         div().invisible().child(self.tip.card()).on_children_prepainted(move |cards, window, cx| {
-            let Some(card) = cards.first().filter(|_| matches!(*popup.borrow(), TooltipPopup::Closed)) else { return };
+            // A pop-up window opened while another app is in front would bring Tarn's window up with it.
+            let Some(card) = cards.first().filter(|_| engine::app_active() && matches!(*popup.borrow(), TooltipPopup::Closed)) else { return };
             *popup.borrow_mut() = TooltipPopup::Opening;
             let margin = px(POPOVER_INSET);
             let bounds = Bounds::new(window.bounds().origin + card.origin - point(margin, margin), card.size + gpui::size(margin * 2., margin * 2.));
@@ -676,6 +677,27 @@ pub const READABLE_WIDTH: f32 = 600.;
 
 pub fn section(title: impl Into<SharedString>) -> Div {
     div().pt_6().pb_2().px_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text()).child(title.into())
+}
+
+/// Text to copy, such as a command or a config snippet: monospaced on a soft fill, with a Copy
+/// button named by `tip`.
+pub fn code_block(id: impl Into<ElementId>, text: impl Into<SharedString>, tip: &'static str) -> Div {
+    let text: SharedString = text.into();
+    let copied = text.clone();
+    div()
+        .w_full()
+        .flex()
+        .items_start()
+        .gap_1()
+        .p_2()
+        .rounded(px(Theme::radius_small()))
+        .bg(Theme::control())
+        .child(div().flex_1().min_w_0().font_family(crate::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(text))
+        .child(
+            tab_stop(icon_button(id, Icon::Copy, true))
+                .tooltip(tooltip(tip, None))
+                .on_click(move |_, _, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string(copied.to_string()))),
+        )
 }
 
 pub fn note(text: impl Into<SharedString>) -> Div {

@@ -127,6 +127,20 @@ impl WebView {
         both!(self, v => v.focus())
     }
 
+    /// Opens the inspector beside the page, or closes it; only where it is on (`inspectable`).
+    pub fn toggle_inspector(&self) {
+        both!(self, v => v.toggle_inspector())
+    }
+
+    /// Moves a docked Chromium inspector to the page's other side; WebKit's has its own dock buttons.
+    pub fn move_inspector(&self) {
+        match self {
+            WebView::WebKit(_) => {}
+            #[cfg(feature = "chromium")]
+            WebView::Chromium(v) => v.move_inspector(),
+        }
+    }
+
     /// Whether the engine shows an element's full screen in a window of its own (WebKit) rather
     /// than across the shell's window, which the shell must then fill the screen with (Chromium).
     pub fn owns_fullscreen_window(&self) -> bool {

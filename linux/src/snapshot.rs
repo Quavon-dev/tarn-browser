@@ -16,6 +16,8 @@ pub struct SpaceItem {
     pub icon: String,
     pub color: String,
     pub private: bool,
+    /// In the space bar: not hidden, or the space in use (`Model::space_shown`).
+    pub shown: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -477,6 +479,7 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
                     icon: s.space.icon.clone(),
                     color: s.space.color.clone(),
                     private: s.private,
+                    shown: b.model.space_shown(ix),
                 }
             })
             .collect(),

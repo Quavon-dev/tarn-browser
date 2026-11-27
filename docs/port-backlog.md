@@ -21,6 +21,44 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Delete a profile's last space (2026-11-26)
+
+What it does: deleting a profile's last space deletes the profile with it, after a confirmation
+that says so; only the last space of the last profile stays.
+Shared API: `browser_core::tabs::Model::can_delete_space`, `Model::profile_deleted_with`.
+Reference: `crates/app/src/browser/context.rs` (`confirm_delete_space`), `linux/src/ui/profiles.rs` (`delete_row`).
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux
+- [ ] iOS — the Edit Space sheet (`mobile/app/src/ui/sheets.rs`) deletes other spaces only; the
+  shell has no profile deletion that also clears the profile's `WKWebsiteDataStore`
+- [ ] Android — the same sheet; profile deletion must also clear the profile's WebView data
+
+### Inspector commands and docked Chromium DevTools (2026-11-26)
+
+What it does: Show or Hide Inspector and Move Inspector to Other Side in the command palette; in a
+Chromium tab DevTools docks beside the page.
+Shared API: `browser_core::palette::Command::{ToggleInspector, MoveInspector}`,
+`engine::WebView::{toggle_inspector, move_inspector}`, `engine::view_policy::dock`.
+Reference: `crates/engine/src/chromium/view.rs` (`TarnBrowserViewDelegate`, `relayout`).
+
+- [ ] Windows — DevTools still opens in a window of its own (`on_before_dev_tools_popup`); docking
+  needs the inspector browser as a second child window placed by `relayout`
+- [ ] Linux — `linux/src/ui/tools.rs` offers neither command; WebKitGTK's inspector can be shown
+  through `webkit_web_view_get_inspector`
+- iOS and Android have no web inspector in the app.
+
+### Agent setup as code with Copy (2026-11-26)
+
+What it does: Settings › AI lists the command for Claude Code and the config for Codex as code,
+each with a Copy button.
+Shared API: `browser_core::agent::setup_steps`.
+Reference: `crates/app/src/settings/ai.rs` (`agent_control`), `ui::controls::code_block`.
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui/agent.rs` still shows `agent::setup` as one note
+- iOS and Android have no agent control.
+
 ### Share in the address field (2026-11-26)
 
 What it does: Share sits in the address field beside the bookmark star instead of the toolbar;

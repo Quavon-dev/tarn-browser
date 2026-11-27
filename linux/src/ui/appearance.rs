@@ -62,14 +62,16 @@ pub(super) fn pane(ui: Ui) -> AnyElement {
 }
 
 fn layout(ui: Ui) -> View {
-    let (compact, auto_hide) = read(ui, |b| (b.compact_toolbar(), b.auto_hide_sidebar())).unwrap_or_default();
+    let (compact, auto_hide, top) = read(ui, |b| (b.compact_toolbar(), b.auto_hide_sidebar(), b.tabs_on_top())).unwrap_or_default();
     let toolbar = [(false, "Classic".to_owned()), (true, "Compact".to_owned())].to_vec();
+    let tabs = [(false, "Sidebar".to_owned()), (true, "Top".to_owned())].to_vec();
     let shortcut = super::shortcut_of(ui, crate::shortcuts::Action::ToggleSidebar).map(|k| format!(" ({k})")).unwrap_or_default();
     view()
         .flex_col()
         .child(section("Layout"))
         .child(
             group()
+                .child(group_row().child(label("Tabs").flex_1()).child(segmented(tabs, top, super::set_tabs_on_top)))
                 .child(group_row().child(label("Toolbar").flex_1()).child(segmented(toolbar, compact, move |on| {
                     act(ui, move |b| {
                         if b.compact_toolbar() != on {
@@ -79,6 +81,7 @@ fn layout(ui: Ui) -> View {
                 })))
                 .child(switch(auto_hide, "Hide sidebar automatically", move || super::set_auto_hide_sidebar(ui))),
         )
+        .child(note("Tabs on top list them in a strip across the window, with the sidebar hidden."))
         .child(note("Compact puts the address field into a slimmer bar."))
         .child(note(format!("With the sidebar hidden{shortcut}, it slides in over the page while the pointer rests at the window's left edge.")))
 }

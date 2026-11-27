@@ -1238,14 +1238,17 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
 
 fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let bar = browser_core::sidebar::SpaceBar { width: b.sidebar_width - 18. - 2. * 30., icon: 28., gap: 2. };
-    let strip = bar.strip(b.model.spaces.len(), b.model.space_ix);
-    let shown = (b.model.space_ix, b.model.spaces.len(), b.sidebar_width.round() as i32);
+    let listed: Vec<usize> = (0..b.model.spaces.len()).filter(|ix| b.model.space_shown(*ix)).collect();
+    let at = listed.iter().position(|ix| *ix == b.model.space_ix).unwrap_or(listed.len());
+    let strip = bar.strip(listed.len(), at);
+    let shown = (at, listed.len(), b.sidebar_width.round() as i32);
     match strip.scroll {
         Some(x) if b.space_strip_shown.replace(Some(shown)) != Some(shown) => b.space_strip_scroll.set_offset(gpui::point(px(-x), px(0.))),
         Some(_) => {}
         None => b.space_strip_shown.set(None),
     }
-    let dots = b.model.spaces.iter().enumerate().map(|(ix, s)| {
+    let dots = listed.into_iter().map(|ix| {
+        let s = &b.model.spaces[ix];
         let current = ix == b.model.space_ix;
         let color = match (current, s.private, space_tint(s)) {
             (true, true, _) => Theme::warning(),

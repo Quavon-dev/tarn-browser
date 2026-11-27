@@ -745,6 +745,26 @@ impl<D: Platform> Shell<D> {
         }
     }
 
+    /// Hides the space at `ix` from the space list, leaving it for a shown neighbour when it is the
+    /// one in use, or shows it again.
+    pub fn set_space_hidden(&mut self, private: bool, id: Id, hidden: bool) {
+        let Some(ix) = self.model.spaces.iter().position(|s| (s.private, s.space.id) == (private, id)) else { return };
+        if let Some(Some(next)) = self.model.set_space_hidden(&self.core, ix, hidden) {
+            self.switch_space(next);
+        }
+    }
+
+    /// Deletes a space and its tabs, unless it is its profile's last (`Model::delete_space`).
+    pub fn delete_space(&mut self, private: bool, id: Id) {
+        let Some((keys, next)) = self.model.delete_space(&self.core, private, id) else { return };
+        for key in keys {
+            self.forget(key);
+        }
+        if let Some(next) = next {
+            self.switch_space(next);
+        }
+    }
+
     fn show_space(&mut self, private: bool, id: Id) -> bool {
         self.model.reload_spaces(&self.core);
         let Some(ix) = self.model.spaces.iter().position(|s| s.private == private && s.space.id == id) else { return false };

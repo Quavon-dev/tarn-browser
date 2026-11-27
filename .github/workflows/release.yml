@@ -76,6 +76,9 @@ jobs:
       TARN_SIGN_IDENTITY: none
       # The unsandboxed bundle moves a sandboxed install's data out of its container once.
       TARN_RELEASE_BUILD: "1"
+      # macOS 26 draws the current window controls and materials only for apps linked against its
+      # SDK; macos-15 defaults to Xcode 16.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - if: inputs.commit == '' && !startsWith(github.ref, 'refs/tags/v')
         run: |
@@ -99,7 +102,12 @@ jobs:
       - run: |
           scripts/fetch-ninja.sh "$RUNNER_TEMP/ninja"
           echo "$RUNNER_TEMP/ninja" >> "$GITHUB_PATH"
-      - run: scripts/bundle.sh
+      - run: |
+          scripts/bundle.sh
+          sdk="$(xcrun --sdk macosx --show-sdk-version)"
+          [[ "${sdk%%.*}" -ge 26 ]] || { echo "unexpected macOS SDK $sdk" >&2; exit 1; }
+          vtool -show-build target/release/Tarn.app/Contents/MacOS/tarn | grep -q "sdk ${sdk}$" \
+            || { echo "Tarn was not linked against the macOS $sdk SDK" >&2; exit 1; }
       - run: |
           mkdir dist
           ditto -c -k --keepParent target/release/Tarn.app "dist/Tarn-${TAG}-unsigned.zip"
@@ -866,17 +874,40 @@ jobs:
           COMMIT: ${{ inputs.commit }}
         run: |
           set -euo pipefail
-          for id in $(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\") | .id"); do
-            gh api -X DELETE "repos/$GH_REPO/releases/$id"
-          done
-          if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
-            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG"
+          # The published nightly, which the Nightly feed reads, is never deleted: its files are
+          # replaced in place, the feeds last, and only then does its tag move to the new commit; so
+          # a failed run leaves the last nightly whole. Only when there is none is a release created.
+          title="Nightly $(date -u +%F) (${COMMIT:0:7})"
+          notes="Nightly build of $COMMIT: the latest changes, before they are tested in a release. Settings › General › Nightly builds updates to it on macOS and Windows."
+          move_tag() {
+            if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$COMMIT" -F force=true >/dev/null
+            else
+              gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT" >/dev/null
+            fi
+          }
+          published="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\" and (.draft | not)) | .id")"
+          published="${published%%$'\n'*}"
+          if [[ -z "$published" ]]; then
+            move_tag
+            gh release create "$TAG" dist/* --verify-tag --prerelease --latest=false --title "$title" --notes "$notes"
+          else
+            feeds=(appcast.xml windows-update.json windows-update.json.sig)
+            files=()
+            for file in dist/*; do
+              [[ " ${feeds[*]} " == *" $(basename "$file") "* ]] || files+=("$file")
+            done
+            gh release upload "$TAG" "${files[@]}" --clobber
+            for feed in "${feeds[@]}"; do
+              [[ ! -f "dist/$feed" ]] || gh release upload "$TAG" "dist/$feed" --clobber
+            done
+            for name in $(gh api "repos/$GH_REPO/releases/$published/assets?per_page=100" --paginate --jq '.[].name'); do
+              [[ -f "dist/$name" ]] || gh release delete-asset "$TAG" "$name" --yes
+            done
+            move_tag
+            gh release edit "$TAG" --prerelease --latest=false --title "$title" --notes "$notes"
           fi
-          gh release create "$TAG" dist/* --prerelease --latest=false --target "$COMMIT" \
-            --title "Nightly $(date -u +%F) (${COMMIT:0:7})" \
-            --notes "Nightly build of $COMMIT: the latest changes, before they are tested in a release. Settings › General › Nightly builds updates to it on macOS and Windows."
-          [[ "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" == "$COMMIT" ]] \
-            || { echo "$TAG does not name $COMMIT" >&2; gh release delete "$TAG" --yes; exit 1; }
+          [[ "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" == "$COMMIT" ]] || { echo "$TAG does not name $COMMIT" >&2; exit 1; }
       - if: ${{ !inputs.nightly }}
         env:
           GH_TOKEN: ${{ github.token }}

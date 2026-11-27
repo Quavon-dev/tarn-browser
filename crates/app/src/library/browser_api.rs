@@ -228,7 +228,9 @@ impl Browser {
         let rows: Vec<&HistoryEntry> = history.iter().collect();
         let listed = entries(self, page, "", &rows, &downloads, &snapshots, &sources);
         let height = px(card_height(&listed, row_boundary(&listed, max_list)));
-        let (x, bottom, width) = (inset + 4., f32::from(anchor.size.height) - inset - SPACE_ROW, CARD_WIDTH.min(self.sidebar_width - 8.));
+        // Wider than a narrow sidebar, so titles and figures fit; never wider than the window.
+        let width = CARD_WIDTH.max(self.sidebar_width - 8.).min(f32::from(anchor.size.width) - 2. * (inset + 4.));
+        let (x, bottom) = (inset + 4., f32::from(anchor.size.height) - inset - SPACE_ROW);
         let bounds = Bounds::new(point(anchor.origin.x + px(x), anchor.origin.y + px(bottom) - height), size(px(width), height));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();

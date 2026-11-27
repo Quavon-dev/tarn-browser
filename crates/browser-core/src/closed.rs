@@ -298,7 +298,16 @@ mod tests {
     fn space(private: bool, profile_id: Id, id: Id) -> SpaceRef {
         SpaceRef {
             private,
-            space: Space { id, profile_id, name: String::new(), icon: String::new(), position: 0, color: String::new(), schedule: Default::default() },
+            space: Space {
+                id,
+                profile_id,
+                name: String::new(),
+                icon: String::new(),
+                position: 0,
+                color: String::new(),
+                schedule: Default::default(),
+                hidden: false,
+            },
         }
     }
 

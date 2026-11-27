@@ -1729,7 +1729,7 @@ fn spaces_are_edited_deleted_and_switched_by_number() {
     let home = b.model.space_ix;
     let home_key = (false, b.model.spaces[home].space.id);
     let before = b.model.spaces.len();
-    assert!(!b.model.can_delete_space(home), "a profile's last space stays");
+    assert!(!b.model.can_delete_space(home), "the last space of the last profile stays");
     b.delete_space(home_key);
     assert_eq!(b.model.spaces.len(), before);
     let mut draft = b.new_space_draft();
@@ -1758,6 +1758,34 @@ fn spaces_are_edited_deleted_and_switched_by_number() {
     assert!(b.core.disk.tab(key.id).is_err() && !b.pages.contains_key(&key));
     assert_eq!(b.model.current_space().unwrap().space.name, "Work");
     assert_eq!(b.model.active, shown, "deleting another space keeps the tab shown");
+}
+
+#[test]
+fn a_space_hides_and_its_profile_goes_with_its_last_space() {
+    let (_dir, mut b) = browser();
+    let first = b.current_profile().unwrap();
+    let new = browser_core::profiles::NewProfile {
+        name: "Work",
+        color: "red",
+        level: ShieldLevel::Strict,
+        engine: browser_core::command::ENGINES[1].name,
+        share: None,
+        space: ["Desk", "green", "code"],
+    };
+    b.create_profile(&new).unwrap();
+    let work = b.current_profile().unwrap();
+    let desk = b.model.current_space().map(|s| (s.private, s.space.id)).unwrap();
+    b.set_space_hidden(desk, true);
+    assert_eq!(b.current_profile(), Some(first), "hiding the space in use leaves it");
+    assert!(b.model.spaces.iter().any(|s| (s.private, s.space.id) == desk && s.space.hidden));
+    b.set_space_hidden(desk, false);
+    b.delete_space_or_profile(desk, None);
+    assert!(b.core.disk.profile(work).is_ok(), "told only the space: the profile stays");
+    b.delete_space_or_profile(desk, Some(work));
+    assert!(b.core.disk.profile(work).is_err(), "the profile's last space takes the profile");
+    let home = b.model.current_space().map(|s| (s.private, s.space.id)).unwrap();
+    b.delete_space_or_profile(home, None);
+    assert!(b.core.disk.profile(first).is_ok(), "the last space of the last profile stays");
 }
 
 #[test]

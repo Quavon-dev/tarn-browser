@@ -18,6 +18,13 @@ impl Browser {
         cx.notify();
     }
 
+    /// Puts this window's tabs in the sidebar or on top, as Settings picks for every window.
+    pub fn set_tabs_on_top(&mut self, top: bool, cx: &mut Context<Self>) {
+        if (self.tab_placement == browser_core::layout::TabPlacement::Top) != top {
+            self.toggle_tabs_on_top(cx);
+        }
+    }
+
     pub fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.in_main(window, cx, |b, window, cx| b.open_settings(window, cx)) {
             return;

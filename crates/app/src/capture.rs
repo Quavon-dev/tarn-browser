@@ -17,7 +17,22 @@ use crate::capture_overlay::Purpose;
 
 pub(crate) type Done = Box<dyn Fn(Option<Vec<u8>>)>;
 
-actions!(tarn, [TakeScreenshot, Measure, CaptureArea, CaptureElement, CaptureFullPage, SavePdf, CopyMarkdownLink, CopyTitle, PictureInPicture]);
+actions!(
+    tarn,
+    [
+        TakeScreenshot,
+        Measure,
+        CaptureArea,
+        CaptureElement,
+        CaptureFullPage,
+        SavePdf,
+        CopyMarkdownLink,
+        CopyTitle,
+        PictureInPicture,
+        ToggleInspector,
+        MoveInspector
+    ]
+);
 
 pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
     root.on_action(cx.listener(|b, _: &TakeScreenshot, _, cx| b.capture(true, cx)))
@@ -29,6 +44,8 @@ pub fn listen(root: Div, cx: &mut Context<Browser>) -> Div {
         .on_action(cx.listener(|b, _: &CopyMarkdownLink, _, cx| b.copy_page(true, cx)))
         .on_action(cx.listener(|b, _: &CopyTitle, _, cx| b.copy_page(false, cx)))
         .on_action(cx.listener(|b, _: &PictureInPicture, _, cx| b.picture_in_picture(cx)))
+        .on_action(cx.listener(|b, _: &ToggleInspector, _, _| b.active_view().iter().for_each(|v| v.toggle_inspector())))
+        .on_action(cx.listener(|b, _: &MoveInspector, _, _| b.active_view().iter().for_each(|v| v.move_inspector())))
 }
 
 impl Browser {

@@ -244,6 +244,7 @@ const MIGRATIONS: &[&str] = &[
          fingerprint TEXT NOT NULL,
          PRIMARY KEY (profile_id, host, port)
      );",
+    "ALTER TABLE spaces ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0;",
 ];
 /// Tables that belong to no profile: never exported, reset or synced with one.
 #[cfg(test)]
@@ -594,7 +595,7 @@ impl Store {
             params![profile_id, name, icon],
         )?;
         Ok(self.conn.query_row(
-            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE id = ?1",
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end, hidden FROM spaces WHERE id = ?1",
             [self.conn.last_insert_rowid()],
             space_row,
         )?)
@@ -602,7 +603,7 @@ impl Store {
 
     pub fn spaces(&self, profile_id: Id) -> Result<Vec<Space>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 AND temporary = 0 ORDER BY position",
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end, hidden FROM spaces WHERE profile_id = ?1 AND temporary = 0 ORDER BY position",
         )?;
         let rows = stmt.query_map([profile_id], space_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -615,7 +616,7 @@ impl Store {
 
     pub fn every_space(&self, profile_id: Id) -> Result<Vec<Space>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE profile_id = ?1 ORDER BY temporary, position",
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end, hidden FROM spaces WHERE profile_id = ?1 ORDER BY temporary, position",
         )?;
         let rows = stmt.query_map([profile_id], space_row)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -623,7 +624,7 @@ impl Store {
 
     pub fn temporary_space(&self, id: Id) -> Result<Space> {
         Ok(self.conn.query_row(
-            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end FROM spaces WHERE id = ?1 AND temporary = 1",
+            "SELECT id, profile_id, name, icon, position, color, schedule_days, schedule_start, schedule_end, hidden FROM spaces WHERE id = ?1 AND temporary = 1",
             [id],
             space_row,
         )?)
@@ -875,6 +876,12 @@ impl Store {
 
     pub fn update_space(&self, id: Id, name: &str, color: &str, icon: &str) -> Result<()> {
         self.conn.execute("UPDATE spaces SET name = ?2, color = ?3, icon = ?4 WHERE id = ?1", params![id, name, color, icon])?;
+        Ok(())
+    }
+
+    /// A hidden space stays out of the space bar until it is shown again.
+    pub fn set_space_hidden(&self, id: Id, hidden: bool) -> Result<()> {
+        self.conn.execute("UPDATE spaces SET hidden = ?2 WHERE id = ?1", params![id, hidden])?;
         Ok(())
     }
 
@@ -1875,6 +1882,7 @@ impl Store {
             position: 0,
             color: String::new(),
             schedule: Schedule::default(),
+            hidden: false,
         };
         tx.commit()?;
         self.checkpoint().ok();
@@ -2177,6 +2185,7 @@ fn space_row(r: &Row) -> rusqlite::Result<Space> {
             start: r.get::<_, i64>(7)?.rem_euclid(24) as u8,
             end: r.get::<_, i64>(8)?.rem_euclid(24) as u8,
         },
+        hidden: r.get(9)?,
     })
 }
 
@@ -2574,6 +2583,18 @@ mod tests {
         store.delete_orphan_temporary_spaces().unwrap();
         assert!(store.temporary_space(shown.id).is_ok() && store.temporary_space(orphan.id).is_err());
         assert_eq!(store.spaces(p.id).unwrap(), [space]);
+    }
+
+    #[test]
+    fn a_hidden_space_stays_listed_and_can_be_shown_again() {
+        let store = Store::open_in_memory().unwrap();
+        let p = store.create_profile("P", "uuid", false).unwrap();
+        let space = store.create_space(p.id, "S", "").unwrap();
+        assert!(!space.hidden);
+        store.set_space_hidden(space.id, true).unwrap();
+        assert!(store.spaces(p.id).unwrap()[0].hidden, "still listed, marked hidden");
+        store.set_space_hidden(space.id, false).unwrap();
+        assert!(!store.spaces(p.id).unwrap()[0].hidden);
     }
 
     #[test]

@@ -163,6 +163,8 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::CaptureArea => &capture::CaptureArea,
         C::InsertSnippet => &snippets::InsertSnippet,
         C::Measure => &capture::Measure,
+        C::ToggleInspector => &capture::ToggleInspector,
+        C::MoveInspector => &capture::MoveInspector,
         C::CaptureElement => &capture::CaptureElement,
         C::CaptureFullPage => &capture::CaptureFullPage,
         C::SavePdf => &capture::SavePdf,
@@ -214,7 +216,7 @@ impl Browser {
         ui::theme::Theme::set_compact(self.pref(prefs::Pref::CompactDensity));
         self.note_motion();
         // The menu bar is the app's; only the window in front decides what it lists.
-        if window.is_window_active() {
+        if self.shell_active(window) {
             self.refresh_menus(cx);
         }
         self.keep_spinning(window, cx);

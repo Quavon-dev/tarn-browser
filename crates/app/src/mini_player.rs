@@ -7,7 +7,7 @@ use browser_core::page_ops::MediaState;
 use engine::page_scripts::PipMode;
 use futures::StreamExt;
 use futures::channel::mpsc;
-use gpui::{AnyElement, Context, InteractiveElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Task, Window, div, px};
+use gpui::{AnyElement, Context, InteractiveElement, IntoElement, ParentElement, SharedString, StatefulInteractiveElement, Styled, Task, Window, div, px};
 use ui::controls::{icon_button, surface, tab_stop, tooltip};
 use ui::icon::{ICON, Icon, icon};
 use ui::motion::pop_in;
@@ -175,7 +175,10 @@ pub(crate) fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElemen
         .items_center()
         .gap_1p5()
         .cursor_pointer()
-        .child(icon(Icon::Music, ICON, Theme::muted()))
+        .child(match b.tab_url(key) {
+            Some(url) => crate::sidebar::site_icon(b, &url, ICON),
+            None => icon(Icon::Music, ICON, Theme::muted()).into_any_element(),
+        })
         .child(div().flex_1().min_w_0().text_size(px(TEXT_SMALL)).one_line(title.clone()))
         .tooltip(tooltip(title, None))
         .on_click(cx.listener(move |b, _, window, cx| b.open_media_tab(key, window, cx)));

@@ -312,6 +312,7 @@ pub struct SettingsWindow {
     _inputs: [Subscription; 2],
     _observe: Option<Subscription>,
     _activation: Subscription,
+    _window_buttons: [Subscription; 2],
     _release: Subscription,
 }
 
@@ -337,12 +338,7 @@ impl SettingsWindow {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             display_id,
             window_min_size: Some(size(px(720.), px(480.))),
-            titlebar: Some(TitlebarOptions {
-                title: Some("Settings".into()),
-                appears_transparent: true,
-                // AppKit only hit-tests the buttons inside its titlebar strip, so they stay within it.
-                traffic_light_position: Some(point(px(18.), px(10.))),
-            }),
+            titlebar: Some(TitlebarOptions { title: Some("Settings".into()), appears_transparent: true, traffic_light_position: None }),
             window_background: crate::themes::window_background(),
             is_minimizable: false,
             ..Default::default()
@@ -393,6 +389,7 @@ impl SettingsWindow {
                     _inputs: inputs,
                     _observe: observe,
                     _activation: activation,
+                    _window_buttons: crate::shared::keep_window_buttons((18., 10.), window, cx),
                     _release: cx.on_release(|this: &mut SettingsWindow, cx| {
                         this.main.update(cx, |b, _, cx| b.cancel_store_offer(cx)).ok();
                     }),
@@ -1012,6 +1009,7 @@ impl SettingsWindow {
                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_choice(Choice::Accent, ix, cx))))
         }));
         let compact = s.prefs.get(Pref::CompactToolbar) as usize;
+        let top = self.browser.upgrade().is_some_and(|b| b.read(cx).tab_placement == browser_core::layout::TabPlacement::Top) as usize;
         let motion = "Pop-ups, cards, tabs and the sidebar appear without animation, and the search bar effect holds still.";
         let reduce_motion = if s.reduce && !s.prefs.get(Pref::ReduceMotion) {
             let system = if cfg!(windows) {
@@ -1038,6 +1036,21 @@ impl SettingsWindow {
                 group()
                     .child(self.choice_row(
                         true,
+                        "Tabs",
+                        format!(
+                            "In the sidebar, or in a strip across the top with the sidebar hidden ({}).",
+                            crate::shortcuts::shown(&crate::ToggleTabsOnTop, cx)
+                        ),
+                        &["Sidebar", "Top"],
+                        top,
+                        |b, ix, cx| {
+                            b.set_tabs_on_top(ix == 1, cx);
+                            crate::shared::others(cx, |b, _, cx| b.set_tabs_on_top(ix == 1, cx));
+                        },
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
                         "Toolbar",
                         "Compact puts the address field into a slimmer bar.",
                         &["Classic", "Compact"],

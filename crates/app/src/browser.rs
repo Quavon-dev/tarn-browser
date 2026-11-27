@@ -246,7 +246,7 @@ pub(crate) fn on_download(private: bool, profile_id: Id, event: Event, cx: &mut 
         if let Some(id) = id {
             b.set_transfer((private, profile_id, id), None, cx);
         }
-        b.notify_download(private, profile_id, &result, window.is_window_active(), cx);
+        b.notify_download(private, profile_id, &result, crate::shared::window_in_use(window), cx);
         b.downloads_popover.changed += 1;
         cx.notify();
     });
@@ -668,6 +668,9 @@ impl Browser {
         let appearance = cx.observe_window_appearance(window, |b, _, cx| crate::themes::appearance_changed(&b.core.clone(), cx));
         let deactivate = cx.observe_window_activation(window, |b, window, cx| {
             cx.notify();
+            // A Chromium page's window takes the keyboard as this one gives it up; AppKit names
+            // the new key window only after this call.
+            cx.on_next_frame(window, |_, _, cx| cx.notify());
             if window.is_window_active() {
                 // Animations in every window stood still while Tarn was in the background.
                 crate::shared::others(cx, |_, _, cx| cx.notify());
@@ -692,6 +695,7 @@ impl Browser {
             b.address.remove_windows(cx);
         });
         browser._subscriptions.extend([blur, appearance, deactivate, release]);
+        browser._subscriptions.extend(crate::shared::keep_window_buttons(crate::shared::WINDOW_BUTTONS, window, cx));
         browser.watch_navigation_buttons(window, cx);
         browser.watch_split_clicks(window, cx);
         browser.watch_peek_pointer(window, cx);

@@ -885,7 +885,7 @@ impl Motion {
 
     fn elapsed<V: 'static>(&mut self, run: bool, frame: std::time::Duration, window: &Window, cx: &mut Context<V>) -> std::time::Duration {
         let now = Instant::now();
-        let active = engine::app_active() && window.is_window_active();
+        let active = engine::app_active() && crate::shared::window_in_use(window);
         if active && !self.active {
             self.input.set(Some(now));
         }
