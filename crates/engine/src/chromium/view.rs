@@ -128,6 +128,16 @@ struct Tab {
     #[cfg(windows)]
     restoring: Cell<bool>,
     tarn: RefCell<tarn::TarnTab>,
+    /// DevTools docked beside the page, in a window of its own, and whether it sits on the left.
+    #[cfg(target_os = "macos")]
+    inspector: RefCell<Option<cef::Window>>,
+    #[cfg(target_os = "macos")]
+    inspector_left: Cell<bool>,
+    /// The DevTools window was shown through CEF once.
+    #[cfg(target_os = "macos")]
+    inspector_shown: Cell<bool>,
+    #[cfg(target_os = "macos")]
+    view: RefCell<std::rc::Weak<Inner>>,
 }
 
 thread_local! {
@@ -225,6 +235,17 @@ const REBUILD_BURST: usize = 4;
 #[cfg(windows)]
 thread_local! {
     static REBUILDS: RefCell<std::collections::VecDeque<std::time::Instant>> = RefCell::default();
+}
+
+/// The NSWindow of one of CEF's Views windows.
+#[cfg(target_os = "macos")]
+fn ns_window_of(window: &cef::Window) -> Option<Retained<NSWindow>> {
+    let handle = window.window_handle();
+    if handle.is_null() {
+        return None;
+    }
+    // SAFETY: CEF returns the live NSView of its Views window on the main thread.
+    unsafe { &*handle.cast::<NSView>() }.window()
 }
 
 /// Handlers carry only this id: CEF asks the client for some handlers on its IO thread, where an
@@ -1020,7 +1041,6 @@ wrap_request_handler! {
     }
 }
 
-#[cfg(windows)]
 // The DevTools window of the tab `id` shows DevTools' own pages only and sends no request to the
 // web; a link it opens is offered in the tab, as a page's pop-up is, and nothing downloads.
 wrap_client! {
@@ -1040,15 +1060,18 @@ wrap_client! {
         fn download_handler(&self) -> Option<DownloadHandler> {
             Some(NoDownloads::new())
         }
+
+        // Chrome's own commands (new window, new tab) would open a browser without Tarn's handlers.
+        fn command_handler(&self) -> Option<CommandHandler> {
+            Some(TarnCommand::new())
+        }
     }
 }
 
-#[cfg(windows)]
 fn inspector_page(url: &str) -> bool {
     url.starts_with("devtools://") || url == "about:blank"
 }
 
-#[cfg(windows)]
 /// A web link DevTools opens, offered in the inspected tab; the user's click there opens it.
 fn offer_from_inspector(id: u64, target_url: Option<&CefString>, user_gesture: i32) {
     let Some(tab) = tab(id) else { return };
@@ -1061,7 +1084,6 @@ fn offer_from_inspector(id: u64, target_url: Option<&CefString>, user_gesture: i
     }
 }
 
-#[cfg(windows)]
 wrap_request_handler! {
     struct InspectorRequests {
         id: u64,
@@ -1083,7 +1105,6 @@ wrap_request_handler! {
     }
 }
 
-#[cfg(windows)]
 wrap_resource_request_handler! {
     struct InspectorNoWeb;
 
@@ -1097,7 +1118,6 @@ wrap_resource_request_handler! {
     }
 }
 
-#[cfg(windows)]
 wrap_life_span_handler! {
     struct InspectorPopups {
         id: u64,
@@ -1120,7 +1140,6 @@ wrap_life_span_handler! {
     }
 }
 
-#[cfg(windows)]
 wrap_download_handler! {
     struct NoDownloads;
 
@@ -1177,12 +1196,19 @@ wrap_life_span_handler! {
             1
         }
 
-        // Chrome's Inspect opens DevTools in a window of its own, which gets Tarn's client for it.
-        #[cfg(windows)]
-        fn on_before_dev_tools_popup(&self, _browser: Option<&mut Browser>, _window_info: Option<&mut WindowInfo>, client: Option<&mut Option<Client>>, _settings: Option<&mut BrowserSettings>, _extra_info: Option<&mut Option<DictionaryValue>>, _use_default_window: Option<&mut i32>) {
+        // DevTools gets Tarn's client for it, never the page's. On Windows it opens in a window of
+        // its own; on macOS as a popup of the page's BrowserView, which docks it beside the page
+        // (`TarnBrowserViewDelegate`) in place of Chrome's own window.
+        fn on_before_dev_tools_popup(&self, _browser: Option<&mut Browser>, _window_info: Option<&mut WindowInfo>, client: Option<&mut Option<Client>>, _settings: Option<&mut BrowserSettings>, _extra_info: Option<&mut Option<DictionaryValue>>, use_default_window: Option<&mut i32>) {
             if let Some(client) = client {
                 *client = Some(InspectorClient::new(self.id));
             }
+            #[cfg(target_os = "macos")]
+            if let Some(default) = use_default_window {
+                *default = 0;
+            }
+            #[cfg(windows)]
+            let _ = use_default_window;
         }
 
         fn on_after_created(&self, browser: Option<&mut Browser>) {
@@ -1818,13 +1844,39 @@ fn forwarded(modifiers: u32, key: i32) -> bool {
 
 #[cfg(target_os = "macos")]
 wrap_browser_view_delegate! {
-    struct TarnBrowserViewDelegate {}
+    struct TarnBrowserViewDelegate {
+        // The tab whose page this view shows; 0 for DevTools' own view.
+        id: u64,
+    }
 
     impl ViewDelegate {}
 
     impl BrowserViewDelegate {
         fn browser_runtime_style(&self) -> RuntimeStyle {
             RuntimeStyle::CHROME
+        }
+
+        fn delegate_for_popup_browser_view(&self, _browser_view: Option<&mut BrowserView>, _settings: Option<&BrowserSettings>, _client: Option<&mut Client>, is_devtools: i32) -> Option<BrowserViewDelegate> {
+            (is_devtools != 0).then(|| TarnBrowserViewDelegate::new(0))
+        }
+
+        /// DevTools goes into a frameless window of its own, placed beside the page as the shell's child.
+        fn on_popup_browser_view_created(&self, _browser_view: Option<&mut BrowserView>, popup_browser_view: Option<&mut BrowserView>, is_devtools: i32) -> i32 {
+            let (Some(tab), Some(popup)) = (tab(self.id).filter(|_| is_devtools != 0), popup_browser_view) else { return 0 };
+            let mut delegate = TarnWindowDelegate::new(popup.clone(), self.id);
+            let Some(window) = window_create_top_level(Some(&mut delegate)) else { return 0 };
+            if let Some(old) = tab.inspector.replace(Some(window.clone())) {
+                old.close();
+            }
+            tab.inspector_shown.set(false);
+            if let Some(view) = tab.view.borrow().upgrade().map(WebView) {
+                // A tab put away while DevTools was opening shows it when it shows again.
+                if view.0.visible.get() {
+                    view.show(true);
+                }
+                view.relayout();
+            }
+            1
         }
 
         fn chrome_toolbar_type(&self, _browser_view: Option<&mut BrowserView>) -> ChromeToolbarType {
@@ -1837,6 +1889,8 @@ wrap_browser_view_delegate! {
 wrap_window_delegate! {
     struct TarnWindowDelegate {
         browser_view: BrowserView,
+        // The tab whose DevTools this window shows; 0 for a page's own window.
+        inspector_of: u64,
     }
 
     impl ViewDelegate {}
@@ -1854,6 +1908,23 @@ wrap_window_delegate! {
         fn on_window_destroyed(&self, window: Option<&mut cef::Window>) {
             let Some(window) = window else { return };
             WINDOWS.with_borrow_mut(|w| w.retain(|other| other.is_same(Some(&mut View::from(&*window))) != 1));
+            if let Some(tab) = tab(self.inspector_of)
+                && tab.inspector.borrow().as_ref().is_some_and(|w| w.is_same(Some(&mut View::from(&*window))) == 1)
+            {
+                tab.inspector.take();
+                if let Some(view) = tab.view.borrow().upgrade().map(WebView) {
+                    view.relayout();
+                }
+            }
+        }
+
+        /// A click in the page makes its window key; the shell's window stays the main one, so it
+        /// keeps looking active, as a page in a WebKit tab leaves it.
+        fn on_window_activation_changed(&self, window: Option<&mut cef::Window>, active: i32) {
+            let Some(window) = window.filter(|_| active != 0) else { return };
+            if let Some(parent) = ns_window_of(window).and_then(|w| w.parentWindow()).filter(|p| !p.isMainWindow()) {
+                parent.makeMainWindow();
+            }
         }
 
         fn is_frameless(&self, _window: Option<&mut cef::Window>) -> i32 {
@@ -1907,6 +1978,9 @@ struct Inner {
     #[cfg(windows)]
     clip: Cell<Option<(isize, i32, i32, i32)>>,
     visible: Cell<bool>,
+    /// The tab's window was shown through CEF once.
+    #[cfg(target_os = "macos")]
+    shown: Cell<bool>,
     muted: Cell<bool>,
     /// The colour scheme asked for, applied once the browser exists.
     dark: Cell<Option<bool>>,
@@ -2089,8 +2163,16 @@ impl WebView {
             #[cfg(windows)]
             restoring: Cell::new(false),
             tarn: RefCell::default(),
+            #[cfg(target_os = "macos")]
+            inspector: RefCell::new(None),
+            #[cfg(target_os = "macos")]
+            inspector_left: Cell::new(false),
+            #[cfg(target_os = "macos")]
+            inspector_shown: Cell::new(false),
+            #[cfg(target_os = "macos")]
+            view: RefCell::default(),
         });
-        Rc::new(Inner {
+        let inner = Rc::new(Inner {
             created: RefCell::new(None),
             host: RefCell::new(host.clone()),
             tab,
@@ -2100,6 +2182,8 @@ impl WebView {
             #[cfg(windows)]
             clip: Cell::new(None),
             visible: Cell::new(false),
+            #[cfg(target_os = "macos")]
+            shown: Cell::new(false),
             muted: Cell::new(false),
             dark: Cell::new(None),
             first_load: RefCell::new(None),
@@ -2108,7 +2192,12 @@ impl WebView {
             site_styles,
             gated: Cell::new(false),
             dead: Cell::new(false),
-        })
+        });
+        #[cfg(target_os = "macos")]
+        {
+            *inner.tab.view.borrow_mut() = Rc::downgrade(&inner);
+        }
+        inner
     }
 
     fn create(&self, context: &mut RequestContext) {
@@ -2128,10 +2217,10 @@ impl WebView {
         let start = CefString::from("about:blank");
         #[cfg(target_os = "macos")]
         let created = {
-            let mut delegate = TarnBrowserViewDelegate::new();
+            let mut delegate = TarnBrowserViewDelegate::new(id);
             browser_view_create(Some(&mut client), Some(&start), Some(&BrowserSettings::default()), None, Some(context), Some(&mut delegate)).and_then(
                 |browser_view| {
-                    let mut window_delegate = TarnWindowDelegate::new(browser_view.clone());
+                    let mut window_delegate = TarnWindowDelegate::new(browser_view.clone(), 0);
                     window_create_top_level(Some(&mut window_delegate)).map(|window| (browser_view, window))
                 },
             )
@@ -2538,25 +2627,32 @@ impl WebView {
 
     #[cfg(target_os = "macos")]
     fn ns_window(&self) -> Option<Retained<NSWindow>> {
-        let handle = self.window()?.window_handle();
-        if handle.is_null() {
-            return None;
-        }
-        // SAFETY: CEF returns the live NSView of its Views window on the main thread.
-        unsafe { &*handle.cast::<NSView>() }.window()
+        ns_window_of(&self.window()?)
+    }
+
+    /// The page's window and, when DevTools is docked, DevTools' window.
+    #[cfg(target_os = "macos")]
+    fn ns_windows(&self) -> impl Iterator<Item = Retained<NSWindow>> {
+        let inspector = self.0.tab.inspector.borrow().as_ref().and_then(ns_window_of);
+        self.ns_window().into_iter().chain(inspector)
     }
 
     #[cfg(target_os = "macos")]
     fn attach(&self) {
-        let (Some(child), Some(parent)) = (self.ns_window(), self.0.host.borrow().view.window()) else { return };
-        // SAFETY: both windows are live and belong to this process.
-        unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Above) };
+        let Some(parent) = self.0.host.borrow().view.window() else { return };
+        for child in self.ns_windows() {
+            // SAFETY: both windows are live and belong to this process.
+            unsafe { parent.addChildWindow_ordered(&child, NSWindowOrderingMode::Above) };
+            child.orderWindow_relativeTo(NSWindowOrderingMode::Above, parent.windowNumber());
+        }
     }
 
     #[cfg(target_os = "macos")]
     fn detach(&self) {
-        let (Some(child), Some(parent)) = (self.ns_window(), self.0.host.borrow().view.window()) else { return };
-        parent.removeChildWindow(&child);
+        let Some(parent) = self.0.host.borrow().view.window() else { return };
+        for child in self.ns_windows() {
+            parent.removeChildWindow(&child);
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -2646,6 +2742,12 @@ impl WebView {
     /// On macOS a frame that is already in place is not set again: the page would be laid out anew.
     pub fn set_frame(&self, x: f64, y: f64, width: f64, height: f64) {
         self.0.frame.set(Some((x, y, width, height)));
+        self.relayout();
+    }
+
+    /// Places the page in the frame last set, sharing it with docked DevTools.
+    fn relayout(&self) {
+        let Some((x, y, width, height)) = self.0.frame.get() else { return };
         let host = self.0.host.borrow();
         #[cfg(windows)]
         if let Some(child) = self.hwnd() {
@@ -2669,13 +2771,44 @@ impl WebView {
         }
         #[cfg(target_os = "macos")]
         {
-            let (Some(child), Some(parent)) = (self.ns_window(), host.view.window()) else { return };
-            let rect = parent.convertRectToScreen(host.view.convertRect_toView(host.rect(x, y, width, height), None));
-            let current = child.frame();
-            if current != rect {
-                crate::startup::frame_set(current.size != rect.size);
-                child.setFrame_display(rect, true);
+            let Some(parent) = host.view.window() else { return };
+            let inspector = self.0.tab.inspector.borrow().as_ref().and_then(ns_window_of);
+            let (page, docked) = crate::view_policy::dock(x, width, inspector.is_some(), self.0.tab.inspector_left.get());
+            let place = |child: &NSWindow, (x, width): (f64, f64)| {
+                let rect = parent.convertRectToScreen(host.view.convertRect_toView(host.rect(x, y, width, height), None));
+                let current = child.frame();
+                if current != rect {
+                    crate::startup::frame_set(current.size != rect.size);
+                    child.setFrame_display(rect, true);
+                }
+            };
+            if let Some(child) = self.ns_window() {
+                place(&child, page);
             }
+            if let (Some(child), Some(docked)) = (inspector, docked) {
+                place(&child, docked);
+            }
+        }
+    }
+
+    /// Opens DevTools, docked beside the page on macOS, or closes it.
+    pub fn toggle_inspector(&self) {
+        let Some(host) = self.browser_host().filter(|_| self.0.tab.inspectable.get()) else { return };
+        if host.has_dev_tools() == 1 {
+            host.close_dev_tools();
+        } else {
+            let info = WindowInfo { runtime_style: RuntimeStyle::CHROME, ..Default::default() };
+            host.show_dev_tools(Some(&info), None, None, None);
+        }
+    }
+
+    /// Moves docked DevTools to the page's other side.
+    #[cfg(target_os = "macos")]
+    pub fn move_inspector(&self) {
+        let tab = &self.0.tab;
+        if tab.inspector.borrow().is_some() {
+            tab.inspector_left.set(!tab.inspector_left.get());
+            self.relayout();
         }
     }
 
@@ -2722,16 +2855,34 @@ impl WebView {
         }
     }
 
+    /// Chromium shows a window by making it key and activating the app, which would pull Tarn in
+    /// front of the app in use and leave the shell's window looking inactive. Only the first show
+    /// goes through CEF; after that the tab's window is ordered in and out as the shell's child,
+    /// and the browser is told whether it is hidden, as on Windows.
     #[cfg(target_os = "macos")]
     fn show(&self, visible: bool) {
         let Some(window) = self.window() else { return };
-        if visible {
-            window.show();
-            self.attach();
-        } else {
-            self.detach();
-            window.hide();
+        if let Some(host) = self.browser_host() {
+            host.was_hidden(i32::from(!visible));
         }
+        if !visible {
+            self.detach();
+            for child in self.ns_windows() {
+                child.orderOut(None);
+            }
+            return;
+        }
+        let inspector = self.0.tab.inspector.borrow().clone().filter(|_| !self.0.tab.inspector_shown.replace(true));
+        let first = (!self.0.shown.replace(true)).then_some(window);
+        if first.is_some() || inspector.is_some() {
+            let shell = self.0.host.borrow().view.window();
+            let shell_key = shell.as_ref().is_some_and(|w| w.isKeyWindow());
+            first.into_iter().chain(inspector).for_each(|w| w.show());
+            if let Some(shell) = shell.filter(|_| shell_key) {
+                shell.makeKeyWindow();
+            }
+        }
+        self.attach();
     }
 
     /// The page's opacity, for fades; a Windows child window is layered only while it fades.
@@ -3024,6 +3175,9 @@ impl Drop for WebView {
         self.0.tab.browser.take();
         #[cfg(target_os = "macos")]
         {
+            if let Some(inspector) = self.0.tab.inspector.take() {
+                inspector.close();
+            }
             if let Some((_, window)) = self.0.created.borrow_mut().take() {
                 window.close();
             }

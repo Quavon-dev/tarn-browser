@@ -414,7 +414,14 @@ impl SettingsWindow {
             );
         }
         if on {
-            out = out.child(note(browser_core::agent::setup(&exe)));
+            let steps = browser_core::agent::setup_steps(&exe).into_iter().enumerate().map(|(ix, (agent, place, text))| {
+                row(ix == 0).flex_col().items_start().gap_2().py_2p5().child(text_block(agent, place)).child(ui::controls::code_block(
+                    ("agent-setup", ix),
+                    text,
+                    "Copy",
+                ))
+            });
+            out = out.child(section("Connect an agent")).child(group().children(steps));
             let entries = crate::agent::log(cx);
             if !entries.is_empty() {
                 let rows = entries.into_iter().take(20).enumerate().map(|(ix, e)| {

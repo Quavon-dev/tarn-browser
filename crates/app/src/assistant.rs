@@ -1554,20 +1554,7 @@ fn markdown(blocks: &[Block], row: usize, me: &gpui::WeakEntity<Browser>) -> Vec
                     div().pl_2().border_l_2().border_color(Theme::separator()).text_color(Theme::muted()).child(spans_text(id, spans, me)).into_any_element()
                 }
                 Block::Code { code, .. } => {
-                    let copied = code.clone();
-                    div()
-                        .flex()
-                        .gap_1()
-                        .p_2()
-                        .rounded(px(Theme::radius_small()))
-                        .bg(Theme::control())
-                        .child(div().flex_1().min_w_0().font_family(ui::theme::MONO_FONT).text_size(px(TEXT_SMALL)).child(copied.trim_end().to_owned()))
-                        .child(
-                            tab_stop(icon_button(("assistant-code-copy", row * 10_000 + ix), Icon::Copy, true))
-                                .tooltip(tooltip("Copy Code", None))
-                                .on_click(move |_, _, cx| cx.write_to_clipboard(ClipboardItem::new_string(copied.clone()))),
-                        )
-                        .into_any_element()
+                    ui::controls::code_block(("assistant-code-copy", row * 10_000 + ix), code.trim_end().to_owned(), "Copy Code").into_any_element()
                 }
                 Block::Rule => div().h(px(1.)).bg(Theme::separator()).into_any_element(),
             }

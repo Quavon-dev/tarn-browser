@@ -36,6 +36,7 @@ pub enum Cmd {
     DeleteFolder(Id),
     NewSpace,
     DeleteSpace(usize),
+    HideSpace(usize, bool),
     CompactToolbar(bool),
     Settings,
     Rename(RenameTarget),
@@ -229,6 +230,10 @@ impl Browser {
         items.extend([
             Item::action("Edit Space…", Cmd::EditSpace(ix)),
             Item::action("New Space…", Cmd::NewSpace).key(crate::shortcuts::keys(&crate::NewSpace, cx)),
+            match self.model.spaces[ix].space.hidden {
+                true => Item::action("Show Space", Cmd::HideSpace(ix, false)),
+                false => Item::action("Hide Space", Cmd::HideSpace(ix, true)).enabled(self.model.can_hide_space(ix)),
+            },
             Item::Separator,
             Item::action("Delete Space…", Cmd::DeleteSpace(ix)).enabled(self.model.can_delete_space(ix)),
         ]);
@@ -401,6 +406,7 @@ impl Browser {
             Cmd::DeleteFolder(id) => self.confirm_delete_folder(id, window, cx),
             Cmd::NewSpace => self.new_space(window, cx),
             Cmd::DeleteSpace(ix) => self.confirm_delete_space(ix, window, cx),
+            Cmd::HideSpace(ix, hidden) => self.hide_space(ix, hidden, window, cx),
             Cmd::CompactToolbar(on) => self.set_pref(Pref::CompactToolbar, on, cx),
             Cmd::Settings => self.open_settings_pane(SettingsPane::Appearance, window, cx),
             Cmd::Rename(target) => self.begin_rename(target, window, cx),
@@ -757,27 +763,45 @@ impl Browser {
         cx.notify();
     }
 
+    /// Hides a space from the space bar, leaving it for a shown neighbour when it is the one in
+    /// use, or shows it again.
+    fn hide_space(&mut self, ix: usize, hidden: bool, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(next) = self.model.set_space_hidden(&self.core, ix, hidden) else { return };
+        Self::sync_other_windows(cx);
+        if let Some(next) = next {
+            self.switch_space(next, window, cx);
+        }
+        cx.notify();
+    }
+
     fn confirm_delete_space(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let Some(space) = self.model.spaces.get(ix).filter(|_| self.model.can_delete_space(ix)) else { return };
         let (private, id) = (space.private, space.space.id);
-        let message = format!("Delete the space “{}” and all its tabs?", ui::text::bounded_title(&space.space.name));
+        let name = ui::text::bounded_title(&space.space.name);
+        if let Some(profile) = self.model.profile_deleted_with(ix) {
+            let owner = self.core.disk.profile(profile).map(|p| ui::text::bounded_title(&p.name)).unwrap_or_default();
+            let message = format!(
+                "Delete the space “{name}”? It is the last space of the profile “{owner}”, so the profile is deleted with it: its spaces, tabs and history, and its cookies and website data unless another profile shares them. This cannot be undone."
+            );
+            // Asked again on confirming: another window may have added a space to the profile.
+            return self.confirm(&message, window, cx, move |b, window, cx| {
+                let ix = b.model.spaces.iter().position(|s| (s.private, s.space.id) == (private, id));
+                if ix.and_then(|ix| b.model.profile_deleted_with(ix)) == Some(profile) {
+                    b.delete_profile(profile, window, cx);
+                }
+            });
+        }
+        let message = format!("Delete the space “{name}” and all its tabs?");
         self.confirm(&message, window, cx, move |b, window, cx| b.delete_space(private, id, window, cx));
     }
 
     pub fn delete_space(&mut self, private: bool, id: Id, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((ix, keys)) = self.model.space_to_delete(&self.core, private, id) else { return };
-        let current = self.model.current_space().map(|s| (s.private, s.space.id));
+        let Some((keys, next)) = self.model.delete_space(&self.core, private, id) else { return };
         for key in keys {
             self.discard_tab(key, cx);
         }
-        if self.store(private).delete_space(id).is_err() {
-            return;
-        }
         Self::sync_other_windows(cx);
-        self.reload_spaces();
-        self.model.closed_tabs.retain(&self.model.spaces);
-        let next = self.model.spaces.iter().position(|s| Some((s.private, s.space.id)) == current).unwrap_or(ix.saturating_sub(1));
-        self.switch_space(next, window, cx);
+        self.switch_space(next.unwrap_or(self.model.space_ix), window, cx);
     }
 
     pub(crate) fn apply_view_prefs(&self, cx: &gpui::App) {

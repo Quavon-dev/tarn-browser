@@ -64,6 +64,15 @@ impl Host {
 
     pub fn double_buffer(&self) {}
 
+    /// Chromium's pages are child windows of the shell's on Windows, so the shell's window is the
+    /// one with the keyboard whenever GPUI reports it active.
+    pub fn holds_key(&self) -> bool {
+        false
+    }
+
+    /// Windows draws its caption buttons itself, at the toolbar's right.
+    pub fn place_window_buttons(&self, _x: f64, _y: f64) {}
+
     /// GPUI's pop-up windows have no frame on Windows.
     pub fn strip_frame(&self) {}
 

@@ -541,11 +541,42 @@ pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
         .child(section("Icon"))
         .child(view().flex_row().flex_wrap().gap_1().children(icons_grid))
         .child((!new && !private).then(|| schedule(draft)));
+    let manage = editing.filter(|_| !private).map(|ix| {
+        let (hidden, hideable, deletable, key) = ui.read(|s| {
+            let space = s.model.spaces.get(ix);
+            let deletable = s.model.can_delete_space(ix) && s.model.profile_deleted_with(ix).is_none();
+            (space.is_some_and(|sp| sp.space.hidden), s.model.can_hide_space(ix), deletable, space.map(|sp| (sp.private, sp.space.id)))
+        });
+        let hide = key.filter(|_| hidden || hideable).map(|(private, id)| {
+            pill(if hidden { "Show Space" } else { "Hide Space" }, move || {
+                ui.act(|s| {
+                    s.set_space_hidden(private, id, !hidden);
+                    Vec::new()
+                });
+                back();
+            })
+        });
+        let delete = key.filter(|_| deletable).map(|(private, id)| {
+            pill("Delete Space…", move || {
+                super::panels::confirm("Delete this space?", "The space and all its tabs are deleted.", "Delete", move || {
+                    ui.act(|s| {
+                        s.delete_space(private, id);
+                        Vec::new()
+                    });
+                    back();
+                })
+            })
+        });
+        view().flex_row().gap_2().children(hide).children(delete)
+    });
     let footer = view()
         .flex_row()
+        .flex_wrap()
         .justify_end()
         .gap_2()
         .pt_2()
+        .children(manage)
+        .child(view().flex_1())
         .child(pill("Cancel", back))
         .child(accent_pill(if new { "Create Space" } else { "Save" }, confirm).disabled(move || !ready()).disabled_style(|s| s.opacity(0.35)));
     (body, footer)

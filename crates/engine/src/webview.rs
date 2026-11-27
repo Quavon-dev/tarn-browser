@@ -7,7 +7,7 @@ use objc2::runtime::NSObjectProtocol;
 use objc2::{ClassType, MainThreadMarker, MainThreadOnly, msg_send, sel};
 use objc2_app_kit::{
     NSAlert, NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSBitmapImageFileType, NSBitmapImageRep, NSImage,
-    NSPanel, NSPrintInfo, NSView, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
+    NSPanel, NSPrintInfo, NSView, NSWindowButton, NSWindowOrderingMode, NSWindowStyleMask, NSWorkspace,
 };
 use objc2_foundation::{
     NSArray, NSBundle, NSData, NSDictionary, NSError, NSKeyValueObservingOptions, NSNumber, NSObject, NSObjectNSKeyValueObserverRegistration, NSPoint, NSRect,
@@ -86,6 +86,48 @@ impl Host {
             // thread while both drawables are still in use.
             let _: () = unsafe { msg_send![&*layer, setAllowsNextDrawableTimeout: true] };
         }
+    }
+
+    /// Puts the window's own close, minimise and zoom buttons `x` points from the left and `y` from
+    /// the top. The title bar container grows around them, so AppKit keeps tracking the pointer
+    /// over all three and they highlight together the moment it arrives, as in any native window;
+    /// moving the buttons alone leaves them outside the area AppKit watches.
+    pub fn place_window_buttons(&self, x: f64, y: f64) {
+        let Some(window) = self.view.window() else { return };
+        if window.styleMask().contains(NSWindowStyleMask::FullScreen) {
+            return;
+        }
+        let buttons =
+            [NSWindowButton::CloseButton, NSWindowButton::MiniaturizeButton, NSWindowButton::ZoomButton].map(|kind| window.standardWindowButton(kind));
+        let [Some(close), Some(minimise), Some(zoom)] = buttons else { return };
+        // SAFETY: main thread (the view's window is reachable only there); a window button sits in
+        // AppKit's title bar view, whose superview is the title bar container, both owned by the window.
+        let Some(container) = (unsafe { close.superview().and_then(|bar| bar.superview()) }) else { return };
+        let first = close.frame();
+        let spacing = minimise.frame().origin.x - first.origin.x;
+        let window_height = window.frame().size.height;
+        let mut frame = container.frame();
+        // AppKit keeps the buttons at a distance from the container's bottom that differs between
+        // macOS versions, so the container grows by however far they still are from `y`.
+        for _ in 0..2 {
+            let top = window_height - close.convertRect_toView(close.bounds(), None).origin.y - first.size.height;
+            frame.size.height = (frame.size.height + y - top).max(first.size.height);
+            frame.origin.y = window_height - frame.size.height;
+            container.setFrame(frame);
+            container.layoutSubtreeIfNeeded();
+        }
+        for (i, button) in [close, minimise, zoom].iter().enumerate() {
+            let mut origin = button.frame().origin;
+            origin.x = x + i as f64 * spacing;
+            button.setFrameOrigin(origin);
+        }
+    }
+
+    /// Whether this window, or the window of a Chromium page placed in it, has the keyboard.
+    pub fn holds_key(&self) -> bool {
+        let Some(window) = self.view.window() else { return false };
+        let key = MainThreadMarker::new().and_then(|mtm| objc2_app_kit::NSApplication::sharedApplication(mtm).keyWindow());
+        key.is_some_and(|key| key == window || key.parentWindow().is_some_and(|parent| parent == window))
     }
 
     /// Gives keyboard focus back to the shell view, e.g. when the command bar opens.
@@ -418,6 +460,26 @@ impl WebView {
         if crate::delegates::shows_fullscreen(crate::delegates::fullscreen_state(&self.view)) {
             // SAFETY: main-thread call on a live web view; no completion handler.
             unsafe { self.view.closeAllMediaPresentationsWithCompletionHandler(None) };
+        }
+    }
+
+    /// Opens Web Inspector, docked by WebKit itself, or closes it; only where it is on.
+    pub fn toggle_inspector(&self) {
+        // SAFETY: main-thread calls on a live web view. `_inspector` is WebKit's `_WKInspector`
+        // SPI (macOS 10.14.4 and later), checked before it is sent; `isVisible` returns a BOOL and
+        // `show` and `close` take no argument.
+        unsafe {
+            if !self.view.isInspectable() || !self.view.respondsToSelector(sel!(_inspector)) {
+                return;
+            }
+            let inspector: *mut objc2::runtime::AnyObject = msg_send![&*self.view, _inspector];
+            let Some(inspector) = inspector.as_ref() else { return };
+            let visible: bool = msg_send![inspector, isVisible];
+            if visible {
+                let _: () = msg_send![inspector, close];
+            } else {
+                let _: () = msg_send![inspector, show];
+            }
         }
     }
 

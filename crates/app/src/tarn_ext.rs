@@ -303,7 +303,7 @@ fn tab_infos(core: &AppCore, profile: Id, cx: &mut App) -> Vec<TabInfo> {
         if let Some(key) = b.model.active.filter(|k| !k.private && b.profile_of(*k) == Some(profile)) {
             active.insert(key.id);
         }
-        if window.is_window_active() && b.model.current_space().is_some_and(|s| !s.private && s.space.profile_id == profile) {
+        if crate::shared::window_in_use(window) && b.model.current_space().is_some_and(|s| !s.private && s.space.profile_id == profile) {
             current.extend(b.model.tabs.iter().map(|t| t.id));
         }
     });

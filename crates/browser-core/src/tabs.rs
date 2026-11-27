@@ -700,13 +700,63 @@ impl Model {
         self.spaces.iter().enumerate().filter(|(ix, s)| *ix != self.space_ix && holds(s, key, profile)).map(|(ix, _)| ix).collect()
     }
 
-    /// The last space of a saved profile stays, so the profile remains reachable.
+    /// Whether the space bar shows the space at `ix`: every space but a hidden one, and the space
+    /// in use even when hidden, so the window never shows a space it does not list.
+    pub fn space_shown(&self, ix: usize) -> bool {
+        self.spaces.get(ix).is_some_and(|s| !s.space.hidden || ix == self.space_ix)
+    }
+
+    /// Whether the space at `ix` may be hidden: a saved space, while another saved one stays in
+    /// the bar, so hiding never leaves only the private space to switch to.
+    pub fn can_hide_space(&self, ix: usize) -> bool {
+        self.spaces
+            .get(ix)
+            .filter(|s| !s.private && !s.space.hidden && self.confined.is_none())
+            .is_some_and(|space| self.spaces.iter().any(|o| !o.private && !o.space.hidden && o.space.id != space.space.id))
+    }
+
+    /// Hides the space at `ix` from the space bar, or shows it again; the command bar and the
+    /// Spaces menu still list it, so it stays reachable. Hiding the space in use returns the shown
+    /// saved space next to it, which the window should switch to.
+    pub fn set_space_hidden<D: WebsiteData>(&mut self, core: &Core<D>, ix: usize, hidden: bool) -> Option<Option<usize>> {
+        let space = self.spaces.get(ix).filter(|_| !hidden || self.can_hide_space(ix))?;
+        let (private, id) = (space.private, space.space.id);
+        core.store(private).set_space_hidden(id, hidden).ok()?;
+        self.reload_spaces(core);
+        let in_use = self.current_space().is_some_and(|s| (s.private, s.space.id) == (private, id));
+        let saved = |s: &SpaceRef| !s.private;
+        let next = crate::sidebar::neighbour_space(self, crate::sidebar::Step::Previous, saved)
+            .or_else(|| crate::sidebar::neighbour_space(self, crate::sidebar::Step::Next, saved));
+        Some(next.filter(|_| hidden && in_use))
+    }
+
+    /// Deletes a space and its tabs, unless deleting it takes its profile (`profile_deleted_with`),
+    /// and returns the tabs it removed for the client to forget and the index to show when the
+    /// space in use is gone.
+    pub fn delete_space<D: WebsiteData>(&mut self, core: &Core<D>, private: bool, id: Id) -> Option<(Vec<TabKey>, Option<usize>)> {
+        let (ix, keys) = self.space_to_delete(core, private, id)?;
+        core.store(private).delete_space(id).ok()?;
+        self.reload_spaces(core);
+        self.closed_tabs.retain(&self.spaces);
+        Some((keys, self.current_space().is_none().then(|| ix.saturating_sub(1))))
+    }
+
+    /// Any space but the burner tab's may be deleted, and the last one of the last profile, so a
+    /// window always has one; deleting a profile's last space deletes the profile too
+    /// (`profile_deleted_with`).
     pub fn can_delete_space(&self, ix: usize) -> bool {
         self.spaces
             .get(ix)
             .filter(|_| self.confined.is_none())
             .filter(|s| !(s.private && Some(s.space.id) == self.burner))
-            .is_some_and(|s| s.private || self.spaces.iter().filter(|o| !o.private && o.space.profile_id == s.space.profile_id).count() > 1)
+            .is_some_and(|s| s.private || self.spaces.iter().any(|o| !o.private && o.space.id != s.space.id))
+    }
+
+    /// The profile that goes with the space at `ix`, when it is that profile's last space.
+    pub fn profile_deleted_with(&self, ix: usize) -> Option<Id> {
+        let space = self.spaces.get(ix).filter(|s| !s.private && self.can_delete_space(ix))?;
+        let others = self.spaces.iter().any(|o| !o.private && o.space.id != space.space.id && o.space.profile_id == space.space.profile_id);
+        (!others).then_some(space.space.profile_id)
     }
 
     /// Moves the tab's row to the space at `ix` with the page it shows; false when that space
@@ -720,7 +770,11 @@ impl Model {
 
     /// The index of a space that may be deleted and the tabs deleting it removes.
     pub fn space_to_delete<D: WebsiteData>(&self, core: &Core<D>, private: bool, id: Id) -> Option<(usize, Vec<TabKey>)> {
-        let ix = self.spaces.iter().position(|s| s.private == private && s.space.id == id).filter(|ix| self.can_delete_space(*ix))?;
+        let ix = self
+            .spaces
+            .iter()
+            .position(|s| s.private == private && s.space.id == id)
+            .filter(|ix| self.can_delete_space(*ix) && self.profile_deleted_with(*ix).is_none())?;
         Some((ix, core.store(private).tabs(id).unwrap_or_default().into_iter().map(|t| TabKey { private, id: t.id }).collect()))
     }
 }
@@ -1348,6 +1402,40 @@ mod tests {
     }
 
     #[test]
+    fn a_hidden_space_leaves_the_bar_and_the_swipes_but_not_while_in_use() {
+        let (_dir, core, mut model) = opened();
+        let profile = model.spaces[0].space.profile_id;
+        for name in ["B", "C"] {
+            core.disk.create_space(profile, name, "").unwrap();
+        }
+        model.reload_spaces(&core);
+        let ix = |name: &str| model.spaces.iter().position(|s| s.space.name == name).unwrap();
+        let (b, c) = (ix("B"), ix("C"));
+        assert_eq!(model.set_space_hidden(&core, b, true), Some(None), "not in use: nothing to leave");
+        assert!(!model.space_shown(b) && model.space_shown(c));
+        let step = crate::sidebar::neighbour_space(&model, crate::sidebar::Step::Next, |_| true);
+        assert_eq!(step, Some(c), "the swipe skips the hidden space");
+        model.switch_space(&core, b).unwrap();
+        assert!(model.space_shown(b), "the space in use stays in the bar");
+        assert_eq!(model.set_space_hidden(&core, b, false), Some(None));
+        model.switch_space(&core, c).unwrap();
+        assert_eq!(model.set_space_hidden(&core, c, true), Some(Some(b)), "hiding the space in use leaves it for its neighbour");
+        let home = model.spaces.iter().position(|s| !s.private && s.space.name != "B" && s.space.name != "C").unwrap();
+        assert_eq!(model.set_space_hidden(&core, home, true), Some(None));
+        assert!(!model.can_hide_space(b), "the last shown saved space stays");
+        assert_eq!(model.set_space_hidden(&core, b, true), None);
+    }
+
+    #[test]
+    fn the_last_space_of_the_last_profile_stays() {
+        let (_dir, core, mut model) = opened();
+        model.reload_spaces(&core);
+        let home = model.spaces.iter().position(|s| !s.private).unwrap();
+        assert!(!model.can_delete_space(home));
+        assert_eq!(model.profile_deleted_with(home), None);
+    }
+
+    #[test]
     fn groups_take_only_unpinned_tabs_and_collapse() {
         let (_dir, core, mut model) = opened();
         let s = model.spaces[0].space.id;
@@ -1398,9 +1486,14 @@ mod tests {
         let moved = core.disk.tab(tab.id).unwrap();
         assert_eq!((moved.space_id, moved.url.as_str()), (mine.id, "https://b.test/"));
         assert!(model.can_delete_space(ix(mine.id)));
-        assert!(!model.can_delete_space(ix(theirs.id)), "the profile's last space");
+        assert_eq!(model.profile_deleted_with(ix(mine.id)), None);
+        assert!(model.can_delete_space(ix(theirs.id)), "the profile's last space, with its profile");
+        assert_eq!(model.profile_deleted_with(ix(theirs.id)), Some(other.id));
         assert_eq!(model.space_to_delete(&core, false, mine.id), Some((ix(mine.id), vec![key])));
-        assert_eq!(model.space_to_delete(&core, false, theirs.id), None);
+        assert_eq!(model.space_to_delete(&core, false, theirs.id), None, "deleting the profile deletes it");
+        assert_eq!(model.delete_space(&core, false, theirs.id), None);
+        assert_eq!(model.delete_space(&core, false, mine.id), Some((vec![key], None)), "the space in use stays");
+        assert!(core.disk.tab(tab.id).is_err() && !model.spaces.iter().any(|s| s.space.id == mine.id));
     }
 
     #[test]

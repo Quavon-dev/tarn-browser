@@ -588,6 +588,35 @@ fn layout_choice(ui: Ui) -> impl IntoElement {
                         .number_of_lines(0)
                         .px_1(),
                 )
+                .child(when(
+                    move || ui.mac.get(),
+                    move || {
+                        let pick = move |top: bool| {
+                            ui.act(|s| {
+                                if s.tabs_on_top() != top {
+                                    s.toggle_tabs_on_top();
+                                }
+                                Vec::new()
+                            })
+                        };
+                        view()
+                            .gap_2()
+                            .child(section("Tabs"))
+                            .child(segmented(vec![
+                                (
+                                    "Sidebar".to_owned(),
+                                    Box::new(move || !ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>,
+                                    Box::new(move || pick(false)) as Box<dyn Fn()>,
+                                ),
+                                (
+                                    "Top".to_owned(),
+                                    Box::new(move || ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>,
+                                    Box::new(move || pick(true)) as Box<dyn Fn()>,
+                                ),
+                            ]))
+                            .child(caption("Top lists tabs in a strip across the window, with the sidebar hidden.").number_of_lines(0).px_1())
+                    },
+                ))
         },
     )
 }

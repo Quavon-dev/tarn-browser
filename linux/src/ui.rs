@@ -968,9 +968,13 @@ const SPACE_BAR: browser_core::sidebar::SpaceBar =
     browser_core::sidebar::SpaceBar { width: SIDEBAR_WIDTH - 18. - 2. * SPACE_BUTTON, icon: SPACE_BUTTON, gap: 2. };
 
 fn space_bar(ui: Ui) -> View {
-    let strip = computed(move || ui.snap.with(|s| SPACE_BAR.strip(s.spaces.len(), s.spaces.iter().position(|x| x.current).unwrap_or(0))));
+    let listed = move || ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).cloned().collect::<Vec<_>>());
+    let strip = computed(move || {
+        let listed = listed();
+        SPACE_BAR.strip(listed.len(), listed.iter().position(|x| x.current).unwrap_or(0))
+    });
     let spaces = each(
-        move || ui.snap.with(|s| s.spaces.clone()),
+        listed,
         |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
         move |space, _| {
             let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
@@ -1008,7 +1012,7 @@ fn space_bar(ui: Ui) -> View {
         },
     );
     let strip_ref = element_ref();
-    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().position(|x| x.current))));
+    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).position(|x| x.current))));
     let reveal = move |animated| {
         if let Some(x) = shown.get().0.scroll {
             strip_ref.scroll_to(nsh_core::Point::new(Points(x), Points(0.)), animated);
@@ -1625,6 +1629,15 @@ fn compact_address(ui: Ui) -> View {
             )
         }))
         .child(share_chip(ui, hovered))
+}
+
+/// Puts every window's tabs in the sidebar or on top, as Settings picks.
+pub(super) fn set_tabs_on_top(top: bool) {
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        if read(ui, |b| b.tabs_on_top()) == Some(!top) {
+            toggle_tabs_on_top(ui);
+        }
+    }
 }
 
 /// Tabs on top hide this window's sidebar; back at the side it shows unless it hides automatically.

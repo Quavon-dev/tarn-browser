@@ -114,7 +114,7 @@ impl Browser {
     /// larger peek while ⌥ is held, and swaps between the two as ⌥ goes down or up. ⌥ is read
     /// globally, so the card closes when another app is in front.
     fn schedule_hover_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !window.is_window_active() {
+        if !self.shell_active(window) {
             self.hide_hover_card(cx);
             return;
         }

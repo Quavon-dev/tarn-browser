@@ -366,6 +366,9 @@ fn updater_reported(report: platform::updater::Report, cx: &mut App) {
             toast_front(browser_core::toast::Tone::Info, format!("Tarn {version} is ready to install"), Some(crate::toast::Action::RestartToUpdate), cx)
         }
         Report::UpToDate => toast_front(browser_core::toast::Tone::Success, "Tarn is up to date", None, cx),
+        Report::NightlyUnavailable => {
+            toast_front(browser_core::toast::Tone::Warning, "The Nightly channel is unavailable right now", Some(crate::toast::Action::UseReleaseChannel), cx)
+        }
         Report::CheckFailed => toast_front(browser_core::toast::Tone::Warning, "Tarn could not check for updates", None, cx),
         Report::UpdateAvailable { version, page } => {
             toast_front(browser_core::toast::Tone::Info, format!("Tarn {version} is available"), page.map(crate::toast::Action::Download), cx)
@@ -567,7 +570,7 @@ pub(crate) fn open_window(
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(Bounds::new(point(px(x), px(y)), size(px(width), px(height))))),
         display_id: display,
-        titlebar: Some(TitlebarOptions { title: Some("Tarn".into()), appears_transparent: true, traffic_light_position: Some(point(px(20.), px(17.))) }),
+        titlebar: Some(TitlebarOptions { title: Some("Tarn".into()), appears_transparent: true, traffic_light_position: None }),
         window_background: crate::themes::window_background(),
         window_min_size: Some(size(px(720.), px(480.))),
         ..Default::default()
@@ -575,6 +578,40 @@ pub(crate) fn open_window(
     cx.open_window(options, |window, cx| cx.new(|cx| Browser::new(row, torn, start, window, cx)))
         .inspect_err(|e| eprintln!("tarn: could not open window: {e}"))
         .ok()
+}
+
+/// Whether `window` is the one in use: active itself, or holding the keyboard in a Chromium page,
+/// whose own window becomes key when clicked.
+pub(crate) fn window_in_use(window: &gpui::Window) -> bool {
+    window.is_window_active() || engine::Host::from_window(window).is_some_and(|host| host.holds_key())
+}
+
+/// The main window's own close, minimise and zoom buttons, from its top left corner, in points.
+pub(crate) const WINDOW_BUTTONS: (f64, f64) = (20., 20.);
+
+/// Keeps the window's own buttons at `at`: AppKit lays its title bar out again when the window
+/// resizes, becomes active or leaves full screen. The last bounds change of leaving full screen
+/// arrives while the window still counts as full screen, so the buttons are placed again once
+/// the transition is over.
+pub(crate) fn keep_window_buttons<T: 'static>(at: (f64, f64), window: &mut gpui::Window, cx: &mut gpui::Context<T>) -> [gpui::Subscription; 2] {
+    let place = move |window: &mut gpui::Window| {
+        if let Some(host) = engine::Host::from_window(window) {
+            host.place_window_buttons(at.0, at.1);
+        }
+    };
+    place(window);
+    window.on_next_frame(move |window, _| place(window));
+    let bounds = cx.observe_window_bounds(window, move |_, window, cx| {
+        place(window);
+        if window.is_fullscreen() {
+            cx.spawn_in(window, async move |_, cx| {
+                cx.background_executor().timer(std::time::Duration::from_millis(800)).await;
+                cx.update(|window, _| place(window)).ok();
+            })
+            .detach();
+        }
+    });
+    [bounds, cx.observe_window_activation(window, move |_, window, _| place(window))]
 }
 
 /// Whether another window shows `key` in a live view.

@@ -78,17 +78,34 @@ impl Browser {
         true
     }
 
+    /// Hides a space from the space bar, leaving it for a shown neighbour when it is the one in
+    /// use, or shows it again.
+    pub fn set_space_hidden(&mut self, (private, id): SpaceKey, hidden: bool) {
+        let Some(ix) = self.model.spaces.iter().position(|s| s.private == private && s.space.id == id) else { return };
+        if let Some(Some(next)) = self.model.set_space_hidden(&self.core, ix, hidden) {
+            self.switch_space_by_user(next);
+        }
+    }
+
+    /// Deletes the space, or with its profile's last space the profile (`Model::profile_deleted_with`),
+    /// only as the user was told (`profile`): nothing when that changed since.
+    pub fn delete_space_or_profile(&mut self, key: SpaceKey, profile: Option<Id>) {
+        let ix = self.model.spaces.iter().position(|s| (s.private, s.space.id) == key);
+        if ix.map(|ix| self.model.profile_deleted_with(ix)) != Some(profile) {
+            return;
+        }
+        match profile {
+            Some(profile) => drop(self.delete_profile(profile)),
+            None => self.delete_space(key),
+        }
+    }
+
     pub fn delete_space(&mut self, (private, id): SpaceKey) {
-        let Some((ix, keys)) = self.model.space_to_delete(&self.core, private, id) else { return };
+        let Some((keys, next)) = self.model.delete_space(&self.core, private, id) else { return };
         for key in keys {
             self.forget_tab(key);
         }
-        if self.core.store(private).delete_space(id).is_err() {
-            return;
-        }
-        self.model.reload_spaces(&self.core);
-        self.model.closed_tabs.retain(&self.model.spaces);
-        self.after_removal(ix.saturating_sub(1));
+        self.after_removal(next.unwrap_or(0));
     }
 
     fn after_removal(&mut self, fallback: usize) {

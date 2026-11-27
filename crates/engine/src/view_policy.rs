@@ -31,6 +31,21 @@ pub fn menu_commands(value: &serde_json::Value) -> Option<Vec<String>> {
     Some(names.map(str::to_owned).collect())
 }
 
+/// The narrowest a docked inspector or the page beside it gets, in points.
+const DOCK_MIN: f64 = 280.;
+
+/// Splits a page frame `width` wide at `x` for docked DevTools: the page's `(x, width)` and, when
+/// `docked`, DevTools' on the left or right, two fifths of the frame and never squeezing either
+/// below `DOCK_MIN` while the frame holds both.
+pub fn dock(x: f64, width: f64, docked: bool, left: bool) -> ((f64, f64), Option<(f64, f64)>) {
+    if !docked {
+        return ((x, width), None);
+    }
+    let tools = (width * 0.4).max(DOCK_MIN.min(width / 2.)).min((width - DOCK_MIN).max(width / 2.));
+    let page = width - tools;
+    if left { ((x + tools, page), Some((x, tools))) } else { ((x, page), Some((x + page, tools))) }
+}
+
 /// The longest side of a snapshot, in CSS pixels, so a page cannot ask for an unbounded bitmap.
 pub const SNAPSHOT_MAX_SIDE: f64 = 16384.;
 
@@ -337,6 +352,15 @@ impl RestoredHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docked_devtools_takes_two_fifths_on_its_side_and_leaves_both_usable() {
+        assert_eq!(dock(10., 1000., false, false), ((10., 1000.), None));
+        assert_eq!(dock(0., 1000., true, false), ((0., 600.), Some((600., 400.))));
+        assert_eq!(dock(0., 1000., true, true), ((400., 600.), Some((0., 400.))));
+        assert_eq!(dock(0., 600., true, false), ((0., 320.), Some((320., 280.))));
+        assert_eq!(dock(0., 400., true, false), ((0., 200.), Some((200., 200.))));
+    }
 
     #[test]
     fn the_assistant_menu_prop_takes_names_only_from_a_list() {

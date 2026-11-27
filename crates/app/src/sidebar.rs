@@ -186,6 +186,15 @@ pub fn site_icon(b: &Browser, url: &str, size: f32) -> AnyElement {
     tab_icon(b, url, size, false)
 }
 
+/// The icon of `key`'s site from the tab's own profile, for a tab that may sit in another
+/// space than the one shown.
+pub(crate) fn tab_site_icon(b: &Browser, key: crate::browser::TabKey, url: &str, size: f32) -> AnyElement {
+    match b.profile_of(key).and_then(|profile| b.find_favicon((key.private, profile), url)) {
+        Some(image) => img(image).w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.22)).into_any_element(),
+        None => favicon(&tab_host(url).unwrap_or_default(), size).into_any_element(),
+    }
+}
+
 /// A sleeping tab's icon is greyed and faded, so awake tabs stand out at a glance.
 pub(crate) fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
     let dim = if asleep { 0.4 } else { 1. };
@@ -1238,14 +1247,17 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
 
 fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let bar = browser_core::sidebar::SpaceBar { width: b.sidebar_width - 18. - 2. * 30., icon: 28., gap: 2. };
-    let strip = bar.strip(b.model.spaces.len(), b.model.space_ix);
-    let shown = (b.model.space_ix, b.model.spaces.len(), b.sidebar_width.round() as i32);
+    let listed: Vec<usize> = (0..b.model.spaces.len()).filter(|ix| b.model.space_shown(*ix)).collect();
+    let at = listed.iter().position(|ix| *ix == b.model.space_ix).unwrap_or(listed.len());
+    let strip = bar.strip(listed.len(), at);
+    let shown = (at, listed.len(), b.sidebar_width.round() as i32);
     match strip.scroll {
         Some(x) if b.space_strip_shown.replace(Some(shown)) != Some(shown) => b.space_strip_scroll.set_offset(gpui::point(px(-x), px(0.))),
         Some(_) => {}
         None => b.space_strip_shown.set(None),
     }
-    let dots = b.model.spaces.iter().enumerate().map(|(ix, s)| {
+    let dots = listed.into_iter().map(|ix| {
+        let s = &b.model.spaces[ix];
         let current = ix == b.model.space_ix;
         let color = match (current, s.private, space_tint(s)) {
             (true, true, _) => Theme::warning(),

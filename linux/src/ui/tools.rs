@@ -147,6 +147,8 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::ReloadInChromium
         | C::ReloadInWebKit
         | C::PictureInPicture
+        | C::ToggleInspector
+        | C::MoveInspector
         | C::Share => return None,
         C::Ask => Command::Ask,
         C::AskPage => Command::AskPage,

@@ -969,7 +969,7 @@ type SpaceButton = (usize, String, &'static str, bool, String, bool, bool);
 fn space_strip(ui: Ui) -> Memo<bar::SpaceStrip> {
     computed(move || {
         ui.read_data(|s| {
-            let items = s.spaces();
+            let items: Vec<_> = s.spaces().into_iter().filter(|i| s.model.space_shown(i.ix)).collect();
             SPACE_BAR.strip(items.len(), items.iter().position(|i| i.ix == s.model.space_ix).unwrap_or(0))
         })
     })
@@ -979,6 +979,7 @@ fn space_list(ui: Ui, compact: bool) -> Vec<SpaceButton> {
     ui.read(|s| {
         s.spaces()
             .into_iter()
+            .filter(|item| s.model.space_shown(item.ix))
             .filter_map(|item| {
                 let space = s.model.spaces.get(item.ix)?;
                 let glyph = if item.burner { glyphs::FLAME } else { glyphs::space_icon(&space.space.icon) };

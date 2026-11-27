@@ -28,8 +28,26 @@ All notable changes to Tarn are documented in this file. The format is based on
   private space or at Lockdown.
   Linux shows the page and the certificate but offers no way through: WebKitGTK can only accept a
   certificate for a host everywhere until Tarn quits.
+- Spaces can be hidden: Hide Space in a space's menu takes it out of the space bar and the space
+  swipes; the command bar and the Spaces menu still list it, and Show Space brings it back. On
+  macOS, Windows and Linux, and in the Edit Space sheet on iOS and Android.
+- Settings › Appearance › Tabs puts tabs in the sidebar or on top for every window, as the View
+  menu's Tabs on Top does. On macOS, Windows, Linux and the iPad and Android tablet Mac layout.
+- With developer tools on, Show or Hide Inspector and Move Inspector to Other Side are in the
+  command palette. In a Chromium tab on macOS, DevTools now docks beside the page instead of
+  opening a window of its own.
 
 ### Changed
+
+- Deleting a profile's last space now deletes the profile with it, after a confirmation that says
+  so; only the last space of the last profile stays. On macOS, Windows and Linux; iOS and Android
+  delete any other space from the Edit Space sheet.
+- Settings › AI shows the commands that connect Claude Code and Codex as code with a Copy button.
+- The Library and Memory pop-up is wider than a narrow sidebar, so titles and figures fit.
+- The mini player shows the site's icon instead of a music note.
+- The macOS window buttons are placed by AppKit's own title bar again, so they light up as soon as
+  the pointer reaches them, and macOS releases are built with the macOS 26 SDK for the system's
+  current window controls.
 
 - Measure: a second click on its button (or Measure in the command palette) closes it, and so does
   a click on the page; guides and the position in CSS pixels follow the pointer. On macOS, Windows
@@ -41,6 +59,18 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Nightly builds: a nightly that fails to publish no longer removes the previous one, which left
+  the Nightly channel without a feed and showed "Update Error!". When Check for Updates cannot read
+  the Nightly feed, Tarn says so and offers Use Release Builds. Chromium updates arrive with app
+  updates, so they reach the Nightly channel again too.
+- Switching back to a Chromium tab no longer pulls Tarn in front of another app (a tab's very first
+  page still goes through Chromium, which can), a click in its page keeps the window looking
+  active, and the sidebar slides in from the window's edge, its tab cards show and the menus stay
+  current while a Chromium page has the keyboard. On macOS.
+- Tooltips no longer open, nor bring Tarn's window forward, while another app is in front.
+- A video Tarn moved into Picture in Picture when you left its tab now brings that tab back, with
+  Tarn in front, when you press the Picture in Picture window's button to return. On macOS and
+  Windows.
 - A window no longer opens taller than a small or scaled screen with its title bar out of reach:
   Tarn shrinks it to fit and keeps its title bar on the screen, clear of the menu bar, Dock and
   taskbar. The Settings window fits the same way. On macOS and Windows.

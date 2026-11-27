@@ -136,6 +136,8 @@ pub struct Space {
     /// A name from the UI's colour list; empty for the default look.
     pub color: String,
     pub schedule: Schedule,
+    /// Left out of the space bar; still listed in the command bar and the Spaces menu.
+    pub hidden: bool,
 }
 
 /// When a window switches to a space by itself: on `days` (bit 0 Sunday … bit 6 Saturday) from

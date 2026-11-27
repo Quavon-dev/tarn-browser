@@ -26,7 +26,16 @@ mod tests {
     fn space(id: Id, profile_id: Id, name: &str, private: bool) -> SpaceRef {
         SpaceRef {
             private,
-            space: Space { id, profile_id, name: name.into(), icon: String::new(), position: 0, color: String::new(), schedule: Schedule::default() },
+            space: Space {
+                id,
+                profile_id,
+                name: name.into(),
+                icon: String::new(),
+                position: 0,
+                color: String::new(),
+                schedule: Schedule::default(),
+                hidden: false,
+            },
         }
     }
 

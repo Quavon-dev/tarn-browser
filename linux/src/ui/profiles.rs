@@ -213,11 +213,22 @@ pub fn space_menu(ui: Ui, key: SpaceKey) -> AnyElement {
 }
 
 fn space_actions_with(ui: Ui, key: SpaceKey, deletable: bool) -> View {
-    let rows = group().child(menu_row("Edit Space…", None, move || edit_space(ui, key))).child(menu_row(
-        "New Space…",
-        super::shortcut_of(ui, crate::shortcuts::Action::NewSpace),
-        move || show(ui, Panel::NewSpace),
-    ));
+    let (hidden, hideable) = read(ui, |b| {
+        let ix = b.model.spaces.iter().position(|s| (s.private, s.space.id) == key);
+        (ix.is_some_and(|ix| b.model.spaces[ix].space.hidden), ix.is_some_and(|ix| b.model.can_hide_space(ix)))
+    })
+    .unwrap_or_default();
+    let hide = (hidden || hideable).then(|| {
+        menu_row(if hidden { "Show Space" } else { "Hide Space" }, None, move || {
+            ui.panel.set(Panel::None);
+            act(ui, |b| b.set_space_hidden(key, !hidden));
+            super::sync_others(ui);
+        })
+    });
+    let rows = group()
+        .child(menu_row("Edit Space…", None, move || edit_space(ui, key)))
+        .child(menu_row("New Space…", super::shortcut_of(ui, crate::shortcuts::Action::NewSpace), move || show(ui, Panel::NewSpace)))
+        .children(hide);
     view().flex_col().gap_2().child(rows).children(deletable.then(|| delete_row(ui, key)))
 }
 
@@ -239,12 +250,19 @@ pub fn space_delete(ui: Ui, key: SpaceKey) -> Option<View> {
 }
 
 fn delete_row(ui: Ui, key: SpaceKey) -> View {
+    // The last space of a profile takes the profile with it.
+    let profile = read(ui, |b| b.model.spaces.iter().position(|s| (s.private, s.space.id) == key).and_then(|ix| b.model.profile_deleted_with(ix))).flatten();
     let delete = line("Delete Space…").child(confirmed(ui, format!("space {key:?}"), "Delete", move || {
         ui.panel.set(Panel::None);
-        act(ui, |b| b.delete_space(key));
+        act(ui, |b| b.delete_space_or_profile(key, profile));
         super::sync_others(ui);
     }));
-    view().flex_col().gap_2().child(delete).child(note("Deletes the space and all its tabs."))
+    let detail = if profile.is_some() {
+        "The last space of its profile: deletes the profile too, with its spaces, tabs and history, and its cookies and website data unless another profile shares them."
+    } else {
+        "Deletes the space and all its tabs."
+    };
+    view().flex_col().gap_2().child(delete).child(note(detail))
 }
 
 pub fn switcher(ui: Ui) -> View {

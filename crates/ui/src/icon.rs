@@ -125,6 +125,8 @@ icons! {
     LayoutGrid => "layout-grid",
     UserPlus => "user-plus",
     Archive => "archive",
+    Eye => "eye",
+    EyeOff => "eye-off",
     Copy => "copy",
     Zap => "zap",
     Columns => "columns-2",

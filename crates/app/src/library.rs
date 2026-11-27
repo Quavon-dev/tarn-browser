@@ -31,7 +31,7 @@ use crate::prefs::Pref;
 use crate::settings::thousands;
 use crate::sidebar::{SIDEBAR_MARGIN, site_icon};
 
-const CARD_WIDTH: f32 = 300.;
+const CARD_WIDTH: f32 = 380.;
 const SEARCH_HEIGHT: f32 = 44.;
 const HEADER_ROW: f32 = 26.;
 const BACK_ROW: f32 = 32.;

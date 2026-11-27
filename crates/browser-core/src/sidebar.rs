@@ -460,7 +460,8 @@ pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) ->
             Step::Next => ix.checked_add(1)?,
             Step::Previous => ix.checked_sub(1)?,
         };
-        if allowed(model.spaces.get(ix)?) {
+        let space = model.spaces.get(ix)?;
+        if model.space_shown(ix) && allowed(space) {
             return Some(ix);
         }
     }

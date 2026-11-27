@@ -51,6 +51,10 @@ pub fn remove_after_exit<V: 'static>(reduce: bool, window: &mut Window, cx: &mut
 }
 
 impl Browser {
+    pub(crate) fn shell_active(&self, window: &Window) -> bool {
+        crate::shared::window_in_use(window)
+    }
+
     /// Hands `f` to the main window when `window` is the floating sidebar's: what it shows, focuses
     /// or subscribes to lives there, and the sidebar's window is gone a moment later.
     pub(crate) fn in_main(&self, window: &Window, cx: &mut Context<Self>, f: impl FnOnce(&mut Self, &mut Window, &mut Context<Self>) + 'static) -> bool {
@@ -89,7 +93,7 @@ impl Browser {
         if !self.peek_enabled() {
             return;
         }
-        if !self.peek.hover.open && !(engine::app_active() && window.is_window_active()) {
+        if !self.peek.hover.open && !(engine::app_active() && self.shell_active(window)) {
             self.peek.hover.closed();
             self.peek.timer = None;
             return;
@@ -129,7 +133,8 @@ impl Browser {
 
     /// The card's window spans from the main window's left edge, so the card slides in from it.
     fn open_peek(&mut self, cx: &mut Context<Self>) {
-        if cx.active_window().map(|w| w.window_id()) != self.peek.main.map(|m| m.window_id()) {
+        let main = cx.active_window().map(|w| w.window_id()) == self.peek.main.map(|m| m.window_id());
+        if !main && !self.host.as_ref().is_some_and(engine::Host::holds_key) {
             return self.peek.hover.closed();
         }
         let Some((main, display)) = self.peek.origin.filter(|_| self.peek_enabled() && self.peek.window.is_none()) else { return };

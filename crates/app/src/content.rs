@@ -138,6 +138,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     b.settle_motion(window, cx);
     b.settle_split();
     b.settle_screen(cx);
+    b.show_returned_media(window, cx);
     if b.capture_overlay.as_ref().is_some_and(|o| b.model.active != Some(o.key)) {
         b.capture_overlay = None;
     }
@@ -885,7 +886,7 @@ impl Motion {
 
     fn elapsed<V: 'static>(&mut self, run: bool, frame: std::time::Duration, window: &Window, cx: &mut Context<V>) -> std::time::Duration {
         let now = Instant::now();
-        let active = engine::app_active() && window.is_window_active();
+        let active = engine::app_active() && crate::shared::window_in_use(window);
         if active && !self.active {
             self.input.set(Some(now));
         }

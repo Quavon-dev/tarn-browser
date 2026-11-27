@@ -107,6 +107,13 @@ impl WebView {
         self.view.focus();
     }
 
+    /// DevTools opens in a window of its own on Windows (`on_before_dev_tools_popup`).
+    pub fn toggle_inspector(&self) {
+        self.view.toggle_inspector();
+    }
+
+    pub fn move_inspector(&self) {}
+
     /// Chromium fills the shell's window with an element's full screen; the shell fills the screen.
     pub fn owns_fullscreen_window(&self) -> bool {
         false
