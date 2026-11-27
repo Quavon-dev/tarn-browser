@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "ai"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "futures-lite 2.6.1",
  "oo7",
@@ -178,7 +178,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "ai",
  "browser-core",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "app-dll"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "app",
  "engine",
@@ -834,7 +834,7 @@ dependencies = [
 
 [[package]]
 name = "browser-core"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "cssparser",
  "engine",
@@ -989,9 +989,9 @@ dependencies = [
 
 [[package]]
 name = "cef"
-version = "156.7.0+156.0.31"
+version = "158.0.0+158.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "292ba28510070fe38679adb866cb0dc2f8b5ccced8fd29e56e561ccda98b8cfb"
+checksum = "641d21feb20ed187b127c2ec63a3448acc8c70e45368ffcc69b34a7b6c029f86"
 dependencies = [
  "cef-dll-sys",
  "libloading 0.9.1",
@@ -1001,9 +1001,9 @@ dependencies = [
 
 [[package]]
 name = "cef-dll-sys"
-version = "156.7.0+156.0.31"
+version = "158.0.0+158.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bdb47aa0db7e12990e90e37f5295ca7ec54446b35142ee8399442b53b9014f56"
+checksum = "06c4e45ae58fd251e0e9722b5f495f536adf77811ecb81ce5fabdb65ab68b43c"
 dependencies = [
  "anyhow",
  "cc",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "chromium-helper"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "cef",
 ]
@@ -1150,7 +1150,7 @@ checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
 name = "cli-bridge"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -1754,7 +1754,7 @@ dependencies = [
 
 [[package]]
 name = "devkit"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde_json",
 ]
@@ -2020,7 +2020,7 @@ checksum = "66b7e2430c6dff6a955451e2cfc438f09cea1965a9d6f87f7e3b90decc014099"
 
 [[package]]
 name = "engine"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "ai",
  "base64 0.22.1",
@@ -2249,7 +2249,7 @@ dependencies = [
 
 [[package]]
 name = "filter-bundle"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -3366,7 +3366,7 @@ checksum = "6e44b0a4eaa4c82f441d50a963f2d5f05a787240aeee097597033e72accfd22f"
 
 [[package]]
 name = "import"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aes",
  "cbc",
@@ -4734,7 +4734,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "platform"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -5901,7 +5901,7 @@ dependencies = [
 
 [[package]]
 name = "shield"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "adblock",
  "ed25519-dalek",
@@ -6139,7 +6139,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "store"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -6352,7 +6352,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "argon2",
  "chacha20poly1305",
@@ -6923,7 +6923,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "browser-core",
  "engine",
