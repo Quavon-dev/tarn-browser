@@ -43,6 +43,11 @@ jobs:
             # next nightly, even when main has not moved. A failed lookup skips the night.
             release="$(highest_release)" || release=""
             base="$(gh release download nightly --repo "$GH_REPO" --pattern windows-update.json --output - | jq -er .version)" || base=""
+            # A nightly a failed run left as a draft is published by building it again; this endpoint
+            # answers only for a published release, whoever can see the draft.
+            if [[ "$(gh api "repos/$GH_REPO/releases/tags/nightly" 2>&1 >/dev/null || true)" == *"HTTP 404"* ]]; then
+              base=none
+            fi
             if [[ -z "$release" || -z "$base" ]]; then
               echo "::warning::could not read the highest release ('$release') or the nightly's version ('$base'); no nightly"
               exit 0
