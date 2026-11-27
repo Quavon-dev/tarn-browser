@@ -67,6 +67,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Fixed
 
+- Tarn no longer quits on start on macOS and Windows when a sidebar tab group was left closed.
 - Nightly builds: a nightly that fails to publish no longer removes the previous one, which left
   the Nightly channel without a feed and showed "Update Error!". When Check for Updates cannot read
   the Nightly feed, Tarn says so and offers Use Release Builds. Chromium updates arrive with app

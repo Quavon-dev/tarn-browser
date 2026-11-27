@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use gpui::{
     AnyElement, AppContext, Background, Bounds, ClickEvent, Context, Div, DragMoveEvent, Empty, FontWeight, InteractiveElement, IntoElement, KeyDownEvent,
     MouseButton, MouseMoveEvent, ParentElement, Pixels, Point, Render, Rgba, SharedString, Stateful, StatefulInteractiveElement, Styled, StyledImage, Task,
-    Transformation, Window, canvas, div, img, percentage, prelude::FluentBuilder, px, rgb,
+    Transformation, Window, canvas, div, img, prelude::FluentBuilder, px, radians, rgb,
 };
 use store::{Folder, Group, Id, Tab, TabKind};
 use ui::controls::{button, favicon, field, focus_ring, icon_button, spinner, tooltip};
@@ -635,7 +635,8 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
 
 /// A chevron that turns between closed and open each time `open` changes.
 fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
-    let turn = move |t: f32| percentage(if open { 0.25 * t } else { 0.25 * (1. - t) });
+    // Radians, not a percentage: the bounce overshoots past both ends.
+    let turn = move |t: f32| radians(std::f32::consts::FRAC_PI_2 * if open { t } else { 1. - t });
     let glyph = icon(Icon::ChevronRight, ICON_SMALL, Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
     animate_linear(glyph, (if open { "open" } else { "shut" }, id as u64), SETTLE, b.pref(Pref::ReduceMotion), move |g, t| {
         g.with_transformation(Transformation::rotate(turn(bounce(t))))
