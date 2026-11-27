@@ -57,6 +57,11 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.1.8" date="2026-11-27" type="development">
+      <description>
+        <p>Ctrl+Tab to the most recent tab with a switcher strip, an error page for invalid certificates that shows the certificate, hidden spaces, tabs in the sidebar or on top, Measure that closes with a second click or a click on the page, and file uploads for agents.</p>
+      </description>
+    </release>
     <release version="0.1.7" date="2026-11-25" type="development">
       <description>
         <p>Glass design, find in page that marks every match, a local AI agent that can browse in its own window, saved assistant chats, Picture in Picture on tab switch, client certificates, one-command installs and a portable Windows build.</p>
