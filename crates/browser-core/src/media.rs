@@ -145,6 +145,19 @@ impl AutoPip {
     pub fn take(&mut self, key: TabKey) -> bool {
         self.entered.remove(&key)
     }
+
+    /// `key`'s media answered `state`: true when a video Tarn moved into Picture in Picture came
+    /// back still playing, as the Picture in Picture window's button to return does, so its tab
+    /// should show. Closing that window pauses the video, which shows nothing.
+    pub fn returned(&mut self, key: TabKey, state: Option<&MediaState>) -> bool {
+        match state {
+            Some(state) if !state.pip && self.entered.contains(&key) => {
+                self.entered.remove(&key);
+                state.playing
+            }
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -156,7 +169,22 @@ mod tests {
     }
 
     fn state(playing: bool, title: &str) -> Option<MediaState> {
-        Some(MediaState { playing, title: title.into(), duration: Some(100.), position: Some(1.) })
+        Some(MediaState { playing, title: title.into(), duration: Some(100.), position: Some(1.), pip: false })
+    }
+
+    #[test]
+    fn a_video_returned_from_picture_in_picture_brings_its_tab_back() {
+        let mut pip = AutoPip::default();
+        pip.screen(vec![key(1)]);
+        pip.screen(vec![key(2)]);
+        assert!(!pip.answered(key(1), "pip", false));
+        let shown = MediaState { pip: true, ..state(true, "Film").unwrap() };
+        assert!(!pip.returned(key(1), Some(&shown)), "still in Picture in Picture");
+        assert!(pip.returned(key(1), state(true, "Film").as_ref()), "back inline, still playing");
+        assert!(!pip.take(key(1)), "answered once");
+        assert!(!pip.answered(key(3), "pip", false));
+        assert!(!pip.returned(key(3), state(false, "Film").as_ref()), "closed: the video paused");
+        assert!(!pip.returned(key(2), state(true, "Song").as_ref()), "a tab Tarn did not move");
     }
 
     #[test]

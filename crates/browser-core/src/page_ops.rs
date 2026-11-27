@@ -30,7 +30,7 @@ pub fn selection_answer(raw: &str) -> String {
 /// as JSON, empty for none or a malformed answer.
 pub fn media_answer(raw: &str) -> String {
     MediaState::parse(raw)
-        .map(|m| serde_json::json!({ "playing": m.playing, "title": m.title, "duration": m.duration, "position": m.position }).to_string())
+        .map(|m| serde_json::json!({ "playing": m.playing, "title": m.title, "duration": m.duration, "position": m.position, "pip": m.pip }).to_string())
         .unwrap_or_default()
 }
 
@@ -41,6 +41,8 @@ pub struct MediaState {
     pub title: String,
     pub duration: Option<f64>,
     pub position: Option<f64>,
+    /// Shown in Picture in Picture.
+    pub pip: bool,
 }
 
 impl MediaState {
@@ -51,7 +53,14 @@ impl MediaState {
         let time = |key: &str| value[key].as_f64().filter(|t| t.is_finite() && *t >= 0.);
         let duration = time("duration");
         let position = time("position").map(|p| duration.map_or(p, |d| p.min(d)));
-        Some(MediaState { playing: value["playing"].as_bool()?, title: text::bounded_title(value["title"].as_str().unwrap_or_default()), duration, position })
+        let pip = value["pip"].as_bool().unwrap_or(false);
+        Some(MediaState {
+            playing: value["playing"].as_bool()?,
+            title: text::bounded_title(value["title"].as_str().unwrap_or_default()),
+            duration,
+            position,
+            pip,
+        })
     }
 }
 
@@ -99,7 +108,8 @@ mod tests {
     #[test]
     fn media_state_is_cleaned_and_bounded() {
         let state = MediaState::parse(r#"{"playing":true,"title":" Song\u202e\n  one ","duration":200.5,"position":12}"#).unwrap();
-        assert_eq!(state, MediaState { playing: true, title: "Song one".into(), duration: Some(200.5), position: Some(12.) });
+        assert_eq!(state, MediaState { playing: true, title: "Song one".into(), duration: Some(200.5), position: Some(12.), pip: false });
+        assert!(MediaState::parse(r#"{"playing":true,"pip":true}"#).unwrap().pip);
         let live = MediaState::parse(r#"{"playing":false,"title":"","duration":null,"position":-3}"#).unwrap();
         assert_eq!((live.duration, live.position), (None, None), "a live stream has no duration");
         assert_eq!(MediaState::parse(r#"{"playing":true,"duration":10,"position":99}"#).unwrap().position, Some(10.));
@@ -118,7 +128,7 @@ mod tests {
         assert_eq!(MediaState::parse(&answer), MediaState::parse(&forged), "the answer parses as what it came from");
         assert_eq!(MediaState::parse(&answer).unwrap().position, Some(5.));
         assert_eq!(media_answer("not json"), "");
-        let bare = MediaState { playing: true, title: String::new(), duration: None, position: None };
+        let bare = MediaState { playing: true, title: String::new(), duration: None, position: None, pip: false };
         assert_eq!(MediaState::parse(&media_answer(r#"{"playing":true}"#)), Some(bare));
     }
 

@@ -535,7 +535,8 @@ pub fn media_state_script() -> String {
         r"{MEDIA_PICK}const meta = navigator.mediaSession && navigator.mediaSession.metadata;
             const time = v => Number.isFinite(v) && v >= 0 ? v : null;
             const title = String((meta && meta.title) || document.title || '').slice(0, {});
-            return JSON.stringify({{ playing: !m.paused, title: title.toWellFormed ? title.toWellFormed() : title, duration: time(m.duration), position: time(m.currentTime) }});",
+            const pip = document.pictureInPictureElement === m || m.webkitPresentationMode === 'picture-in-picture';
+            return JSON.stringify({{ playing: !m.paused, title: title.toWellFormed ? title.toWellFormed() : title, duration: time(m.duration), position: time(m.currentTime), pip }});",
         crate::view_policy::MAX_TITLE
     )
 }

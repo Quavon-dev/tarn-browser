@@ -138,6 +138,7 @@ pub fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Browser>) -
     b.settle_motion(window, cx);
     b.settle_split();
     b.settle_screen(cx);
+    b.show_returned_media(window, cx);
     if b.capture_overlay.as_ref().is_some_and(|o| b.model.active != Some(o.key)) {
         b.capture_overlay = None;
     }

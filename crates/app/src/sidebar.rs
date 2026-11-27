@@ -186,6 +186,15 @@ pub fn site_icon(b: &Browser, url: &str, size: f32) -> AnyElement {
     tab_icon(b, url, size, false)
 }
 
+/// The icon of `key`'s site from the tab's own profile, for a tab that may sit in another
+/// space than the one shown.
+pub(crate) fn tab_site_icon(b: &Browser, key: crate::browser::TabKey, url: &str, size: f32) -> AnyElement {
+    match b.profile_of(key).and_then(|profile| b.find_favicon((key.private, profile), url)) {
+        Some(image) => img(image).w(px(size)).h(px(size)).flex_none().rounded(px(size * 0.22)).into_any_element(),
+        None => favicon(&tab_host(url).unwrap_or_default(), size).into_any_element(),
+    }
+}
+
 /// A sleeping tab's icon is greyed and faded, so awake tabs stand out at a glance.
 pub(crate) fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyElement {
     let dim = if asleep { 0.4 } else { 1. };

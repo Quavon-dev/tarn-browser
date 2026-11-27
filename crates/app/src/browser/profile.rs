@@ -449,7 +449,7 @@ impl Browser {
         found
     }
 
-    pub(super) fn find_favicon(&self, profile: (bool, Id), url: &str) -> Option<Arc<Image>> {
+    pub(crate) fn find_favicon(&self, profile: (bool, Id), url: &str) -> Option<Arc<Image>> {
         self.favicons.find(&profile, &tab_host(url)?).cloned()
     }
 

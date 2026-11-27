@@ -68,6 +68,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   active, and the sidebar slides in from the window's edge, its tab cards show and the menus stay
   current while a Chromium page has the keyboard. On macOS.
 - Tooltips no longer open, nor bring Tarn's window forward, while another app is in front.
+- A video Tarn moved into Picture in Picture when you left its tab now brings that tab back, with
+  Tarn in front, when you press the Picture in Picture window's button to return. On macOS and
+  Windows.
 - A window no longer opens taller than a small or scaled screen with its title bar out of reach:
   Tarn shrinks it to fit and keeps its title bar on the screen, clear of the menu bar, Dock and
   taskbar. The Settings window fits the same way. On macOS and Windows.

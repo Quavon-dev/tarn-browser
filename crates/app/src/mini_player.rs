@@ -21,6 +21,8 @@ pub struct MiniPlayer {
     pub(crate) player: browser_core::media::Player,
     auto_pip: browser_core::media::AutoPip,
     poll: Option<Task<()>>,
+    /// A tab whose video came back from Picture in Picture by its button, to show on the next frame.
+    returned: Option<TabKey>,
 }
 
 impl Browser {
@@ -33,7 +35,12 @@ impl Browser {
             let Some(raw) = rx.next().await else { return };
             this.update(cx, |b, cx| {
                 if b.same_view(key, &weak) {
-                    if b.mini_player.player.answer(key, MediaState::parse(&raw)) {
+                    let state = MediaState::parse(&raw);
+                    if b.mini_player.auto_pip.returned(key, state.as_ref()) {
+                        b.mini_player.returned = Some(key);
+                        cx.notify();
+                    }
+                    if b.mini_player.player.answer(key, state) {
                         cx.notify();
                     }
                     b.poll_media(cx);
@@ -77,6 +84,16 @@ impl Browser {
         let fading = self.page_fade.as_ref().and_then(|(view, _)| self.views.iter().find(|(_, v)| Rc::ptr_eq(v, view)));
         tabs.extend(fading.map(|(k, _)| *k).filter(|k| !tabs.contains(k)));
         tabs
+    }
+
+    /// Shows the tab whose video its Picture in Picture window sent back, with Tarn in front.
+    pub(crate) fn show_returned_media(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(key) = self.mini_player.returned.take() {
+            cx.defer_in(window, move |b, window, cx| {
+                window.activate_window();
+                b.open_media_tab(key, window, cx);
+            });
+        }
     }
 
     /// Called on every render, after whatever changed the tabs on screen: a playing video of a tab
@@ -176,7 +193,7 @@ pub(crate) fn render(b: &Browser, cx: &mut Context<Browser>) -> Option<AnyElemen
         .gap_1p5()
         .cursor_pointer()
         .child(match b.tab_url(key) {
-            Some(url) => crate::sidebar::site_icon(b, &url, ICON),
+            Some(url) => crate::sidebar::tab_site_icon(b, key, &url, ICON),
             None => icon(Icon::Music, ICON, Theme::muted()).into_any_element(),
         })
         .child(div().flex_1().min_w_0().text_size(px(TEXT_SMALL)).one_line(title.clone()))
