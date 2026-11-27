@@ -11,27 +11,30 @@ use gpui::{
     Pixels, Render, RenderImage, Rgba, StatefulInteractiveElement, Styled, StyledImage, Subscription, WeakEntity, Window, WindowHandle, div, img, point, px,
     size,
 };
-use ui::motion::{fade_in, pop_in};
+use ui::motion::{EXIT, fade_in, pop_in, progress};
 use ui::text::OneLine;
 use ui::theme::{Elevation, TEXT, Theme};
 
 use crate::browser::{Browser, TabKey};
 use crate::prefs::Pref;
 
-const CARD_WIDTH: f32 = 184.;
-const SHOT_HEIGHT: f32 = CARD_WIDTH * 10. / 16.;
-const RADIUS: f32 = 10.;
-const RING: f32 = 5.;
-const GAP: f32 = 20.;
+/// Cards grow with the page between these widths, filling one row.
+const MIN_CARD: f32 = 150.;
+const MAX_CARD: f32 = 260.;
+const RING: f32 = 6.;
+const GAP: f32 = 24.;
+const MARGIN: f32 = 32.;
 /// A quick press and release switches without the strip flashing over the page.
 const SHOW_DELAY: Duration = Duration::from_millis(150);
 const RELEASE_POLL: Duration = Duration::from_millis(30);
+
+type Shots = HashMap<TabKey, Arc<RenderImage>>;
 
 /// The open switcher and stills of its awake tabs, taken when the strip shows and dropped when it closes.
 pub struct Open {
     pub state: Switcher,
     opened: Instant,
-    shots: HashMap<TabKey, Arc<RenderImage>>,
+    shots: Shots,
     pub(crate) strip: Option<WindowHandle<Strip>>,
     _deactivated: Subscription,
 }
@@ -50,7 +53,7 @@ impl Browser {
             return cx.notify();
         }
         // As many cards as fit on one row of this window.
-        let fits = ((f32::from(self.page_area(window).size.width) - 2. * GAP) / (CARD_WIDTH + 2. * RING + GAP)).floor().max(2.) as usize;
+        let fits = ((f32::from(self.page_area(window).size.width) - 2. * MARGIN + GAP) / (MIN_CARD + 2. * RING + GAP)).floor().max(2.) as usize;
         let Some(state) = self.model.open_switcher(forward, fits) else { return };
         // A focused web view takes the modifier's key events, so ask the system what is held.
         if !engine::modifier_held() {
@@ -146,7 +149,7 @@ impl Browser {
     fn request_switcher_shot(&self, key: TabKey, cx: &mut Context<Self>) {
         let Some(view) = self.views.get(&key) else { return };
         let (tx, mut rx) = mpsc::unbounded();
-        view.snapshot_png(Some(f64::from(CARD_WIDTH) * 2.), move |png| drop(tx.unbounded_send(png)));
+        view.snapshot_png(Some(f64::from(MAX_CARD) * 2.), move |png| drop(tx.unbounded_send(png)));
         cx.spawn(async move |this, cx| {
             let Some(Some(png)) = rx.next().await else { return };
             let Some(image) = cx.background_spawn(async move { crate::hover_card::decode(&png) }).await else { return };
@@ -166,24 +169,40 @@ pub struct Strip {
     browser: WeakEntity<Browser>,
     main: AnyWindowHandle,
     reduce: bool,
+    /// What the strip last showed, so its cards can fade out over the page after the switch.
+    shown: Option<(Switcher, Shots)>,
+    leaving: Option<Instant>,
     _watch: Subscription,
 }
 
 impl Strip {
     fn new(browser: &gpui::Entity<Browser>, opened: Instant, main: AnyWindowHandle, reduce: bool, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let watch = cx.observe_in(browser, window, move |_, browser, window, cx| {
-            if browser.read(cx).tab_switcher.as_ref().is_none_or(|o| o.opened != opened) {
-                window.remove_window();
-            } else {
+        let watch = cx.observe_in(browser, window, move |this: &mut Self, browser, window, cx| {
+            if browser.read(cx).tab_switcher.as_ref().is_some_and(|o| o.opened == opened) {
+                return cx.notify();
+            }
+            if this.reduce || this.shown.is_none() {
+                return window.remove_window();
+            }
+            if this.leaving.is_none() {
+                this.leaving = Some(Instant::now());
+                cx.spawn_in(window, async move |_, cx| {
+                    cx.background_executor().timer(EXIT).await;
+                    cx.update(|window, _| window.remove_window()).ok();
+                })
+                .detach();
                 cx.notify();
             }
         });
-        Self { browser: browser.downgrade(), main, reduce, _watch: watch }
+        Self { browser: browser.downgrade(), main, reduce, shown: None, leaving: None, _watch: watch }
     }
 
     /// Selects card `ix` (the current one when `None`) in the main window's switcher, and switches
     /// to it when `commit`, giving the keyboard back to the main window.
     fn select(&self, ix: Option<usize>, commit: bool, cx: &mut Context<Self>) {
+        if self.leaving.is_some() {
+            return;
+        }
         let (browser, main) = (self.browser.clone(), self.main);
         cx.defer(move |cx| {
             main.update(cx, |_, window, cx| {
@@ -208,61 +227,74 @@ impl Strip {
 }
 
 impl Render for Strip {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let tint = |a: f32| Rgba { a, ..Theme::text() };
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
-        let Some(open) = &b.tab_switcher else { return div().into_any_element() };
-        let cards: Vec<_> = open
-            .state
-            .order
+        if let Some(open) = b.tab_switcher.as_ref().filter(|_| self.leaving.is_none()) {
+            self.shown = Some((open.state.clone(), open.shots.clone()));
+        }
+        let Some((Switcher { order, index, .. }, shots)) = &self.shown else { return div().into_any_element() };
+        let fade = self.leaving.map_or(1., |at| 1. - progress(at, EXIT));
+        if self.leaving.is_some() {
+            window.request_animation_frame();
+        }
+        let n = order.len().max(1) as f32;
+        let width = f32::from(window.viewport_size().width);
+        let card = ((width - 2. * MARGIN - (n - 1.) * GAP) / n - 2. * RING).clamp(MIN_CARD, MAX_CARD);
+        let radius = (card * 0.05).clamp(10., 14.);
+        let badge = (card * 0.15).clamp(28., 40.);
+        let cards: Vec<_> = order
             .iter()
             .enumerate()
             .filter_map(|(ix, key)| {
                 let tab = b.model.tab(*key)?;
-                let selected = ix == open.state.index;
-                let badge = div()
-                    .absolute()
-                    .left(px(8.))
-                    .bottom(px(8.))
-                    .size(px(28.))
-                    .rounded(px(7.))
-                    .bg(Rgba { a: 0.85, ..Theme::surface() })
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(crate::sidebar::site_icon(b, &tab.url, 16.));
+                let selected = ix == *index;
                 let still = div()
                     .relative()
-                    .w(px(CARD_WIDTH))
-                    .h(px(SHOT_HEIGHT))
-                    .rounded(px(RADIUS))
+                    .w(px(card))
+                    .h(px(card * 10. / 16.))
+                    .rounded(px(radius))
                     .overflow_hidden()
                     .bg(Theme::panel())
                     .border_1()
-                    .border_color(tint(0.12))
+                    .border_color(tint(0.14))
                     .shadow(Elevation::Floating.shadow());
-                let still = match open.shots.get(key) {
-                    Some(shot) => still.child(img(shot.clone()).size_full().object_fit(ObjectFit::Cover)).child(badge),
-                    None => still.flex().items_center().justify_center().child(crate::sidebar::site_icon(b, &tab.url, 28.)),
+                let still = match shots.get(key) {
+                    Some(shot) => still.child(img(shot.clone()).size_full().object_fit(ObjectFit::Cover)).child(
+                        div()
+                            .absolute()
+                            .left(px(badge * 0.3))
+                            .bottom(px(badge * 0.3))
+                            .size(px(badge))
+                            .rounded(px(badge * 0.28))
+                            .bg(Rgba { a: 0.88, ..Theme::surface() })
+                            .border_1()
+                            .border_color(tint(0.1))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .child(crate::sidebar::site_icon(b, &tab.url, badge * 0.55)),
+                    ),
+                    None => still.flex().items_center().justify_center().child(crate::sidebar::site_icon(b, &tab.url, badge)),
                 };
                 let ring = div()
                     .p(px(RING))
-                    .rounded(px(RADIUS + RING))
+                    .rounded(px(radius + RING))
                     .border_1()
-                    .border_color(if selected { tint(0.3) } else { tint(0.) })
-                    .when(selected, |d| d.bg(tint(0.06)))
+                    .border_color(tint(if selected { 0.28 } else { 0. }))
+                    .bg(tint(if selected { 0.07 } else { 0. }))
                     .child(still);
                 let title = div()
-                    .mt(px(6.))
-                    .px(px(RING + 4.))
+                    .mt(px(8.))
+                    .px(px(RING + 6.))
                     .text_size(px(TEXT))
-                    .text_color(if selected { Theme::text() } else { tint(0.6) })
+                    .text_color(if selected { Theme::text() } else { tint(0.55) })
                     .one_line(crate::tabs::display_title(tab));
                 Some(
                     div()
                         .id(("switcher-tab", ix))
-                        .w(px(CARD_WIDTH + 2. * RING))
+                        .w(px(card + 2. * RING))
                         .flex()
                         .flex_col()
                         .cursor_pointer()
@@ -281,7 +313,9 @@ impl Render for Strip {
             .flex()
             .items_center()
             .justify_center()
-            .bg(Rgba { a: 0.3, ..Theme::surface() })
+            .px(px(MARGIN))
+            .bg(Rgba { a: 0.16, ..Theme::surface() })
+            .opacity(fade)
             .font_family(Theme::font())
             .on_modifiers_changed(cx.listener(|this, e: &ModifiersChangedEvent, _, cx| {
                 if !e.modifiers.modified() {
