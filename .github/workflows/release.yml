@@ -895,29 +895,57 @@ jobs:
             gh release create "$TAG" dist/* --verify-tag --prerelease --latest=false --title "$title" --notes "$notes"
           else
             assets() { gh api "repos/$GH_REPO/releases/$published/assets?per_page=100" --paginate --jq '.[] | "\(.id) \(.name)"'; }
+            # Leftovers of a failed run: staged files, and files set aside whose own name is back.
+            listed="$(assets)"
             while read -r id name; do
-              [[ "$name" != staged.* ]] || gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
-            done < <(assets)
+              if [[ "$name" == staged.* ]] || { [[ "$name" == replaced.* ]] && grep -q " ${name#replaced.}$" <<<"$listed"; }; then
+                gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
+              fi
+            done <<<"$listed"
             mkdir staged
             for file in dist/*; do
               cp "$file" "staged/staged.$(basename "$file")"
             done
             gh release upload "$TAG" staged/*
             listed="$(assets)"
+            id_of() { awk -v n="$1" '$2 == n { print $1 }' <<<"$listed"; }
+            rename() {
+              for _ in 1 2 3; do
+                gh api -X PATCH "repos/$GH_REPO/releases/assets/$1" -f name="$2" >/dev/null && return 0
+                sleep 5
+              done
+              return 1
+            }
+            # The old file steps aside as replaced.<name> and comes back if anything fails, so the
+            # feed and the payloads it names stay those of the last nightly until every swap is done.
+            declare -A old new
+            swapped=()
+            restore() {
+              local i name
+              for ((i = ${#swapped[@]} - 1; i >= 0; i--)); do
+                name="${swapped[i]}"
+                rename "${new[$name]}" "staged.$name" || true
+                [[ -z "${old[$name]}" ]] || rename "${old[$name]}" "$name" || true
+              done
+            }
             swap() {
-              local name="$1" old new
-              old="$(awk -v n="$name" '$2 == n { print $1 }' <<<"$listed")"
-              new="$(awk -v n="staged.$name" '$2 == n { print $1 }' <<<"$listed")"
-              [[ -n "$new" ]] || { echo "staged.$name did not upload" >&2; exit 1; }
-              [[ -z "$old" ]] || gh api -X DELETE "repos/$GH_REPO/releases/assets/$old"
-              gh api -X PATCH "repos/$GH_REPO/releases/assets/$new" -f name="$name" >/dev/null
+              local name="$1"
+              old[$name]="$(id_of "$name")"
+              new[$name]="$(id_of "staged.$name")"
+              [[ -n "${new[$name]}" ]] || { echo "staged.$name did not upload" >&2; return 1; }
+              [[ -z "${old[$name]}" ]] || rename "${old[$name]}" "replaced.$name" || return 1
+              if ! rename "${new[$name]}" "$name"; then
+                [[ -z "${old[$name]}" ]] || rename "${old[$name]}" "$name" || true
+                return 1
+              fi
+              swapped+=("$name")
             }
             feeds=" appcast.xml windows-update.json windows-update.json.sig "
             for file in dist/*; do
-              [[ "$feeds" == *" $(basename "$file") "* ]] || swap "$(basename "$file")"
+              [[ "$feeds" == *" $(basename "$file") "* ]] || swap "$(basename "$file")" || { restore; exit 1; }
             done
             for file in dist/*; do
-              [[ "$feeds" != *" $(basename "$file") "* ]] || swap "$(basename "$file")"
+              [[ "$feeds" != *" $(basename "$file") "* ]] || swap "$(basename "$file")" || { restore; exit 1; }
             done
             while read -r id name; do
               [[ -f "dist/$name" ]] || gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
