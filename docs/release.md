@@ -100,9 +100,10 @@ the Nightly channel ("Update channels" below). The latest-release feeds never na
 `linux-repo.yml` takes only published releases that are not pre-releases. A release the workflow
 token creates starts no other workflow. The `nightly` tag is outside the `v*` ruleset, since the
 workflow token moves it; anyone with write access can move it too, so the attestation, not the tag,
-names the commit a file was built from. Each build deletes the tag first, so a plain `git fetch
---tags` refuses the moved tag; `scripts/publish-release.sh` fetches only `v*` tags. While a build
-replaces it, the pre-release is missing for the minutes its upload takes.
+names the commit a file was built from. A plain `git fetch --tags` refuses the moved tag;
+`scripts/publish-release.sh` fetches only `v*` tags. The workflow token cannot point a tag at a
+commit whose `.github/workflows` differ from `main`'s, so when `main` changes a workflow while a
+nightly builds, that build is not published (a manual run fails) and the next night builds `main`.
 
 ## Signing in CI
 

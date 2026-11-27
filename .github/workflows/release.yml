@@ -872,6 +872,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ inputs.commit }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           # The published nightly, which the Nightly feed reads, is never deleted, and no file it
@@ -881,6 +882,20 @@ jobs:
           # nightly whole. Only when there is none is a release created.
           title="Nightly $(date -u +%F) (${COMMIT:0:7})"
           notes="Nightly build of $COMMIT: the latest changes, before they are tested in a release. Settings › General › Nightly builds updates to it on macOS and Windows."
+          # The workflow token may not point a tag at a commit whose workflows differ from main's
+          # (HTTP 403), so a nightly that main's workflows have moved past is left to the next night.
+          workflows() { gh api "repos/$GH_REPO/contents/.github?ref=$1" --jq '.[] | select(.name == "workflows") | .sha'; }
+          built="$(workflows "$COMMIT")"
+          outdated() {
+            local on_main
+            on_main="$(workflows main)" || { echo "could not read main's workflows" >&2; exit 1; }
+            [[ "$built" != "$on_main" ]] || return 1
+            echo "::warning::main changed .github/workflows after $COMMIT; the next nightly publishes main instead"
+          }
+          if outdated; then
+            [[ "$EVENT" != workflow_dispatch ]] || exit 1
+            exit 0
+          fi
           move_tag() {
             if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
               gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$COMMIT" -F force=true >/dev/null
@@ -957,6 +972,13 @@ jobs:
               swapped+=("$name")
             }
             feeds=" appcast.xml windows-update.json windows-update.json.sig "
+            if outdated; then
+              while read -r id name; do
+                [[ "$name" != staged.* ]] || drop "$id"
+              done <<<"$listed"
+              [[ "$EVENT" != workflow_dispatch ]] || exit 1
+              exit 0
+            fi
             for file in dist/*; do
               [[ "$feeds" == *" $(basename "$file") "* ]] || swap "$(basename "$file")" || { restore; exit 1; }
             done
