@@ -26,7 +26,7 @@ const RING: f32 = 4.;
 const GAP: f32 = 20.;
 const MARGIN: f32 = 40.;
 /// A quick press and release switches without the strip flashing over the page.
-const SHOW_DELAY: Duration = Duration::from_millis(120);
+const SHOW_DELAY: Duration = Duration::from_millis(100);
 const RELEASE_POLL: Duration = Duration::from_millis(30);
 
 type Shots = HashMap<TabKey, Arc<RenderImage>>;
@@ -41,6 +41,12 @@ pub struct Open {
 }
 
 /// The strip draws the switcher's state; the main window shows none of it, so it is left alone.
+/// A card's width when `n` of them share one row of a page `width` wide.
+fn card_width(width: f32, n: usize) -> f32 {
+    let n = n.max(1) as f32;
+    ((width - 2. * MARGIN - (n - 1.) * GAP) / n - 2. * RING).clamp(MIN_CARD, MAX_CARD)
+}
+
 fn open_strip(b: &Browser) -> Option<WindowHandle<Strip>> {
     b.tab_switcher.as_ref().and_then(|o| o.strip)
 }
@@ -124,10 +130,12 @@ impl Browser {
     /// The strip floats in a window of its own over the page, so the page stays in view.
     fn show_switcher(&mut self, opened: Instant, window: &mut Window, cx: &mut Context<Self>) {
         let Some(open) = self.tab_switcher.as_ref().filter(|o| o.strip.is_none() && o.opened == opened) else { return };
-        for key in open.state.order.clone() {
-            self.request_switcher_shot(key, cx);
-        }
         let mut bounds = self.page_area(window);
+        // WebKit encodes each still on the main thread, so take it no larger than its card.
+        let card = card_width(f32::from(bounds.size.width), open.state.order.len());
+        for key in open.state.order.clone() {
+            self.request_switcher_shot(key, card, cx);
+        }
         bounds.origin += window.bounds().origin;
         let (display, main) = (window.display(cx).map(|d| d.id()), window.window_handle());
         let (browser, reduce) = (cx.entity().downgrade(), self.pref(Pref::ReduceMotion));
@@ -158,10 +166,10 @@ impl Browser {
         }
     }
 
-    fn request_switcher_shot(&self, key: TabKey, cx: &mut Context<Self>) {
+    fn request_switcher_shot(&self, key: TabKey, width: f32, cx: &mut Context<Self>) {
         let Some(view) = self.views.get(&key) else { return };
         let (tx, mut rx) = mpsc::unbounded();
-        view.snapshot_png(Some(f64::from(MAX_CARD) * 2.), move |png| drop(tx.unbounded_send(png)));
+        view.snapshot_png(Some(f64::from(width)), move |png| drop(tx.unbounded_send(png)));
         cx.spawn(async move |this, cx| {
             let Some(Some(png)) = rx.next().await else { return };
             let Some(image) = cx.background_spawn(async move { crate::hover_card::decode(&png) }).await else { return };
@@ -251,9 +259,7 @@ impl Render for Strip {
             window.request_animation_frame();
         }
         let text = |a: f32| Rgba { a, ..Theme::text() };
-        let n = order.len().max(1) as f32;
-        let width = f32::from(window.viewport_size().width);
-        let card = ((width - 2. * MARGIN - (n - 1.) * GAP) / n - 2. * RING).clamp(MIN_CARD, MAX_CARD);
+        let card = card_width(f32::from(window.viewport_size().width), order.len());
         let radius = (card * 0.06).clamp(10., 14.);
         let badge = (card * 0.15).clamp(26., 36.);
         let cards: Vec<_> = order
