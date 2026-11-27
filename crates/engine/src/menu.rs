@@ -40,6 +40,11 @@ define_class!(
 /// of the entry the user picks. AppKit runs a modal tracking loop inside this call, so the caller
 /// must not hold UI state borrowed across it.
 pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, chosen: impl FnOnce(T) + 'static) {
+    show_at(host, items, at, false, chosen);
+}
+
+/// `show`, with the menu's bottom at `at` when `above`, for a button near the window's lower edge.
+pub fn show_at<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, above: bool, chosen: impl FnOnce(T) + 'static) {
     let Some(mtm) = MainThreadMarker::new() else { return };
     let mut values = Vec::new();
     let target = Target::alloc(mtm).set_ivars(RefCell::new(None));
@@ -64,7 +69,10 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>
         })
         .collect();
     let location = match at {
-        Some((x, y)) => NSPoint::new(x, if host.view.isFlipped() { y } else { host.view.bounds().size.height - y }),
+        Some((x, y)) => {
+            let y = if above { y - menu.size().height } else { y };
+            NSPoint::new(x, if host.view.isFlipped() { y } else { host.view.bounds().size.height - y })
+        }
         None => host.view.convertPoint_fromView(window.mouseLocationOutsideOfEventStream(), None),
     };
     menu.popUpMenuPositioningItem_atLocation_inView(None, location, Some(&host.view));

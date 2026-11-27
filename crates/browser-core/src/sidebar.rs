@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use shield::ShieldLevel;
-use store::{Folder, Id, Tab, TabKind};
+use store::{Folder, Id, Store, Tab, TabKind};
 
 use crate::closed::ClosedGroup;
 use crate::split::Splits;
@@ -498,8 +498,68 @@ impl SpaceBar {
     }
 }
 
+/// How many of a profile's latest chats the sidebar lists.
+pub const CHATS_SHOWN: usize = 4;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatRow {
+    pub id: Id,
+    pub title: String,
+    /// The time it last changed today, else its date.
+    pub when: String,
+}
+
+/// The profile's latest chats, newest first.
+pub fn chat_rows(store: &Store, profile: Id, now: i64) -> Vec<ChatRow> {
+    let today = store.local_date(now).unwrap_or_default();
+    let mut chats = store.chat_titles(profile).unwrap_or_default();
+    chats.truncate(CHATS_SHOWN);
+    chats
+        .into_iter()
+        .map(|c| {
+            let date = store.local_date(c.updated).unwrap_or_default();
+            let when = if date == today { store.local_clock(c.updated).unwrap_or_default() } else { short_date(&date) };
+            ChatRow { id: c.id, title: c.title, when }
+        })
+        .collect()
+}
+
+/// `YYYY-MM-DD` as `Mon D`, or as given when it is not such a date.
+pub fn short_date(date: &str) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let mut parts = date.split('-').skip(1).map(|p| p.parse::<usize>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(m @ 1..=12), Some(d)) => format!("{} {d}", MONTHS[m - 1]),
+        _ => date.to_owned(),
+    }
+}
+
+/// A collapsed group's first few page addresses and how many tabs it holds.
+pub fn group_summary(model: &Model, group: Id) -> (Vec<String>, usize) {
+    let tabs: Vec<&Tab> = model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(group)).collect();
+    (tabs.iter().take(3).map(|t| t.url.clone()).collect(), tabs.len())
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn chats_show_their_time_today_and_their_date_before() {
+        use super::{CHATS_SHOWN, chat_rows, short_date};
+        let store = store::Store::open_in_memory().unwrap();
+        let profile = store.create_profile("P", "u", false).unwrap().id;
+        assert!(chat_rows(&store, profile, crate::now()).is_empty());
+        let turns = [store::ChatTurn { you: true, text: "hi".into(), by: None, interrupted: false, command: false }];
+        for n in 0..CHATS_SHOWN + 1 {
+            store.save_chat(profile, None, Some(&format!("Chat {n}")), &turns, &[]).unwrap();
+        }
+        let rows = chat_rows(&store, profile, crate::now());
+        assert_eq!(rows.len(), CHATS_SHOWN);
+        assert!(rows.iter().all(|r| r.when.len() == 5 && r.when.as_bytes()[2] == b':'), "{rows:?}");
+        assert!(chat_rows(&store, profile, crate::now() + 3 * 86_400_000).iter().all(|r| r.when.contains(' ')), "older chats show a date");
+        assert_eq!(short_date("2026-11-07"), "Nov 7");
+        assert_eq!(short_date("garbage"), "garbage");
+    }
+
     #[test]
     fn organize_offers_clean_up_only_with_tabs_to_sort_and_the_assistant_only_when_allowed() {
         use super::{Organize, organize};

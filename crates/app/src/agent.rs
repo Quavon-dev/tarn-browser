@@ -468,6 +468,13 @@ fn tick(cx: &mut App) -> bool {
     true
 }
 
+/// Whether an agent controls this window, and whether it waits for an answer.
+pub(crate) fn status(window: &Window, cx: &App) -> Option<(String, bool)> {
+    let agent = cx.try_global::<Agent>()?;
+    agent.window.filter(|w| w.window_id() == window.window_handle().window_id())?;
+    agent.ctl.banner().map(|b| (b.text, b.asking))
+}
+
 /// The agent bar at the top of the agent's window: its question, or who controls the window.
 pub(crate) fn banner(b: &Browser, window: &Window, cx: &mut Context<Browser>, push: &mut impl FnMut(&'static str, String, Rgba, gpui::Div)) {
     let Some(agent) = cx.try_global::<Agent>() else { return };

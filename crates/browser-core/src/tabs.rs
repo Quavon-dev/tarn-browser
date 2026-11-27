@@ -95,6 +95,10 @@ pub struct Model {
     pub confined: Option<(bool, Id)>,
     /// Each tab a link opened, with the tab it opened from, in memory only.
     openers: HashMap<TabKey, TabKey>,
+    /// Tabs whose page retitled itself in the background since they were last shown, in memory only.
+    unread: HashSet<TabKey>,
+    /// Loose tabs come before the groups, as the sidebar with the toolbar in it shows them.
+    pub loose_first: bool,
 }
 
 /// A new profile of the private store at Strict with one space, which keeps nothing.
@@ -144,7 +148,28 @@ impl Model {
             agent_throwaway: false,
             confined: None,
             openers: HashMap::new(),
+            unread: HashSet::new(),
+            loose_first: false,
         }
+    }
+
+    /// Marks `key` unread when its loaded page changes a title it already had while another tab is shown.
+    pub fn note_title(&mut self, key: TabKey, old: &str, new: &str, loading: bool) {
+        if self.active != Some(key) && !loading && !old.is_empty() && old != new {
+            self.unread.insert(key);
+        }
+    }
+
+    /// Clears the shown tab's mark.
+    pub fn seen(&mut self) {
+        if let Some(key) = self.active {
+            self.unread.remove(&key);
+        }
+    }
+
+    /// Whether `key` changed since it was last shown.
+    pub fn unread(&self, key: TabKey) -> bool {
+        self.active != Some(key) && self.unread.contains(&key)
     }
 
     pub fn burner_shown(&self) -> bool {
@@ -398,7 +423,7 @@ impl Model {
     pub fn visible_tab_order(&self) -> Vec<TabKey> {
         let private = self.private();
         let active = self.active.filter(|k| k.private == private).map(|k| k.id);
-        visible_order(&self.tabs, &self.folders, &self.groups, &self.expanded, active).into_iter().map(|id| TabKey { private, id }).collect()
+        visible_order(&self.tabs, &self.folders, &self.groups, &self.expanded, active, self.loose_first).into_iter().map(|id| TabKey { private, id }).collect()
     }
 
     /// The `n`th visible tab, counted from 1; 9 is the last, as in other browsers.
@@ -506,6 +531,7 @@ impl Model {
         store.move_tab_to(tab.id, TabKind::Ephemeral, None, self.insert_index(opened), group.map(Some)).ok();
         let tabs = &self.tabs;
         self.openers.retain(|k, _| tabs.iter().any(|t| t.id == k.id && private == k.private));
+        self.unread.retain(|k| tabs.iter().any(|t| t.id == k.id && private == k.private));
         if let Opened::Link(opener) = opened {
             self.openers.insert(key, opener);
         }
@@ -909,7 +935,7 @@ pub fn folder_tree(folders: &[Folder], root: Id) -> HashSet<Id> {
 /// Tiles, loose pinned tabs, folders (each folder's tabs before its subfolders), groups, then
 /// ungrouped tabs; a closed folder or a collapsed group contributes only its active tab, as the
 /// sidebar shows it.
-fn visible_order(tabs: &[Tab], folders: &[Folder], groups: &[Group], expanded: &HashSet<Id>, active: Option<Id>) -> Vec<Id> {
+fn visible_order(tabs: &[Tab], folders: &[Folder], groups: &[Group], expanded: &HashSet<Id>, active: Option<Id>, loose_first: bool) -> Vec<Id> {
     let pick = |keep: &dyn Fn(&Tab) -> bool| tabs.iter().filter(|t| keep(t)).map(|t| t.id).collect::<Vec<_>>();
     let mut order = pick(&|t| t.kind == TabKind::Tile);
     order.extend(pick(&|t| t.kind == TabKind::Pinned && t.folder_id.is_none()));
@@ -923,15 +949,40 @@ fn visible_order(tabs: &[Tab], folders: &[Folder], groups: &[Group], expanded: &
             order.extend(pick(&|t| Some(t.id) == active && t.folder_id.is_some_and(|id| tree.contains(&id))));
         }
     }
+    let loose = pick(&|t| t.kind == TabKind::Ephemeral && t.group_id.is_none());
+    if loose_first {
+        order.extend(&loose);
+    }
     for g in groups {
         order.extend(pick(&|t| t.kind == TabKind::Ephemeral && t.group_id == Some(g.id) && (!g.collapsed || Some(t.id) == active)));
     }
-    order.extend(pick(&|t| t.kind == TabKind::Ephemeral && t.group_id.is_none()));
+    if !loose_first {
+        order.extend(loose);
+    }
     order
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_page_retitled_in_the_background_is_unread_until_shown() {
+        let mut model = super::Model::new(4);
+        let (a, b) = (super::TabKey { private: false, id: 1 }, super::TabKey { private: false, id: 2 });
+        model.active = Some(a);
+        model.note_title(b, "", "Inbox", false);
+        model.note_title(b, "Inbox", "Inbox", false);
+        model.note_title(b, "Inbox", "Next page", true);
+        model.note_title(a, "Inbox", "(1) Inbox", false);
+        assert!(!model.unread(b) && !model.unread(a), "first titles, loads and the shown tab stay read");
+        model.note_title(b, "Inbox", "(1) Inbox", false);
+        assert!(model.unread(b));
+        model.active = Some(b);
+        assert!(!model.unread(b));
+        model.seen();
+        model.active = Some(a);
+        assert!(!model.unread(b), "shown once, it stays read");
+    }
+
     use super::*;
     use crate::TestCore;
     use store::Store;
@@ -960,11 +1011,13 @@ mod tests {
         store.set_tab_group(hidden, Some(collapsed)).unwrap();
         store.set_tab_group(grouped, Some(open_group)).unwrap();
         let expanded = HashSet::from([open, sub, deep]);
-        let order = |active| visible_order(&store.tabs(s).unwrap(), &store.folders(s).unwrap(), &store.groups(s).unwrap(), &expanded, active);
+        let order = |active| visible_order(&store.tabs(s).unwrap(), &store.folders(s).unwrap(), &store.groups(s).unwrap(), &expanded, active, false);
         assert_eq!(order(Some(active_in_shut)), [tile, pinned, in_open, in_sub, active_in_shut, grouped, loose]);
         assert_eq!(order(Some(hidden)), [tile, pinned, in_open, in_sub, hidden, grouped, loose]);
         assert_eq!(order(Some(active_in_deep)), [tile, pinned, in_open, in_sub, active_in_deep, grouped, loose]);
         assert!(!order(None).contains(&in_shut));
+        let loose_first = visible_order(&store.tabs(s).unwrap(), &store.folders(s).unwrap(), &store.groups(s).unwrap(), &expanded, None, true);
+        assert_eq!(loose_first[loose_first.len() - 2..], [loose, grouped], "with the toolbar in the sidebar loose tabs come first");
     }
 
     #[test]

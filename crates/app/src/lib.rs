@@ -101,7 +101,10 @@ actions!(
     ]
 );
 
-actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, ToggleGlassDesign, OpenAppMenu]);
+actions!(
+    tarn,
+    [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, ToggleSidebarToolbar, ToggleGlassDesign, OpenAppMenu]
+);
 actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
 actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, RecentTab, RecentTabBack, BurnerTab]);
@@ -127,6 +130,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::TabsOnTop => &ToggleTabsOnTop,
         C::AutoHideSidebar => &ToggleAutoHideSidebar,
         C::CompactToolbar => &ToggleCompactToolbar,
+        C::SidebarToolbar => &ToggleSidebarToolbar,
         C::GlassDesign => &ToggleGlassDesign,
         C::CloseAllTabs => &CloseAllTabs,
         C::ShowLibrary => &ToggleLibrary,
@@ -232,6 +236,8 @@ impl Browser {
         root = self.root_tab_actions(root, cx);
         root = self.root_listeners(root, cx);
         root = self.root_late_actions(root, cx);
+        self.model.seen();
+        self.model.loose_first = self.sidebar_chrome();
         let shown = self.sidebar_shown();
         // A list taken away under the pointer sends no hover-out.
         if shown < 1. {
@@ -242,7 +248,7 @@ impl Browser {
                 .flex_none()
                 .flex()
                 .justify_end()
-                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, cx)))
+                .child(timed(engine::startup::SIDEBAR_FRAME, || sidebar::render(self, window, cx)))
                 .when(shown < 1., |d| d.w(px((self.sidebar_width + sidebar::SIDEBAR_MARGIN) * shown)).overflow_hidden().opacity(shown))
         });
         if !self.page_fullscreen_holds() {
@@ -465,7 +471,12 @@ impl Browser {
                     }
                 }))
             })
-            .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| b.set_pref(prefs::Pref::CompactToolbar, !b.pref(prefs::Pref::CompactToolbar), cx)))
+            .on_action(cx.listener(|b, _: &ToggleCompactToolbar, _, cx| {
+                let compact = b.pref(prefs::Pref::CompactToolbar) && !b.pref(prefs::Pref::SidebarToolbar);
+                b.set_pref(prefs::Pref::SidebarToolbar, false, cx);
+                b.set_pref(prefs::Pref::CompactToolbar, !compact, cx);
+            }))
+            .on_action(cx.listener(|b, _: &ToggleSidebarToolbar, _, cx| b.set_pref(prefs::Pref::SidebarToolbar, !b.pref(prefs::Pref::SidebarToolbar), cx)))
             .on_action(cx.listener(|b, _: &ToggleGlassDesign, _, cx| {
                 let on = browser_core::theme_library::glass_on(&b.core.disk);
                 if let Err(e) = browser_core::theme_library::set_glass_on(&b.core.disk, !on) {

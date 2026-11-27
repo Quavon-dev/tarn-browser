@@ -38,6 +38,9 @@ pub enum Cmd {
     DeleteSpace(usize),
     HideSpace(usize, bool),
     CompactToolbar(bool),
+    SidebarToolbar(bool),
+    Library,
+    SwitchSpace(usize),
     Settings,
     Rename(RenameTarget),
     ChangeIcon(RenameTarget),
@@ -223,6 +226,12 @@ impl Browser {
 
     pub fn space_menu(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let mut items = Vec::new();
+        // The switcher at the sidebar's bottom edge lists the spaces to go to first.
+        if self.sidebar_chrome() && ix == self.model.space_ix {
+            let shown = (0..self.model.spaces.len()).filter(|i| self.model.space_shown(*i));
+            items.extend(shown.map(|i| Item::action(ui::text::bounded_title(&self.model.spaces[i].space.name), Cmd::SwitchSpace(i)).checked(i == ix)));
+            items.push(Item::Separator);
+        }
         // The space name is edited inline in the sidebar header, which shows the current space only.
         if ix == self.model.space_ix {
             items.push(Item::action("Rename", Cmd::Rename(RenameTarget::Space(self.model.spaces[ix].space.id))));
@@ -240,6 +249,18 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
+    pub fn profile_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
+        let items = vec![
+            Item::action("Settings…", Cmd::Settings).key(crate::shortcuts::keys(&crate::Settings, cx)),
+            Item::action("Show Library", Cmd::Library).key(crate::shortcuts::keys(&crate::ToggleLibrary, cx)),
+            Item::Separator,
+            Item::action("Edit Profile…", Cmd::EditProfile(id)),
+            Item::action("New Profile…", Cmd::NewProfile),
+            Item::action("New Space…", Cmd::NewSpace).key(crate::shortcuts::keys(&crate::NewSpace, cx)),
+        ];
+        self.show_menu(items, window, cx);
+    }
+
     pub fn shield_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let current = self.current_loaded().map(|rt| rt.profile.shield_level).unwrap_or_default();
         let items = shield::ShieldLevel::ALL
@@ -251,9 +272,12 @@ impl Browser {
 
     pub fn toolbar_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let compact = self.pref(Pref::CompactToolbar);
+        let sidebar = self.pref(Pref::SidebarToolbar);
         let mut items = vec![
-            Item::action("Classic Toolbar", Cmd::CompactToolbar(false)).checked(!compact),
-            Item::action("Compact Toolbar", Cmd::CompactToolbar(true)).checked(compact),
+            Item::action("Toolbar in Sidebar", Cmd::SidebarToolbar(!sidebar)).checked(sidebar),
+            Item::Separator,
+            Item::action("Classic Toolbar", Cmd::CompactToolbar(false)).checked(!sidebar && !compact),
+            Item::action("Compact Toolbar", Cmd::CompactToolbar(true)).checked(!sidebar && compact),
             Item::Separator,
             Item::action("Customize in Settings…", Cmd::Settings).key(crate::shortcuts::keys(&crate::Settings, cx)),
         ];
@@ -298,13 +322,16 @@ impl Browser {
 
     fn show_menu(&mut self, items: Vec<Item<Cmd>>, window: &mut Window, cx: &mut Context<Self>) {
         cx.stop_propagation();
-        let at = self.menu_at.take().and_then(below);
+        // A button in the window's lower half, such as the sidebar's bottom edge, opens its menu upwards.
+        let anchor = self.menu_at.take().filter(|b| b.size.width > px(0.));
+        let above = anchor.is_some_and(|b| b.center().y > window.viewport_size().height / 2.);
+        let at = anchor.and_then(|b| if above { Some((f32::from(b.origin.x).into(), f32::from(b.top()).into())) } else { below(b) });
         let Some(host) = self.host.clone() else { return };
         let main = self.peek.main.filter(|_| self.peek.is_window(window));
         self.menu_open = true;
         cx.spawn_in(window, async move |this, cx| {
             let (tx, rx) = oneshot::channel();
-            menu::show(&host, crate::menu_glyphs::with_glyphs(items), at, move |cmd| {
+            menu::show_at(&host, crate::menu_glyphs::with_glyphs(items), at, above, move |cmd| {
                 tx.send(cmd).ok();
             });
             this.update(cx, |b, _| b.menu_open = false).ok();
@@ -407,7 +434,13 @@ impl Browser {
             Cmd::NewSpace => self.new_space(window, cx),
             Cmd::DeleteSpace(ix) => self.confirm_delete_space(ix, window, cx),
             Cmd::HideSpace(ix, hidden) => self.hide_space(ix, hidden, window, cx),
-            Cmd::CompactToolbar(on) => self.set_pref(Pref::CompactToolbar, on, cx),
+            Cmd::CompactToolbar(on) => {
+                self.set_pref(Pref::SidebarToolbar, false, cx);
+                self.set_pref(Pref::CompactToolbar, on, cx);
+            }
+            Cmd::SidebarToolbar(on) => self.set_pref(Pref::SidebarToolbar, on, cx),
+            Cmd::Library => self.toggle_library(window, cx),
+            Cmd::SwitchSpace(ix) => self.switch_space(ix, window, cx),
             Cmd::Settings => self.open_settings_pane(SettingsPane::Appearance, window, cx),
             Cmd::Rename(target) => self.begin_rename(target, window, cx),
             Cmd::ChangeIcon(target) => self.begin_icon(target, window, cx),

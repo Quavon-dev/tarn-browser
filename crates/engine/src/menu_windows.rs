@@ -5,8 +5,8 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, GetSystemMetricsForDpi};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CreateIconFromResourceEx, CreatePopupMenu, DI_NORMAL, DestroyIcon, DestroyMenu, DrawIconEx, GetCursorPos, HMENU, LR_DEFAULTCOLOR,
-    MENUITEMINFOW, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MIIM_BITMAP, SM_CXSMICON, SetMenuItemInfoW, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu,
+    MENUITEMINFOW, MF_CHECKED, MF_GRAYED, MF_POPUP, MF_SEPARATOR, MF_STRING, MIIM_BITMAP, SM_CXSMICON, SetMenuItemInfoW, TPM_BOTTOMALIGN, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TrackPopupMenu,
 };
 
 use crate::Host;
@@ -18,6 +18,11 @@ pub use crate::menu_item::Item;
 /// the value of the entry the user picks. Windows runs a modal loop inside this call, so the
 /// caller must not hold UI state borrowed across it.
 pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, chosen: impl FnOnce(T) + 'static) {
+    show_at(host, items, at, false, chosen);
+}
+
+/// `show`, with the menu's bottom at `at` when `above`, for a button near the window's lower edge.
+pub fn show_at<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>, above: bool, chosen: impl FnOnce(T) + 'static) {
     let (mut values, mut bitmaps) = (Vec::new(), Vec::new());
     // SAFETY: a plain query of the host window.
     let size = unsafe { GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForWindow(host.hwnd)) };
@@ -39,7 +44,8 @@ pub fn show<T: 'static>(host: &Host, items: Vec<Item<T>>, at: Option<(f64, f64)>
             GetCursorPos(&mut point);
             point
         });
-        let id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, at.x, at.y, 0, host.hwnd, std::ptr::null());
+        let align = if above && anchored.is_some() { TPM_BOTTOMALIGN } else { 0 };
+        let id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | align, at.x, at.y, 0, host.hwnd, std::ptr::null());
         DestroyMenu(menu);
         for bitmap in bitmaps {
             DeleteObject(bitmap);

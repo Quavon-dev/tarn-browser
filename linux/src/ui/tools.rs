@@ -143,6 +143,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::EditProfile
         | C::AutoHideSidebar
         | C::CompactToolbar
+        | C::SidebarToolbar
         | C::ShowLibrary
         | C::ReloadInChromium
         | C::ReloadInWebKit

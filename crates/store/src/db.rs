@@ -366,6 +366,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Store {
     conn: Connection,
     settings_rev: std::sync::atomic::AtomicU64,
+    chats_rev: std::sync::atomic::AtomicU64,
 }
 
 impl Store {
@@ -407,7 +408,7 @@ impl Store {
         conn.pragma_update(None, "foreign_keys", true)?;
         conn.pragma_update(None, "temp_store", "MEMORY")?;
         conn.pragma_update(None, "secure_delete", true)?;
-        let mut store = Store { conn, settings_rev: Default::default() };
+        let mut store = Store { conn, settings_rev: Default::default(), chats_rev: Default::default() };
         store.migrate()?;
         Ok(store)
     }
@@ -1308,6 +1309,7 @@ impl Store {
                 |r| r.get(0),
             ),
         };
+        self.chats_changed();
         match id {
             Err(rusqlite::Error::QueryReturnedNoRows) => Err(Error::Invalid("chat")),
             other => Ok(other?),
@@ -1320,6 +1322,7 @@ impl Store {
         if title.is_empty() || title.chars().count() > MAX_NOTE_TITLE {
             return Err(Error::Invalid("chat title"));
         }
+        self.chats_changed();
         match self.conn.execute("UPDATE chats SET title = ?3 WHERE profile_id = ?1 AND id = ?2", params![profile_id, id, title])? {
             0 => Err(Error::Invalid(MISSING_CHAT)),
             _ => Ok(()),
@@ -1328,12 +1331,14 @@ impl Store {
 
     pub fn delete_chat(&self, profile_id: Id, id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM chats WHERE profile_id = ?1 AND id = ?2", params![profile_id, id])?;
+        self.chats_changed();
         self.checkpoint().ok();
         Ok(())
     }
 
     pub fn delete_chats(&self, profile_id: Id) -> Result<()> {
         self.conn.execute("DELETE FROM chats WHERE profile_id = ?1", [profile_id])?;
+        self.chats_changed();
         self.checkpoint().ok();
         Ok(())
     }
@@ -1519,6 +1524,20 @@ impl Store {
 
     fn settings_changed(&self) {
         self.settings_rev.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Moves on with every write to the chats, for the sidebar's list of them.
+    pub fn chat_changes(&self) -> u64 {
+        self.chats_rev.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn chats_changed(&self) {
+        self.chats_rev.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The local time of day of `at` (ms), as HH:MM.
+    pub fn local_clock(&self, at: i64) -> Result<String> {
+        Ok(self.conn.query_row("SELECT strftime('%H:%M', ?1 / 1000, 'unixepoch', 'localtime')", [at], |r| r.get(0))?)
     }
 
     /// The local calendar date of `at` (ms), as YYYY-MM-DD.
@@ -2298,7 +2317,7 @@ mod tests {
             conn.execute_batch(sql).unwrap();
         }
         conn.pragma_update(None, "user_version", at as i64).unwrap();
-        Store { conn, settings_rev: Default::default() }
+        Store { conn, settings_rev: Default::default(), chats_rev: Default::default() }
     }
 
     #[test]

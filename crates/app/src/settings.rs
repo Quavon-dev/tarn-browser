@@ -1008,7 +1008,7 @@ impl SettingsWindow {
                 .tooltip(ui::controls::tooltip(if ix == 0 { "The theme's own accent" } else { name }, None))
                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_choice(Choice::Accent, ix, cx))))
         }));
-        let compact = s.prefs.get(Pref::CompactToolbar) as usize;
+        let toolbar = if s.prefs.get(Pref::SidebarToolbar) { 0 } else { 1 + s.prefs.get(Pref::CompactToolbar) as usize };
         let top = self.browser.upgrade().is_some_and(|b| b.read(cx).tab_placement == browser_core::layout::TabPlacement::Top) as usize;
         let motion = "Pop-ups, cards, tabs and the sidebar appear without animation, and the search bar effect holds still.";
         let reduce_motion = if s.reduce && !s.prefs.get(Pref::ReduceMotion) {
@@ -1054,10 +1054,15 @@ impl SettingsWindow {
                     .child(self.choice_row(
                         false,
                         "Toolbar",
-                        "Compact puts the address field into a slimmer bar.",
-                        &["Classic", "Compact"],
-                        compact,
-                        |b, ix, cx| b.set_pref(Pref::CompactToolbar, ix == 1, cx),
+                        "Sidebar puts Back, Forward and the address field above the tabs; with tabs on top, or the sidebar hidden, it shows as Compact. Compact puts the address field into a slimmer bar.",
+                        &["Sidebar", "Classic", "Compact"],
+                        toolbar,
+                        |b, ix, cx| {
+                            b.set_pref(Pref::SidebarToolbar, ix == 0, cx);
+                            if ix > 0 {
+                                b.set_pref(Pref::CompactToolbar, ix == 2, cx);
+                            }
+                        },
                         cx,
                     ))
                     .child(self.pref_row(

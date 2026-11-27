@@ -8,6 +8,22 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- The toolbar can sit in the sidebar, and does by default: Back, Forward, Reload and the
+  address field move above the tabs, and the page gets the window's full height. Under the
+  tiles, Chats lists the profile's four latest assistant chats with their time (shown only while
+  the profile's AI is on, never in a private space); the pen starts a new one. A rule with Tidy
+  sorts loose tabs into groups (right-click for the other ways to organise). Loose tabs come before
+  the groups, which show as cards; a closed group takes its colour and shows its first sites and
+  how many tabs it holds. A tab of the space you are in that retitled itself while you looked
+  elsewhere, such as an inbox count, shows a dot until you open it; this is kept in memory only. The tab whose media the
+  mini-player follows shows a speaker, a muted tab a crossed-out one, and sleeping tabs keep their
+  colour. At the bottom, a card says when an agent controls the window or needs you, and on
+  Windows when an update waits for Restart; downloads, the space switcher (which lists your
+  spaces) and your profile's menu (Settings, Library, profiles) sit along the bottom edge, and
+  their menus open upwards. With tabs on top or the
+  sidebar hidden the toolbar comes back as Compact. Settings › Appearance › Toolbar, View ›
+  Toolbar in Sidebar or the command bar switch back to Classic or Compact. On macOS and Windows.
+
 - Ctrl+Tab switches to your most recently used tab. Hold Ctrl to see the space's tabs as
   snapshots, most recent first: press Tab or Shift+Tab to move, let go of Ctrl
   or press Return to switch, Esc to stay. Snapshots are taken when the switcher opens and dropped

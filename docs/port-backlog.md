@@ -21,6 +21,27 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Toolbar in the sidebar (2026-11-28)
+
+What it does: Back, Forward, Reload and the address field sit at the top of the sidebar; under the
+tiles a Chats section lists the latest assistant chats; a Tidy rule sorts loose tabs; loose tabs
+come before group cards, and a closed group shows its colour, first sites and tab count; a dot
+marks a tab that retitled itself in the background; cards at the bottom show an agent at work and
+an update ready; the bottom edge holds downloads, the space switcher and the profile menu.
+Shared API: `browser_core::sidebar::{chat_rows, ChatRow, CHATS_SHOWN, group_summary}`,
+`browser_core::tabs::Model::{note_title, seen, unread}`, `palette::Command::SidebarToolbar`.
+Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `pills`,
+`group_card`), `crates/app/src/toolbar.rs` (`sidebar_address`, `history`, `render`).
+
+- [x] Windows — same code in `crates/app`; a 32 px strip above the page keeps the window
+  buttons. Not yet run on Windows.
+- [ ] Linux — `linux/src/ui.rs` `sidebar`: header with navigation and address, chats, Tidy,
+  group summary, unread dot (call `note_title` from the title signal), footer; offer
+  `Command::SidebarToolbar` in `linux/src/ui/tools.rs`
+- [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats, Tidy, group summary, unread
+  dot, footer; the address stays in its bar on touch
+- [ ] Android — the same sidebar in the Mac layout
+
 ### Delete a profile's last space (2026-11-26)
 
 What it does: deleting a profile's last space deletes the profile with it, after a confirmation

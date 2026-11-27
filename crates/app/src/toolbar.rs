@@ -25,9 +25,24 @@ pub fn shield_badge(level: ShieldLevel) -> &'static str {
 }
 
 pub fn render(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
+    let folded = if b.sidebar_chrome() { b.sidebar_shown() } else { 0. };
     let inset = (TRAFFIC_LIGHT_INSET - (b.sidebar_width + SIDEBAR_MARGIN) * b.sidebar_shown()).max(8.);
-    let bar = if b.pref(Pref::CompactToolbar) { render_compact(b, cx).pl(px(inset)) } else { render_classic(b, inset, cx).pl_2() };
-    bar.h(px(TOOLBAR_HEIGHT))
+    let (bar, height) = if folded >= 1. {
+        let height = if b.devtools_on() {
+            TOOLBAR_HEIGHT
+        } else if cfg!(windows) {
+            CAPTION
+        } else {
+            SIDEBAR_MARGIN
+        };
+        (div().justify_end().gap_2().when(b.devtools_on(), |d| d.child(devtools(b, cx))).children(app_menu_button(b, cx)), height)
+    } else if b.pref(Pref::CompactToolbar) || b.pref(Pref::SidebarToolbar) {
+        (render_compact(b, cx).pl(px(inset)), TOOLBAR_HEIGHT * (1. - folded))
+    } else {
+        (render_classic(b, inset, cx).pl_2(), TOOLBAR_HEIGHT)
+    };
+    bar.h(px(height))
+        .when(folded > 0. && folded < 1., |d| d.overflow_hidden().opacity(1. - folded))
         .flex_none()
         .pr_2()
         .flex()
@@ -42,6 +57,16 @@ pub fn render(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
         .window_control_area(gpui::WindowControlArea::Drag)
         .children(ui::controls::window_controls())
         .into_any_element()
+}
+
+/// The strip Windows keeps above the page for its window buttons while the sidebar holds the toolbar.
+const CAPTION: f32 = 32.;
+
+impl Browser {
+    /// Whether the sidebar holds the navigation buttons and the address field.
+    pub(crate) fn sidebar_chrome(&self) -> bool {
+        self.pref(Pref::SidebarToolbar) && self.tab_placement == browser_core::layout::TabPlacement::Side
+    }
 }
 
 /// The shortest time the reload arrow spins after Reload, so a page served from cache still shows it.
@@ -89,19 +114,24 @@ fn private_mark(b: &Browser) -> Option<impl IntoElement> {
 }
 
 fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
-    let reload = tab_stop(reload_button(b, page, cx));
-    let sidebar = if b.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" };
+    div().occlude().flex().flex_none().items_center().gap(px(2.)).child(sidebar_toggle(b, cx)).child(history(b, page, cx)).children(private_mark(b))
+}
+
+pub(crate) fn sidebar_toggle(b: &Browser, cx: &mut Context<Browser>) -> Stateful<Div> {
+    let tip = if b.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" };
+    tab_stop(icon_button("toggle-sidebar", Icon::Sidebar, true))
+        .tooltip(crate::shortcuts::tip(tip, &crate::ToggleSidebar))
+        .on_click(cx.listener(|b, _, _, cx| b.toggle_sidebar(cx)))
+}
+
+/// Back, Forward and Reload.
+pub(crate) fn history(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
     div()
         .occlude()
         .flex()
         .flex_none()
         .items_center()
         .gap(px(2.))
-        .child(
-            tab_stop(icon_button("toggle-sidebar", Icon::Sidebar, true))
-                .tooltip(crate::shortcuts::tip(sidebar, &crate::ToggleSidebar))
-                .on_click(cx.listener(|b, _, _, cx| b.toggle_sidebar(cx))),
-        )
         .child(
             icon_button("back", Icon::Back, page.can_back)
                 .when(page.can_back, tab_stop)
@@ -114,9 +144,52 @@ fn navigation(b: &Browser, page: &PageState, cx: &mut Context<Browser>) -> Div {
                 .tooltip(crate::shortcuts::tip("Forward", &crate::Forward))
                 .on_click(cx.listener(|b, _, _, _| b.forward())),
         )
-        .child(reload)
-        .children(private_mark(b))
+        .child(tab_stop(reload_button(b, page, cx)))
 }
+
+/// The address field as a pill in the sidebar, with the extension buttons beside it.
+pub(crate) fn sidebar_address(b: &Browser, cx: &mut Context<Browser>) -> Div {
+    let site = site(b);
+    forget_share_anchor(b, &site);
+    let (text, color) = if site.host.is_some() { address_text(&site) } else { ("Search or type a URL".to_owned(), Secure::faint()) };
+    let field = tab_stop(div().id("address"))
+        .occlude()
+        .group("address")
+        .flex_1()
+        .min_w_0()
+        .h(px(PILL))
+        .pl(px(if site.controls { CHIP_INSET + 2. } else { 12. }))
+        .pr(px(CHIP_INSET + 2.))
+        .flex()
+        .items_center()
+        .gap_2()
+        .rounded(px(PILL / 2.))
+        .bg(Theme::raised())
+        .border_1()
+        .border_color(Theme::hairline())
+        .whitespace_nowrap()
+        .cursor_pointer()
+        .hover(|s| s.bg(Theme::hover()))
+        .active(|s| s.bg(Theme::pressed()))
+        .on_click(cx.listener(|b, _, window, cx| open_address(b, window, cx)))
+        .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
+        .relative()
+        .child(measure(b.address.field.clone()))
+        .map(|d| if site.controls { d.child(shield_button(b, &site, cx)) } else { d.child(icon(Icon::Search, 16., Theme::muted())) })
+        .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().text_color(color).child(text))
+        .children(reader_button(b, cx))
+        .children(mute_button(b, cx))
+        .children(engine_badge(b, cx))
+        .when(site.controls, |d| d.child(share_button(b, "address", cx)).child(bookmark_button(b, &site, "address", cx)));
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .child(div().flex_1().min_w_0().relative().flex().child(measure(b.address.slot.clone())).child(field))
+        .child(crate::extensions::buttons(b, cx))
+}
+
+const PILL: f32 = 36.;
 
 fn page_actions(b: &Browser) -> Div {
     let page = b.model.active.is_some();

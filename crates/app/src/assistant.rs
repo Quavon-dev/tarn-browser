@@ -292,6 +292,11 @@ impl Browser {
         cx.notify();
     }
 
+    /// The saved chat the open assistant shows.
+    pub(crate) fn shown_chat(&self) -> Option<store::Id> {
+        self.assistant.open.then(|| self.assistant.session.as_ref().and_then(Session::chat)).flatten()
+    }
+
     /// How far the column is shown, from 0 to 1, as it slides.
     pub(crate) fn assistant_shown(&self) -> f32 {
         let a = &self.assistant;
@@ -544,7 +549,7 @@ impl Browser {
         }
     }
 
-    fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn new_chat(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.cancel_answer(cx);
         self.end_run();
         self.assistant.chats = false;
@@ -555,7 +560,7 @@ impl Browser {
     }
 
     /// Continues a saved chat of the current profile, under the rules of a new one.
-    fn open_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
+    pub(crate) fn open_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
         let Some((origin, on)) = self.page_origin() else { return };
         if self.assistant.session.as_ref().and_then(Session::chat) == Some(id) {
             self.assistant.chats = false;

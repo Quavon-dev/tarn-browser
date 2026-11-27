@@ -9,6 +9,7 @@ use crate::sidebar::SIDEBAR_WIDTH;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pref {
     CompactToolbar,
+    SidebarToolbar,
     AutoHideSidebar,
     Gestures,
     ReduceMotion,
@@ -41,8 +42,9 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 30] = [
+    pub const ALL: [Pref; 31] = [
         Pref::CompactToolbar,
+        Pref::SidebarToolbar,
         Pref::AutoHideSidebar,
         Pref::Gestures,
         Pref::ReduceMotion,
@@ -77,6 +79,7 @@ impl Pref {
     pub(crate) fn key(self) -> &'static str {
         match self {
             Pref::CompactToolbar => "compact_toolbar",
+            Pref::SidebarToolbar => "sidebar_toolbar",
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
@@ -114,6 +117,7 @@ impl Pref {
         matches!(
             self,
             Pref::Gestures
+                | Pref::SidebarToolbar
                 | Pref::Suggestions
                 | Pref::TearOffTemporary
                 | Pref::BlockAds
@@ -217,6 +221,8 @@ impl Prefs {
             let on = match store.setting(pref.key()).ok().flatten().as_deref() {
                 Some("on") => true,
                 Some("off") => false,
+                // Someone who already picked Classic or Compact keeps it.
+                _ if pref == Pref::SidebarToolbar => store.setting(Pref::CompactToolbar.key()).ok().flatten().is_none(),
                 _ => pref.default(),
             };
             prefs.with(pref, on)
@@ -424,7 +430,7 @@ impl Browser {
 fn prefs_default_and_roundtrip() {
     let store = Store::open_in_memory().unwrap();
     let prefs = Prefs::load(&store);
-    assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar));
+    assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar) && prefs.get(Pref::SidebarToolbar));
     assert!(prefs.get(Pref::BlockAds) && prefs.get(Pref::BlockMalware) && prefs.get(Pref::YouTubeAds) && !prefs.get(Pref::BlockAdult));
     assert!(prefs.get(Pref::UpdateChecks) && !prefs.get(Pref::HistoryText) && !prefs.get(Pref::SortDownloads));
     assert!(!prefs.get(Pref::ExtensionsBitwarden) && !prefs.get(Pref::SearchShortcuts));
@@ -434,6 +440,7 @@ fn prefs_default_and_roundtrip() {
     store.set_setting(Pref::Gestures.key(), "off").unwrap();
     store.set_setting(Pref::CompactToolbar.key(), "on").unwrap();
     let prefs = Prefs::load(&store);
+    assert!(!prefs.get(Pref::SidebarToolbar), "an earlier toolbar choice stays");
     assert!(!prefs.get(Pref::Gestures) && prefs.get(Pref::CompactToolbar));
 }
 
