@@ -52,7 +52,7 @@ pub struct HoverCard {
 }
 
 /// A PNG snapshot as the BGRA image GPUI draws, kept out of GPUI's image cache so it can be dropped.
-fn decode(png: &[u8]) -> Option<Arc<RenderImage>> {
+pub(crate) fn decode(png: &[u8]) -> Option<Arc<RenderImage>> {
     let mut rgba = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?.into_rgba8();
     for pixel in rgba.pixels_mut() {
         pixel.0.swap(0, 2);

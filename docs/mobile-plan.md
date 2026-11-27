@@ -935,6 +935,10 @@ listing every profile, the Shortcuts pane read from
 keyboard runs the macOS shortcuts from the same table (⌘ on iPad, Ctrl on Android), the sidebar's shown
 state is stored like the macOS one (`sidebar_open`), and the address and palette fields have
 autocorrection, spell-check and capitals off.
+In the Mac layout, Ctrl+Tab and Ctrl+Shift+Tab show the recent-tab switcher strip shared with Linux
+(`tarn_nsh_shared::switcher`). Gap: NSH 0.5.0 reports no key release, so letting go of Ctrl cannot
+switch; Return or a click switches, Esc cancels, and 800 ms without another press switches to the
+selected tab. The Touch layout keeps its Tabs panel.
 The Change Icon… picker takes an emoji in a text field: NSH 0.5.0 has no call that opens the system
 emoji keyboard or the Emoji & Symbols palette, which the macOS picker offers.
 

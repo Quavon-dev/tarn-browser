@@ -89,6 +89,7 @@ impl Browser {
         self.history_text_search = None;
         self.profile_editor = None;
         self.shortcuts_open = false;
+        self.tab_switcher = None;
         self.reader = self.reader.take().filter(|r| field || crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
         for key in self.model.active.and_then(|a| Some(self.splits.of(a)?.others(a))).unwrap_or_default() {
@@ -113,7 +114,10 @@ impl Browser {
 
     /// An overlay other than the reader.
     pub(crate) fn card_open(&self) -> bool {
-        (self.command_mode.is_some() && !self.inline_editing()) || self.profile_editor.as_ref().is_some_and(|e| !e.floating) || self.shortcuts_open
+        (self.command_mode.is_some() && !self.inline_editing())
+            || self.profile_editor.as_ref().is_some_and(|e| !e.floating)
+            || self.shortcuts_open
+            || self.switcher_shown()
     }
 
     pub(crate) fn reader_shown(&self) -> bool {

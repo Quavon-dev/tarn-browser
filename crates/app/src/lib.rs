@@ -42,6 +42,7 @@ mod site_settings;
 mod snippets;
 mod spaces;
 mod split;
+mod switcher;
 mod tab_strip;
 mod tabs;
 mod tarn_ext;
@@ -103,7 +104,7 @@ actions!(
 actions!(tarn, [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, ToggleGlassDesign, OpenAppMenu]);
 actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
-actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, BurnerTab]);
+actions!(tarn, [Tab1, Tab2, Tab3, Tab4, Tab5, Tab6, Tab7, Tab8, LastTab, NextTab, PreviousTab, RecentTab, RecentTabBack, BurnerTab]);
 actions!(tarn, [CloseWindow, StopLoading, ReloadFromOrigin, NewPrivateWindow, NewBurnerWindow]);
 
 pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<&'static dyn gpui::Action> {
@@ -298,7 +299,9 @@ impl Browser {
                 if b.page_fullscreen.is_on() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
             }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
-                if b.close_capture_overlay(cx) {
+                if b.tab_switcher.is_some() {
+                    b.cancel_switcher(w, cx);
+                } else if b.close_capture_overlay(cx) {
                 } else if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
                 } else if b.active_prompt().is_some() {
@@ -306,6 +309,23 @@ impl Browser {
                 } else if b.find_open {
                     b.close_find(w, cx);
                 }
+            }))
+            .on_modifiers_changed(cx.listener(|b, e: &gpui::ModifiersChangedEvent, w, cx| {
+                if b.tab_switcher.is_some() && !e.modifiers.modified() {
+                    b.commit_switcher(w, cx);
+                }
+            }))
+            .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| {
+                let Some(open) = &mut b.tab_switcher else { return };
+                match e.keystroke.key.as_str() {
+                    "enter" => b.commit_switcher(w, cx),
+                    "escape" => b.cancel_switcher(w, cx),
+                    "right" | "down" => open.state.step(true),
+                    "left" | "up" => open.state.step(false),
+                    _ => return,
+                }
+                cx.stop_propagation();
+                cx.notify();
             }))
             .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| b.prompt_key(e, w, cx)))
             .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {
@@ -401,6 +421,7 @@ impl Browser {
             .on_action(cx.listener(|b, _: &ToggleAutoHideSidebar, _, cx| b.set_pref(prefs::Pref::AutoHideSidebar, !b.pref(prefs::Pref::AutoHideSidebar), cx)));
         indexed_actions!(root, cx, select_tab: Tab1 => 1, Tab2 => 2, Tab3 => 3, Tab4 => 4, Tab5 => 5, Tab6 => 6, Tab7 => 7, Tab8 => 8, LastTab => 9);
         indexed_actions!(root, cx, cycle_tab: NextTab => true, PreviousTab => false);
+        indexed_actions!(root, cx, recent_tab: RecentTab => true, RecentTabBack => false);
         root
     }
 

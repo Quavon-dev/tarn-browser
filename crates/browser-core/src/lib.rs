@@ -67,6 +67,7 @@ pub mod split;
 #[cfg(any(target_os = "macos", windows))]
 pub mod staleness;
 pub mod suggest;
+pub mod switcher;
 pub mod tab_menu;
 pub mod tabs;
 pub mod tarn_ext;

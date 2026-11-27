@@ -338,6 +338,10 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   the app's own `schemes` while no window is shown and emits no `SecondInstance` for it; Tarn
   claims no schemes, since NSH would make itself the default browser with `xdg-mime`. Launches
   after the window opens arrive.
+- Ctrl+Tab and Ctrl+Shift+Tab show the recent-tab switcher strip with site icons and titles in
+  place of snapshots. NSH 0.5 reports no key release, so the shell asks GDK whether Ctrl is still
+  held and switches once it is not (`linux/src/ui/switcher.rs`); Return or a click switches, Esc
+  cancels.
 - A two-finger horizontal swipe over the sidebar switches to the previous or next space, never
   towards one that does not exist (`linux/src/browser/swipe.rs`, through NSH `on_wheel` point
   deltas; mouse wheel lines are ignored). Gap: NSH 0.5's `WheelEvent` has no touch phase

@@ -175,6 +175,8 @@ pub struct Snapshot {
     pub cleanable: bool,
     pub compact: bool,
     pub link_peek: Option<PeekItem>,
+    /// The recent-tab switcher's cards (host and title) and the selected one.
+    pub switcher: Option<(Vec<(String, String)>, usize)>,
     pub fullscreen: bool,
     pub devtools: bool,
     pub responsive: Option<devkit::responsive::Preset>,
@@ -531,6 +533,10 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         cleanable: browser_core::sidebar::cleanable(&b.model),
         compact: b.compact_toolbar(),
         link_peek: peek_item(b).filter(|_| web_shown),
+        switcher: b.switcher.as_ref().map(|open| {
+            let card = |key: &TabKey| b.model.tab(*key).map(|t| (crate::ui::host_of(&t.url), tab_label(t, b, *key))).unwrap_or_default();
+            (open.order.iter().map(card).collect(), open.index)
+        }),
         fullscreen: b.page_fullscreen.is_on(),
         devtools: b.devtools_on(),
         responsive: b.responsive_preset(),

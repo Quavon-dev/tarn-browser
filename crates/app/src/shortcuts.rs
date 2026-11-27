@@ -140,7 +140,7 @@ impl Keystrokes for Mac {
 
     fn fixed(&self, keys: &str) -> bool {
         // ⌘⇥, ⌃⌘Space and the Emacs keys are macOS's own; on Windows ⌘⇥ would land on Ctrl+Tab, Tarn's
-        // next tab, and ⌃E on Ctrl+E, which ⌘E maps to.
+        // recent tab, and ⌃E on Ctrl+E, which ⌘E maps to.
         let os_only = |r: &&str| cfg!(windows) && matches!(*r, "cmd-tab" | "ctrl-cmd-space" | "ctrl-a" | "ctrl-e" | "ctrl-k");
         let mine = bound(keys);
         RESERVED.iter().filter(|r| !os_only(r)).any(|r| bound(r) == mine)
@@ -166,6 +166,8 @@ pub(crate) fn gpui_action(action: Shortcut) -> Option<&'static dyn Action> {
         S::CloseAllTabs => &crate::CloseAllTabs,
         S::NextTab => &crate::NextTab,
         S::PreviousTab => &crate::PreviousTab,
+        S::RecentTab => &crate::RecentTab,
+        S::RecentTabBack => &crate::RecentTabBack,
         S::LastTab => &crate::LastTab,
         S::TogglePin => &crate::TogglePin,
         S::NewGroup => &crate::NewGroup,
@@ -306,6 +308,8 @@ pub(crate) fn display(keys: &str) -> String {
         "right" => "→".to_owned(),
         "up" => "↑".to_owned(),
         "down" => "↓".to_owned(),
+        "pageup" => "⇞".to_owned(),
+        "pagedown" => "⇟".to_owned(),
         key => key.to_uppercase(),
     };
     mods + &key
