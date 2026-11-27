@@ -895,18 +895,6 @@ jobs:
             gh release create "$TAG" dist/* --verify-tag --prerelease --latest=false --title "$title" --notes "$notes"
           else
             assets() { gh api "repos/$GH_REPO/releases/$published/assets?per_page=100" --paginate --jq '.[] | "\(.id) \(.name)"'; }
-            # Leftovers of a failed run: staged files, and files set aside whose own name is back.
-            listed="$(assets)"
-            while read -r id name; do
-              if [[ "$name" == staged.* ]] || { [[ "$name" == replaced.* ]] && grep -q " ${name#replaced.}$" <<<"$listed"; }; then
-                gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
-              fi
-            done <<<"$listed"
-            mkdir staged
-            for file in dist/*; do
-              cp "$file" "staged/staged.$(basename "$file")"
-            done
-            gh release upload "$TAG" staged/*
             listed="$(assets)"
             id_of() { awk -v n="$1" '$2 == n { print $1 }' <<<"$listed"; }
             rename() {
@@ -916,6 +904,34 @@ jobs:
               done
               return 1
             }
+            drop() { gh api -X DELETE "repos/$GH_REPO/releases/assets/$1"; }
+            # A run stopped part way leaves files set aside as replaced.<name>. Without the marker
+            # swap-done its swaps were not all made: each set-aside file takes its name back, so the
+            # last nightly is whole again. With it they were, and only the cleanup is finished.
+            if grep -q ' replaced\.' <<<"$listed"; then
+              done_id="$(id_of swap-done)"
+              while read -r id name; do
+                [[ "$name" == replaced.* ]] || continue
+                original="${name#replaced.}"
+                if [[ -z "$done_id" ]]; then
+                  current="$(id_of "$original")"
+                  [[ -z "$current" ]] || drop "$current"
+                  rename "$id" "$original"
+                else
+                  drop "$id"
+                fi
+              done <<<"$listed"
+              listed="$(assets)"
+            fi
+            while read -r id name; do
+              [[ "$name" != staged.* && "$name" != swap-done ]] || drop "$id"
+            done <<<"$listed"
+            mkdir staged
+            for file in dist/*; do
+              cp "$file" "staged/staged.$(basename "$file")"
+            done
+            gh release upload "$TAG" staged/*
+            listed="$(assets)"
             # The old file steps aside as replaced.<name> and comes back if anything fails, so the
             # feed and the payloads it names stay those of the last nightly until every swap is done.
             declare -A old new
@@ -947,8 +963,15 @@ jobs:
             for file in dist/*; do
               [[ "$feeds" != *" $(basename "$file") "* ]] || swap "$(basename "$file")" || { restore; exit 1; }
             done
+            : > swap-done
+            gh release upload "$TAG" swap-done
+            listed="$(assets)"
             while read -r id name; do
-              [[ -f "dist/$name" ]] || gh api -X DELETE "repos/$GH_REPO/releases/assets/$id"
+              [[ "$name" != replaced.* ]] || drop "$id"
+            done <<<"$listed"
+            drop "$(id_of swap-done)"
+            while read -r id name; do
+              [[ -f "dist/$name" ]] || drop "$id"
             done < <(assets)
             move_tag
             gh release edit "$TAG" --prerelease --latest=false --title "$title" --notes "$notes"
