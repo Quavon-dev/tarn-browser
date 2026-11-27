@@ -1290,13 +1290,13 @@ fn a_shift_clicked_link_peeks_in_the_openers_profile_and_moves_into_a_tab() {
 #[test]
 fn the_recent_tab_switcher_steps_commits_and_closes_with_a_tab() {
     let (_dir, mut b) = browser();
-    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true);
+    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true, tarn_nsh_shared::switcher::PER_ROW);
     assert!(b.switcher.is_none(), "one tab has nowhere to go");
     b.new_tab("https://b.test/").unwrap();
     b.new_tab("https://c.test/").unwrap();
     let active = b.model.active;
     let order = b.model.recent_order();
-    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true);
+    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true, tarn_nsh_shared::switcher::PER_ROW);
     assert_eq!(crate::snapshot::snapshot(&b, true).switcher.map(|(cards, ix)| (cards.len(), ix)), Some((3, 1)));
     b.close_tab(order[2]);
     assert!(b.switcher.is_none(), "closing a tab closes the strip");
@@ -1304,8 +1304,8 @@ fn the_recent_tab_switcher_steps_commits_and_closes_with_a_tab() {
     b.new_tab("https://c.test/").unwrap();
     b.activate(active.unwrap());
     let order = b.model.recent_order();
-    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true);
-    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true);
+    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true, tarn_nsh_shared::switcher::PER_ROW);
+    browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true, tarn_nsh_shared::switcher::PER_ROW);
     b.commit_switcher();
     assert!(b.switcher.is_none());
     assert_eq!(b.model.active, Some(order[2]), "the second press stepped to the third most recent tab");

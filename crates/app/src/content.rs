@@ -320,8 +320,6 @@ fn page_body(b: &mut Browser, window: &mut Window, blocked: Option<&crate::block
 
     if let Some(editor) = crate::profiles::render_editor(b, window, cx) {
         leaving(editor)
-    } else if let Some(switcher) = crate::switcher::render(b, cx) {
-        switcher
     } else if b.shortcuts_open {
         leaving(pop_in(div().flex_1().min_h_0().flex().flex_col().child(crate::shortcuts::render(&b.shortcuts_scroll, cx)), "shortcuts", reduce))
     } else if let Some(reader) = crate::reader::render(b, cx) {

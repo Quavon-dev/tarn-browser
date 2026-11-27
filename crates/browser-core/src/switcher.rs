@@ -26,12 +26,12 @@ impl Switcher {
         (order.len() > first).then(|| Self { index: if back { order.len() - 1 } else { first }, order, presses: next_press() })
     }
 
-    /// A press of the switcher's key without a modifier release: opens `open` over `model`'s recent
-    /// tabs, or steps it once open.
-    pub fn press(open: &mut Option<Self>, model: &Model, forward: bool) {
+    /// A press of the switcher's key without a modifier release: opens `open` over at most `max` of
+    /// `model`'s recent tabs, or steps it once open.
+    pub fn press(open: &mut Option<Self>, model: &Model, forward: bool, max: usize) {
         match open {
             Some(s) => s.step(forward),
-            None => *open = model.open_switcher(forward),
+            None => *open = model.open_switcher(forward, max),
         }
     }
 
@@ -66,10 +66,10 @@ impl Model {
         order
     }
 
-    /// The switcher's first press, over the most recent `MAX_CARDS` tabs.
-    pub fn open_switcher(&self, forward: bool) -> Option<Switcher> {
+    /// The switcher's first press, over the most recent `max` tabs, `MAX_CARDS` at most.
+    pub fn open_switcher(&self, forward: bool, max: usize) -> Option<Switcher> {
         let mut order = self.recent_order();
-        order.truncate(MAX_CARDS);
+        order.truncate(max.min(MAX_CARDS));
         Switcher::open(order, self.active, !forward)
     }
 
@@ -132,14 +132,15 @@ mod tests {
         assert_eq!(model.recent(true), Some(key(ids[2])));
         assert_eq!(model.recent(false), Some(key(ids[1])));
         let mut open = None;
-        Switcher::press(&mut open, &model, true);
+        Switcher::press(&mut open, &model, true, MAX_CARDS);
         let first = open.as_ref().map(|s| s.presses);
         assert_eq!(open.as_ref().map(|s| s.selected()), Some(key(ids[2])));
-        Switcher::press(&mut open, &model, true);
+        Switcher::press(&mut open, &model, true, MAX_CARDS);
         assert_eq!(open.as_ref().map(|s| s.selected()), Some(key(ids[1])), "a second press steps");
         assert_ne!(open.as_ref().map(|s| s.presses), first, "a step is a new press");
         let mut reopened = None;
-        Switcher::press(&mut reopened, &model, true);
+        Switcher::press(&mut reopened, &model, true, MAX_CARDS);
+        assert_eq!(model.open_switcher(true, 2).map(|s| s.order.len()), Some(2), "only as many cards as fit");
         assert_ne!(reopened.map(|s| s.presses), first, "a timer from a closed switcher never matches a new one");
     }
 }

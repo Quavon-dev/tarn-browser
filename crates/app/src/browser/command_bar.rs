@@ -114,10 +114,7 @@ impl Browser {
 
     /// An overlay other than the reader.
     pub(crate) fn card_open(&self) -> bool {
-        (self.command_mode.is_some() && !self.inline_editing())
-            || self.profile_editor.as_ref().is_some_and(|e| !e.floating)
-            || self.shortcuts_open
-            || self.switcher_shown()
+        (self.command_mode.is_some() && !self.inline_editing()) || self.profile_editor.as_ref().is_some_and(|e| !e.floating) || self.shortcuts_open
     }
 
     pub(crate) fn reader_shown(&self) -> bool {

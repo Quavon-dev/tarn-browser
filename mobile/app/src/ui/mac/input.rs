@@ -32,7 +32,7 @@ fn activate(ui: Ui, target: Option<TabKey>) {
 
 fn recent_tab(ui: Ui, forward: bool) {
     let mut open = ui.switcher.get_untracked();
-    ui.read(|s| Switcher::press(&mut open, &s.model, forward));
+    ui.read(|s| Switcher::press(&mut open, &s.model, forward, tarn_nsh_shared::switcher::PER_ROW));
     let Some(presses) = open.as_ref().map(|s| s.presses) else { return };
     if ui.switcher.with_untracked(Option::is_none) {
         ui.show(Screen::Browse);

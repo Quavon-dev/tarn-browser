@@ -1,13 +1,16 @@
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 
-use crate::controls::{pressable, site_tile, surface};
-use crate::theme::{RADIUS_PANEL, RADIUS_TILE, TEXT_SMALL, Theme};
+use crate::controls::{pressable, site_tile};
+use crate::theme::{RADIUS_TILE, TEXT_SMALL, Theme};
 
-const CARD_WIDTH: f32 = 168.;
-const STILL_HEIGHT: f32 = 105.;
+const CARD_WIDTH: f32 = 184.;
+const STILL_HEIGHT: f32 = CARD_WIDTH * 10. / 16.;
 const ICON: f32 = 40.;
-const PER_ROW: f32 = 5.;
+/// Cards on the strip's one row.
+pub const PER_ROW: usize = 5;
+const RING: f32 = 5.;
+const GAP: f32 = 20.;
 
 pub struct Card {
     pub icon: Option<String>,
@@ -32,18 +35,25 @@ pub fn strip(cards: Vec<Card>, selected: usize, pick: impl Fn(usize) + Clone + '
                 .h(px(STILL_HEIGHT))
                 .rounded(px(RADIUS_TILE))
                 .bg(Theme::panel())
-                .border_2()
-                .border_color(if on { Theme::accent() } else { Theme::surface_edge() })
+                .border_1()
+                .border_color(Theme::surface_edge())
                 .items_center()
                 .justify_center()
                 .child(site_tile(card.icon, &card.host, ICON));
+            let edge = Rgba { a: if on { 0.3 } else { 0. }, ..Theme::text() };
+            let still = view()
+                .p(px(RING))
+                .rounded(px(RADIUS_TILE + RING))
+                .border_1()
+                .border_color(edge)
+                .bg(Rgba { a: if on { 0.06 } else { 0. }, ..Theme::text() })
+                .child(still);
             let title = text(card.title.clone())
                 .text_size(px(TEXT_SMALL))
                 .text_color(if on { Theme::text() } else { Theme::muted() })
-                .font_weight(if on { FontWeight::MEDIUM } else { FontWeight::NORMAL })
                 .number_of_lines(1_u32)
-                .px_1();
-            pressable(card.title, move || pick(ix)).w(px(CARD_WIDTH)).flex_col().gap_1().child(still).child(title).into_element()
+                .px(px(RING + 4.));
+            pressable(card.title, move || pick(ix)).w(px(CARD_WIDTH + 2. * RING)).flex_col().gap_1().child(still).child(title).into_element()
         })
         .collect();
     view()
@@ -54,5 +64,5 @@ pub fn strip(cards: Vec<Card>, selected: usize, pick: impl Fn(usize) + Clone + '
         .justify_center()
         .p_6()
         .test_id("tab-switcher")
-        .child(surface(RADIUS_PANEL).p_4().flex_row().flex_wrap().justify_center().gap_4().max_w(px((CARD_WIDTH + 16.) * PER_ROW + 32.)).children(cards))
+        .child(view().flex_row().justify_center().gap(px(GAP)).children(cards))
 }

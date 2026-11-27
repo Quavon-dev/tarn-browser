@@ -12,7 +12,7 @@ use crate::theme::themed;
 const POLL: Duration = Duration::from_millis(50);
 
 pub(super) fn press(ui: Ui, forward: bool) {
-    act(ui, |b| Switcher::press(&mut b.switcher, &b.model, forward));
+    act(ui, |b| Switcher::press(&mut b.switcher, &b.model, forward, tarn_nsh_shared::switcher::PER_ROW));
     if let Some(at) = presses(ui) {
         watch(ui, at);
     }
