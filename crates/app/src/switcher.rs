@@ -25,6 +25,8 @@ const MAX_CARD: f32 = 240.;
 const RING: f32 = 4.;
 const GAP: f32 = 20.;
 const MARGIN: f32 = 40.;
+/// So few pixels that the GPU's smoothing, stretching them over the page, reads as a blur.
+const BACKDROP_WIDTH: f32 = 24.;
 /// A quick press and release switches without the strip flashing over the page.
 const SHOW_DELAY: Duration = Duration::from_millis(100);
 const RELEASE_POLL: Duration = Duration::from_millis(30);
@@ -36,6 +38,8 @@ pub struct Open {
     pub state: Switcher,
     opened: Instant,
     shots: Shots,
+    /// With the Glass design, a tiny still of the page that, stretched, frosts it behind the strip.
+    backdrop: Option<Arc<RenderImage>>,
     pub(crate) strip: Option<WindowHandle<Strip>>,
     _deactivated: Subscription,
 }
@@ -89,7 +93,7 @@ impl Browser {
                 }
             });
         });
-        self.tab_switcher = Some(Open { state, opened, shots: HashMap::new(), strip: None, _deactivated: deactivated });
+        self.tab_switcher = Some(Open { state, opened, shots: HashMap::new(), backdrop: None, strip: None, _deactivated: deactivated });
         if let Some(host) = &self.host {
             host.focus();
         }
@@ -134,7 +138,10 @@ impl Browser {
         // WebKit encodes each still on the main thread, so take it no larger than its card.
         let card = card_width(f32::from(bounds.size.width), open.state.order.len());
         for key in open.state.order.clone() {
-            self.request_switcher_shot(key, card, cx);
+            self.request_switcher_shot(key, Some(key), card, cx);
+        }
+        if let Some(active) = self.model.active.filter(|_| self.core.themes.borrow().glass) {
+            self.request_switcher_shot(active, None, BACKDROP_WIDTH, cx);
         }
         bounds.origin += window.bounds().origin;
         let (display, main) = (window.display(cx).map(|d| d.id()), window.window_handle());
@@ -166,7 +173,8 @@ impl Browser {
         }
     }
 
-    fn request_switcher_shot(&self, key: TabKey, width: f32, cx: &mut Context<Self>) {
+    /// A still of `key` at `width` points, for card `card`, or the backdrop when `None`.
+    fn request_switcher_shot(&self, key: TabKey, card: Option<TabKey>, width: f32, cx: &mut Context<Self>) {
         let Some(view) = self.views.get(&key) else { return };
         let (tx, mut rx) = mpsc::unbounded();
         view.snapshot_png(Some(f64::from(width)), move |png| drop(tx.unbounded_send(png)));
@@ -175,7 +183,10 @@ impl Browser {
             let Some(image) = cx.background_spawn(async move { crate::hover_card::decode(&png) }).await else { return };
             this.update(cx, |b, cx| {
                 if let Some(open) = &mut b.tab_switcher {
-                    open.shots.insert(key, image);
+                    match card {
+                        Some(key) => drop(open.shots.insert(key, image)),
+                        None => open.backdrop = Some(image),
+                    }
                     redraw(open.strip, cx);
                 }
             })
@@ -190,7 +201,7 @@ pub struct Strip {
     main: AnyWindowHandle,
     reduce: bool,
     /// What the strip last showed, so its cards can fade out over the page after the switch.
-    shown: Option<(Switcher, Shots)>,
+    shown: Option<(Switcher, Shots, Option<Arc<RenderImage>>)>,
     leaving: Option<Instant>,
     _watch: Subscription,
 }
@@ -251,9 +262,10 @@ impl Render for Strip {
         let Some(browser) = self.browser.upgrade() else { return div().into_any_element() };
         let b = browser.read(cx);
         if let Some(open) = b.tab_switcher.as_ref().filter(|_| self.leaving.is_none()) {
-            self.shown = Some((open.state.clone(), open.shots.clone()));
+            self.shown = Some((open.state.clone(), open.shots.clone(), open.backdrop.clone()));
         }
-        let Some((Switcher { order, index, .. }, shots)) = &self.shown else { return div().into_any_element() };
+        let Some((Switcher { order, index, .. }, shots, backdrop)) = &self.shown else { return div().into_any_element() };
+        let glass = b.core.themes.borrow().glass;
         let fade = self.leaving.map_or(1., |at| 1. - progress(at, EXIT));
         if self.leaving.is_some() {
             window.request_animation_frame();
@@ -336,7 +348,8 @@ impl Render for Strip {
             .items_center()
             .justify_center()
             .px(px(MARGIN))
-            .bg(Rgba { a: 0.8, ..Theme::page() })
+            .relative()
+            .bg(Rgba { a: if glass { 0.3 } else { 0.8 }, ..Theme::page() })
             .opacity(fade)
             .font_family(Theme::font())
             // A click makes this window key, so the Ctrl release can arrive here instead of the main window.
@@ -344,6 +357,13 @@ impl Render for Strip {
                 if !e.modifiers.modified() {
                     this.select(None, true, cx);
                 }
+            }))
+            .children(backdrop.clone().filter(|_| glass).map(|image| {
+                div()
+                    .absolute()
+                    .inset_0()
+                    .child(img(image).size_full().object_fit(ObjectFit::Cover))
+                    .child(div().absolute().inset_0().bg(Rgba { a: 0.45, ..Theme::page() }))
             }))
             .child(pop_in(div().flex().gap(px(GAP)).children(cards), "tab-switcher", self.reduce))
             .child(hint);
