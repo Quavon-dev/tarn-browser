@@ -879,7 +879,8 @@ jobs:
           # serves is removed before its replacement is uploaded: every new file goes up under a
           # staging name first, then each one takes its final name in a quick pass, payloads before
           # the feeds that point at them, and the tag moves last. A failed upload leaves the last
-          # nightly whole. Only when there is none is a release created.
+          # nightly whole. Only when there is none is a release created. When the tag has to be
+          # created again, the release is a draft for those seconds.
           title="Nightly $(date -u +%F) (${COMMIT:0:7})"
           notes="Nightly build of $COMMIT: the latest changes, before they are tested in a release. Settings › General › Nightly builds updates to it on macOS and Windows."
           # The workflow token may not point a tag at a commit whose workflows differ from main's
@@ -892,19 +893,33 @@ jobs:
             [[ "$built" != "$on_main" ]] || return 1
             echo "::warning::main changed .github/workflows after $COMMIT; the next nightly publishes main instead"
           }
-          if outdated; then
+          skip() {
             [[ "$EVENT" != workflow_dispatch ]] || exit 1
             exit 0
-          fi
-          move_tag() {
-            if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
-              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$COMMIT" -F force=true >/dev/null
-            else
-              gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT" >/dev/null
-            fi
           }
-          published="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq ".[] | select(.tag_name == \"$TAG\" and (.draft | not)) | .id")"
-          published="${published%%$'\n'*}"
+          if outdated; then
+            skip
+          fi
+          # Moving the tag may be judged like a push, against the commit it named, and refused once the
+          # workflows changed since. A refused move creates the tag again instead, which a commit with
+          # main's workflows may; the release, a draft while it has no tag, is published again below.
+          move_tag() {
+            local answer
+            if gh api "repos/$GH_REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              answer="$(gh api -X PATCH "repos/$GH_REPO/git/refs/tags/$TAG" -f sha="$COMMIT" -F force=true 2>&1 >/dev/null)" && return 0
+              grep -q "Resource not accessible by integration" <<<"$answer" || { echo "could not move $TAG: $answer" >&2; return 1; }
+              ! outdated || return 1
+              gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$TAG" || return 1
+            fi
+            for _ in 1 2 3; do
+              gh api "repos/$GH_REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$COMMIT" >/dev/null && return 0
+              sleep 5
+            done
+            return 1
+          }
+          # A draft is the nightly a run left without its tag; it is taken up and published again.
+          published="$(gh api --paginate --slurp "repos/$GH_REPO/releases?per_page=100" \
+            | jq -r --arg tag "$TAG" '[.[][] | select(.tag_name == $tag)] | sort_by(.draft) | .[0].id // empty')"
           if [[ -z "$published" ]]; then
             move_tag
             gh release create "$TAG" dist/* --verify-tag --prerelease --latest=false --title "$title" --notes "$notes"
@@ -976,8 +991,7 @@ jobs:
               while read -r id name; do
                 [[ "$name" != staged.* ]] || drop "$id"
               done <<<"$listed"
-              [[ "$EVENT" != workflow_dispatch ]] || exit 1
-              exit 0
+              skip
             fi
             for file in dist/*; do
               [[ "$feeds" == *" $(basename "$file") "* ]] || swap "$(basename "$file")" || { restore; exit 1; }
@@ -995,8 +1009,10 @@ jobs:
             while read -r id name; do
               [[ -f "dist/$name" ]] || drop "$id"
             done < <(assets)
-            move_tag
-            gh release edit "$TAG" --prerelease --latest=false --title "$title" --notes "$notes"
+            move_tag || echo "::warning::could not move $TAG; publishing the release creates it if it is missing"
+            # By ID, since a release without its tag is a draft that has none to look it up by.
+            gh api -X PATCH "repos/$GH_REPO/releases/$published" -f tag_name="$TAG" -f target_commitish="$COMMIT" -F draft=false \
+              -F prerelease=true -f make_latest=false -f name="$title" -f body="$notes" >/dev/null
           fi
           [[ "$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq .object.sha)" == "$COMMIT" ]] || { echo "$TAG does not name $COMMIT" >&2; exit 1; }
       - if: ${{ !inputs.nightly }}
@@ -1009,9 +1025,16 @@ jobs:
           # Creating the release, choosing the latest one (the highest published version, which both
           # update feeds read) and fixing its Windows feed hold a lock: a branch only one run can
           # create. A run cancelled inside it leaves its release unpromoted; a re-run promotes it.
+          # The branch names main's head: the workflow token may not create a ref at a commit whose
+          # workflows differ from main's, which an older release commit's may.
           locked=false
           for _ in $(seq 60); do
-            if answer="$(gh api "repos/$GH_REPO/git/refs" -f ref=refs/heads/release-latest-lock -f sha="$GITHUB_SHA" 2>&1)"; then
+            if ! main="$(gh api "repos/$GH_REPO/commits/main" --jq .sha 2>&1)"; then
+              grep -qE "HTTP 5[0-9]{2}|rate limit" <<<"$main" || { echo "could not read main: $main" >&2; exit 1; }
+              sleep 10
+              continue
+            fi
+            if answer="$(gh api "repos/$GH_REPO/git/refs" -f ref=refs/heads/release-latest-lock -f sha="$main" 2>&1)"; then
               locked=true
               trap 'gh api -X DELETE "repos/$GH_REPO/git/refs/heads/release-latest-lock" >/dev/null' EXIT
               break

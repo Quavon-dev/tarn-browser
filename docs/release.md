@@ -103,7 +103,11 @@ workflow token moves it; anyone with write access can move it too, so the attest
 names the commit a file was built from. A plain `git fetch --tags` refuses the moved tag;
 `scripts/publish-release.sh` fetches only `v*` tags. The workflow token cannot point a tag at a
 commit whose `.github/workflows` differ from `main`'s, so when `main` changes a workflow while a
-nightly builds, that build is not published (a manual run fails) and the next night builds `main`.
+nightly builds, that build is not published (a manual run fails) and the next night builds `main`;
+a change in the seconds after the last check fails the run instead. When moving the tag is refused,
+the build deletes it and creates it again at the new commit, and for those seconds the pre-release
+is a draft the feeds cannot reach. A run that fails there leaves the draft, which the next run
+takes up and publishes again.
 
 ## Signing in CI
 
