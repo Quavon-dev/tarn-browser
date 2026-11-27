@@ -1044,6 +1044,8 @@ impl SettingsWindow {
                         &["Sidebar", "Top"],
                         top,
                         |b, ix, cx| {
+                            let placement = if ix == 1 { browser_core::layout::TabPlacement::Top } else { browser_core::layout::TabPlacement::Side };
+                            b.core.disk.set_setting(browser_core::layout::TABS_SETTING, placement.key()).ok();
                             b.set_tabs_on_top(ix == 1, cx);
                             crate::shared::others(cx, |b, _, cx| b.set_tabs_on_top(ix == 1, cx));
                         },

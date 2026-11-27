@@ -571,6 +571,7 @@ pub fn space_card_parts(ui: Ui, editing: Option<usize>) -> (View, View) {
     });
     let footer = view()
         .flex_row()
+        .flex_wrap()
         .justify_end()
         .gap_2()
         .pt_2()

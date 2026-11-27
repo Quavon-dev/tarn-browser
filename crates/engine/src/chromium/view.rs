@@ -133,6 +133,9 @@ struct Tab {
     inspector: RefCell<Option<cef::Window>>,
     #[cfg(target_os = "macos")]
     inspector_left: Cell<bool>,
+    /// The DevTools window was shown through CEF once.
+    #[cfg(target_os = "macos")]
+    inspector_shown: Cell<bool>,
     #[cfg(target_os = "macos")]
     view: RefCell<std::rc::Weak<Inner>>,
 }
@@ -1865,9 +1868,12 @@ wrap_browser_view_delegate! {
             if let Some(old) = tab.inspector.replace(Some(window.clone())) {
                 old.close();
             }
-            window.show();
+            tab.inspector_shown.set(false);
             if let Some(view) = tab.view.borrow().upgrade().map(WebView) {
-                view.attach();
+                // A tab put away while DevTools was opening shows it when it shows again.
+                if view.0.visible.get() {
+                    view.show(true);
+                }
                 view.relayout();
             }
             1
@@ -2161,6 +2167,8 @@ impl WebView {
             inspector: RefCell::new(None),
             #[cfg(target_os = "macos")]
             inspector_left: Cell::new(false),
+            #[cfg(target_os = "macos")]
+            inspector_shown: Cell::new(false),
             #[cfg(target_os = "macos")]
             view: RefCell::default(),
         });
@@ -2864,10 +2872,12 @@ impl WebView {
             }
             return;
         }
-        if !self.0.shown.replace(true) {
+        let inspector = self.0.tab.inspector.borrow().clone().filter(|_| !self.0.tab.inspector_shown.replace(true));
+        let first = (!self.0.shown.replace(true)).then_some(window);
+        if first.is_some() || inspector.is_some() {
             let shell = self.0.host.borrow().view.window();
             let shell_key = shell.as_ref().is_some_and(|w| w.isKeyWindow());
-            window.show();
+            first.into_iter().chain(inspector).for_each(|w| w.show());
             if let Some(shell) = shell.filter(|_| shell_key) {
                 shell.makeKeyWindow();
             }

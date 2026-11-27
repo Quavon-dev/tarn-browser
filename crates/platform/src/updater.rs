@@ -89,7 +89,7 @@ mod mac {
 
     use objc2::rc::{Allocated, Retained};
     use objc2::runtime::{AnyClass, AnyObject, NSObjectProtocol};
-    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
+    use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
     use objc2_foundation::{NSArray, NSBundle, NSError, NSObject, NSString};
 
     use super::Report;
@@ -102,6 +102,8 @@ mod mac {
         version: String,
         check_pending: Cell<Option<Pending>>,
         checked: Cell<Option<bool>>,
+        /// The update cycle under way read its appcast.
+        appcast_read: Cell<bool>,
     }
 
     #[derive(Clone, Copy)]
@@ -125,33 +127,43 @@ mod mac {
 
     const USER_CHECK: isize = 0;
 
-    /// Whether a finished check says the Nightly feed is unavailable: one the user asked for, on the
-    /// Nightly channel, ending in `SUAppcastParseError` or `SUAppcastError` (Sparkle 2.10.1's
-    /// `SUErrors.h`), as when the `nightly` release is missing. A scheduled check stays quiet, and
-    /// so does one whose underlying error is the computer being offline or unable to reach the
-    /// server (`offline`), so it is not told the channel is gone.
-    pub(super) fn nightly_unavailable(error: Option<(&str, isize)>, offline: bool, user_check: bool, nightly: bool) -> bool {
-        user_check && nightly && !offline && error.is_some_and(|(domain, code)| domain == "SUSparkleErrorDomain" && matches!(code, 1000 | 1002))
+    /// Whether a finished cycle says the Nightly feed is unavailable: a check the user started on the
+    /// Nightly channel (`nightly`, as it was when the check started) that failed before any appcast
+    /// was read, whatever code Sparkle wraps that in (a missing `nightly` release is a download
+    /// error, an unreadable one a parse error). "No update" and a failed installer download come
+    /// after the appcast. A scheduled check stays quiet, and so does one that failed because the
+    /// computer is offline or cannot reach the server (`offline`), so it is not told the channel
+    /// is gone.
+    pub(super) fn nightly_unavailable(failed: bool, appcast_read: bool, offline: bool, user_check: bool, nightly: bool) -> bool {
+        failed && !appcast_read && !offline && user_check && nightly
     }
 
     /// `NSURLErrorTimedOut`, `CannotFindHost`, `CannotConnectToHost`, `NetworkConnectionLost`,
     /// `DNSLookupFailed`, `NotConnectedToInternet` and `DataNotAllowed`.
     const OFFLINE: [isize; 7] = [-1001, -1003, -1004, -1005, -1006, -1009, -1020];
 
+    /// Whether `error`, or any error Sparkle wrapped in it, says the computer is offline.
     fn offline(error: &NSError) -> bool {
-        let underlying = error.userInfo().objectForKey(&NSString::from_str("NSUnderlyingError")).and_then(|e| e.downcast::<NSError>().ok());
-        underlying.is_some_and(|e| e.domain().to_string() == "NSURLErrorDomain" && OFFLINE.contains(&e.code()))
+        let key = NSString::from_str("NSUnderlyingError");
+        let mut next = Some(error.retain());
+        for _ in 0..8 {
+            let Some(error) = next else { return false };
+            if error.domain().to_string() == "NSURLErrorDomain" && OFFLINE.contains(&error.code()) {
+                return true;
+            }
+            next = error.userInfo().objectForKey(&key).and_then(|e| e.downcast::<NSError>().ok());
+        }
+        false
     }
 
     #[test]
     fn only_a_users_check_of_the_nightly_feed_reports_it_unavailable() {
-        let missing = Some(("SUSparkleErrorDomain", 1002));
-        assert!(nightly_unavailable(missing, false, true, true));
-        assert!(!nightly_unavailable(missing, true, true, true), "offline, the feed may be fine");
-        assert!(!nightly_unavailable(missing, false, false, true), "a scheduled check stays quiet");
-        assert!(!nightly_unavailable(missing, false, true, false), "the Release channel");
-        assert!(!nightly_unavailable(Some(("SUSparkleErrorDomain", 1001)), false, true, true), "no update is not an error");
-        assert!(!nightly_unavailable(None, false, true, true));
+        assert!(nightly_unavailable(true, false, false, true, true));
+        assert!(!nightly_unavailable(true, true, false, true, true), "no update, or a failed download, after the appcast");
+        assert!(!nightly_unavailable(true, false, true, true, true), "offline, the feed may be fine");
+        assert!(!nightly_unavailable(true, false, false, false, true), "a scheduled check stays quiet");
+        assert!(!nightly_unavailable(true, false, false, true, false), "a Release check");
+        assert!(!nightly_unavailable(false, false, false, true, true));
     }
 
     define_class!(
@@ -191,6 +203,7 @@ mod mac {
             #[unsafe(method(updater:didFinishLoadingAppcast:))]
             fn did_finish_loading_appcast(&self, _updater: &AnyObject, appcast: &AnyObject) {
                 let ivars = self.ivars();
+                ivars.appcast_read.set(true);
                 // SAFETY: `appcast` is an `SUAppcast`, whose `signingValidationStatus` is an NSInteger
                 // enum and `items` a non-null array of `SUAppcastItem` with a non-null `versionString`
                 // and a nullable `channel`.
@@ -230,10 +243,11 @@ mod mac {
 
             #[unsafe(method(updater:didFinishUpdateCycleForUpdateCheck:error:))]
             fn did_finish_update_cycle(&self, updater: &AnyObject, check: isize, error: Option<&NSError>) {
-                let offline = error.is_some_and(offline);
-                let error = error.map(|e| (e.domain().to_string(), e.code()));
-                if nightly_unavailable(error.as_ref().map(|(d, c)| (d.as_str(), *c)), offline, check == USER_CHECK, self.ivars().nightly()) {
-                    (self.ivars().report)(Report::NightlyUnavailable);
+                let ivars = self.ivars();
+                let appcast_read = ivars.appcast_read.replace(false);
+                let requested_nightly = ivars.checked.get() == Some(true);
+                if nightly_unavailable(error.is_some(), appcast_read, error.is_some_and(offline), check == USER_CHECK, requested_nightly) {
+                    (ivars.report)(Report::NightlyUnavailable);
                 }
                 self.run_pending_check(updater, Some(check));
             }
@@ -304,6 +318,7 @@ mod mac {
                 version,
                 check_pending: Cell::new(None),
                 checked: Cell::new(None),
+                appcast_read: Cell::new(false),
             };
             let delegate = Delegate::alloc(mtm).set_ivars(ivars);
             // SAFETY: NSObject's designated initializer on a freshly allocated instance.
