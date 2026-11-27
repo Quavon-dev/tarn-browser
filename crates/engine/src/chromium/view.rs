@@ -1821,6 +1821,15 @@ fn forwarded(modifiers: u32, key: i32) -> bool {
     if key == 0x75 {
         return true;
     }
+    // Ctrl+Page Up and Page Down are next and previous tab; the plain Page keys stay with the page.
+    if (key == 0x21 || key == 0x22)
+        && has(F::EVENTFLAG_CONTROL_DOWN)
+        && !has(F::EVENTFLAG_ALT_DOWN)
+        && !has(F::EVENTFLAG_COMMAND_DOWN)
+        && !has(F::EVENTFLAG_SHIFT_DOWN)
+    {
+        return true;
+    }
     // Backspace, Enter, Shift, Ctrl, Alt, the caret keys and Delete, the Windows keys.
     const PAGE_KEYS: [i32; 16] = [0x08, 0x0d, 0x10, 0x11, 0x12, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2e, 0x5b, 0x5c];
     // Select all, copy, paste, cut, undo, redo (Ctrl+Y on Windows); with Shift only paste as text and redo.
@@ -3198,6 +3207,9 @@ mod mac_tests {
         assert!(super::forwarded(cmd | shift, i32::from(b'C')), "Copy Link");
         assert!(super::forwarded(cmd | ctrl, i32::from(b'F')), "full screen");
         assert!(super::forwarded(ctrl, 0x09), "Ctrl+Tab");
+        assert!(super::forwarded(ctrl, 0x22), "Ctrl+Page Down");
+        assert!(!super::forwarded(0, 0x22), "Page Down");
+        assert!(!super::forwarded(ctrl | shift, 0x22), "Ctrl+Shift+Page Down");
         assert!(super::forwarded(ctrl, i32::from(b'1')), "a space");
         assert!(super::forwarded(cmd, i32::from(b'Y')), "history");
         for key in *b"ACVXZ" {

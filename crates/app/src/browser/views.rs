@@ -619,6 +619,7 @@ impl Browser {
         let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         self.commit_rename(cx);
         self.hide_hover_card(cx);
+        self.tab_switcher = None;
         if self.command_mode.is_some() {
             self.close_command(window, cx);
         }

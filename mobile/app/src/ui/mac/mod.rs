@@ -57,4 +57,5 @@ pub(super) fn frame<T: IntoElements, B: IntoElements>(
         .child(when(mac, move || popovers::popovers(ui)))
         .child(when(mac, move || settings::window(ui)))
         .child(when(mac, move || input::bindings(ui)))
+        .child(when(mac, move || input::switcher(ui)))
 }

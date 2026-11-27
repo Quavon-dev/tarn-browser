@@ -8,6 +8,13 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Added
 
+- Ctrl+Tab switches to your most recently used tab. Hold Ctrl to see the space's tabs as
+  snapshots, most recent first: press Tab or Shift+Tab to move, let go of Ctrl
+  or press Return to switch, Esc to stay. Snapshots are taken when the switcher opens and dropped
+  when it closes. Next and Previous Tab move to Ctrl+Page Down and Ctrl+Page Up (⌘⇧] and ⌘⇧[
+  still work on macOS). Linux shows the same strip with site icons and titles. With a keyboard in
+  the iPad and Android Mac layout it shows too, and since the system there does not report letting
+  go of Ctrl, a short pause after the last press switches; Return or a click switches at once.
 - Agents can upload files: the `upload_file` tool puts a file from your computer into a page's file
   field. Tarn asks you first every time, naming the site, the file, its size and its path; hidden
   files, hidden and app-data folders, network share paths, the system's automounted network folders

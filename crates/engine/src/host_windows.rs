@@ -9,7 +9,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree};
 use windows_sys::Win32::System::Registry::{HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegGetValueW, RegSetKeyValueW};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState, SetFocus, VK_MENU, VK_SHIFT};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, GetKeyState, SetFocus, VK_CONTROL, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT};
 use windows_sys::Win32::UI::Shell::{
     DefSubclassProc, FOLDERID_LocalAppData, ILCreateFromPathW, ILFree, RemoveWindowSubclass, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify,
     SHGetKnownFolderPath, SHOpenFolderAndSelectItems, SetWindowSubclass, ShellExecuteW,
@@ -264,6 +264,14 @@ pub fn option_held() -> bool {
 pub fn shift_held() -> bool {
     // SAFETY: reads the key state; the high bit is set while the key is down.
     unsafe { GetAsyncKeyState(i32::from(VK_SHIFT)) < 0 }
+}
+
+/// Whether Ctrl, Alt or a Windows key is down now, also while a web view has the keyboard.
+pub fn modifier_held() -> bool {
+    [VK_CONTROL, VK_MENU, VK_LWIN, VK_RWIN].into_iter().any(|key| {
+        // SAFETY: reads the key state; the high bit is set while the key is down.
+        unsafe { GetAsyncKeyState(i32::from(key)) < 0 }
+    })
 }
 
 /// Only a macOS bundle has an identifier.

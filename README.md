@@ -300,7 +300,7 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 |---|---|
 | <kbd>⌘T</kbd> / <kbd>⌘L</kbd> | New tab / edit the current address |
 | <kbd>⌘W</kbd> / <kbd>⇧⌘T</kbd> | Close tab / reopen closed tab |
-| <kbd>⌘1</kbd> … <kbd>⌘9</kbd> · <kbd>⌃⇥</kbd> | Select a tab · next tab |
+| <kbd>⌘1</kbd> … <kbd>⌘9</kbd> · <kbd>⌃⇥</kbd> | Select a tab · most recently used tab (hold ⌃ to pick) |
 | <kbd>⌃1</kbd> … <kbd>⌃9</kbd> | Switch space |
 | <kbd>⌃⌘N</kbd> | Split View |
 | <kbd>⇧</kbd>-click a link | Link peek |
@@ -322,7 +322,8 @@ Linux, Reader is <kbd>Ctrl+Alt+E</kbd>, since <kbd>Ctrl+Alt+R</kbd> rotates the 
 | ⇧⌘T | Reopen closed tab |
 | ⇧⌘K | Close all tabs |
 | ⌘1 … ⌘8 / ⌘9 | Select tab 1–8 / the last tab (in sidebar order) |
-| ⌃⇥ / ⌃⇧⇥ | Next / previous tab (wraps around) |
+| ⌃⇥ / ⌃⇧⇥ | Recent-tab switcher: hold ⌃, press ⇥ to step through tabs, most recently used first |
+| ⌃⇟ / ⌃⇞ | Next / previous tab (wraps around) |
 | ⇧⌘C | Copy link of the current tab |
 | ⌥⇧⌘C | Copy link as Markdown, `[title](url)` (Copy Title is in the Tabs menu) |
 | ⌃⌘N | Open or close Split View: the current tab beside the space's last used tab outside a split, or a copy of it |

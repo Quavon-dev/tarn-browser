@@ -11,6 +11,8 @@ pub enum Action {
     CloseAllTabs,
     NextTab,
     PreviousTab,
+    RecentTab,
+    RecentTabBack,
     LastTab,
     TogglePin,
     NewGroup,
@@ -88,8 +90,10 @@ pub const SECTIONS: [(&str, &[Binding]); 4] = [
             ("Reopen closed tab", Action::ReopenClosedTab, "mod+shift+t"),
             ("Close all tabs", Action::CloseAllTabs, "mod+shift+k"),
             ("Select last tab", Action::LastTab, "mod+9"),
-            ("Next tab", Action::NextTab, "ctrl+tab"),
-            ("Previous tab", Action::PreviousTab, "ctrl+shift+tab"),
+            ("Switch to recent tab", Action::RecentTab, "ctrl+tab"),
+            ("Switch to recent tab, backwards", Action::RecentTabBack, "ctrl+shift+tab"),
+            ("Next tab", Action::NextTab, "ctrl+pagedown"),
+            ("Previous tab", Action::PreviousTab, "ctrl+pageup"),
             ("Pin or unpin tab", Action::TogglePin, "mod+d"),
             ("New tab group", Action::NewGroup, "mod+alt+g"),
             ("Open or close split view", Action::ToggleSplitView, "ctrl+mod+n"),
@@ -230,6 +234,10 @@ pub fn shown(keys: &str, keyboard: Keyboard) -> String {
         ("tab", true) => "⇥".to_owned(),
         ("tab", false) => "Tab".to_owned(),
         ("escape", _) => "Esc".to_owned(),
+        ("pageup", true) => "⇞".to_owned(),
+        ("pagedown", true) => "⇟".to_owned(),
+        ("pageup", false) => "Page Up".to_owned(),
+        ("pagedown", false) => "Page Down".to_owned(),
         (key, _) => key.to_uppercase(),
     };
     if apple {
@@ -386,6 +394,8 @@ mod tests {
                 | Action::LastTab
                 | Action::NextTab
                 | Action::PreviousTab
+                | Action::RecentTab
+                | Action::RecentTabBack
                 | Action::TogglePin
                 | Action::Reload
                 | Action::ReloadFromOrigin
@@ -457,7 +467,8 @@ mod tests {
         let of = |keyboard, action| default_keys(action, keyboard).unwrap();
         for keyboard in KEYBOARDS {
             assert_eq!(of(keyboard, Action::NewTab), "mod+t");
-            assert_eq!(of(keyboard, Action::NextTab), "ctrl+tab");
+            assert_eq!(of(keyboard, Action::RecentTab), "ctrl+tab");
+            assert_eq!(of(keyboard, Action::NextTab), "ctrl+pagedown");
         }
         assert_eq!(of(Keyboard::Apple, Action::Back), "mod+[");
         assert_eq!(of(Keyboard::Other, Action::Back), "mod+[");

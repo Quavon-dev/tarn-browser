@@ -1113,6 +1113,12 @@ pub fn shift_held() -> bool {
     objc2_app_kit::NSEvent::modifierFlags_class().contains(objc2_app_kit::NSEventModifierFlags::Shift)
 }
 
+/// Whether ⌃, ⌥ or ⌘ is down now, also while a web view has the keyboard and takes its key events.
+pub fn modifier_held() -> bool {
+    use objc2_app_kit::NSEventModifierFlags as F;
+    objc2_app_kit::NSEvent::modifierFlags_class().intersects(F::Control | F::Option | F::Command)
+}
+
 /// The `[left, top, right, bottom]` fractions of display `display` (its CGDirectDisplayID, which
 /// GPUI uses as the display id) the menu bar and Dock cover.
 pub fn screen_insets(display: u32) -> [f64; 4] {

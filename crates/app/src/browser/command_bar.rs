@@ -89,6 +89,7 @@ impl Browser {
         self.history_text_search = None;
         self.profile_editor = None;
         self.shortcuts_open = false;
+        self.tab_switcher = None;
         self.reader = self.reader.take().filter(|r| field || crate::reader::keeps_reader(covered, r.speaking()));
         window.focus(&self.focus);
         for key in self.model.active.and_then(|a| Some(self.splits.of(a)?.others(a))).unwrap_or_default() {

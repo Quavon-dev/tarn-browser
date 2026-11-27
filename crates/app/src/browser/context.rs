@@ -531,6 +531,7 @@ impl Browser {
             self.in_main(window, cx, move |b, window, cx| b.close_tabs(keys, window, cx));
             return;
         }
+        self.tab_switcher = None;
         self.close_batch(keys, None, window, cx);
     }
 

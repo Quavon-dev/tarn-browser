@@ -53,10 +53,14 @@ pub(super) fn later(ui: Ui, wait: Duration, f: impl FnOnce() + 'static) {
 }
 
 fn alt_held() -> bool {
+    held(webkit6::gdk::ModifierType::ALT_MASK)
+}
+
+pub(super) fn held(mask: webkit6::gdk::ModifierType) -> bool {
     use webkit6::gdk;
     use webkit6::prelude::*;
     let keyboard = gdk::Display::default().and_then(|d| d.default_seat()).and_then(|s| s.keyboard());
-    keyboard.is_some_and(|k| k.modifier_state().contains(gdk::ModifierType::ALT_MASK))
+    keyboard.is_some_and(|k| k.modifier_state().contains(mask))
 }
 
 fn busy(ui: Ui) -> bool {

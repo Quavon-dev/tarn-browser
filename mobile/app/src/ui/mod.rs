@@ -96,6 +96,7 @@ pub struct Ui {
     pub mac: Signal<bool>,
     pub page_overlay: Signal<Option<tarn_nsh_shared::page_overlay::Overlay>>,
     pub popovers: mac::popovers::Anchors,
+    pub switcher: Signal<Option<browser_core::switcher::Switcher>>,
     pub chat: tarn_nsh_shared::assistant::Chat,
     pub root: Owner,
 }
@@ -179,6 +180,10 @@ impl Ui {
     }
 
     pub fn show(self, screen: Screen) {
+        // Another screen cancels a pending recent-tab switch, so its delayed commit cannot close it.
+        if self.switcher.with_untracked(Option::is_some) {
+            self.switcher.set(None);
+        }
         if self.editing.get_untracked() {
             dismiss_keyboard();
         }
@@ -288,6 +293,7 @@ impl Ui {
         let screen = self.screen.get();
         (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::owns(screen))
             && (!self.editing.get() || self.mac.get())
+            && (!self.mac.get() || !self.switcher.with(|s| s.as_ref().is_some_and(|s| s.shown)))
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
 }
@@ -624,6 +630,7 @@ pub fn App() -> impl IntoElement {
         root: Owner::current(),
         page_overlay: signal(None),
         popovers: mac::popovers::Anchors::default(),
+        switcher: signal(None),
         chat: tarn_nsh_shared::assistant::Chat::new(),
     };
     let extensions_open = std::cell::Cell::new(false);

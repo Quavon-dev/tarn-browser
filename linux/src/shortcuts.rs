@@ -9,12 +9,8 @@ pub const ZOOM_IN_SHIFTED: &str = "ctrl+shift+=";
 pub const FIND_NEXT: &str = "ctrl+g";
 pub const FIND_PREVIOUS: &str = "ctrl+shift+g";
 
-pub const NEXT_TAB: &str = "ctrl+pagedown";
-pub const PREVIOUS_TAB: &str = "ctrl+pageup";
-
-pub const FIXED: [(&str, &str, &str); 11] = [
+pub const FIXED: [(&str, &str, &str); 10] = [
     ("Tabs", "Select tab 1–8", "Ctrl+1 … Ctrl+8"),
-    ("Tabs", "Next / previous tab", "Ctrl+Page Down  Ctrl+Page Up"),
     ("Page", "Stop loading", "Esc"),
     ("Page", "Find next", "Ctrl+G"),
     ("Page", "Find previous", "Ctrl+Shift+G"),
@@ -26,7 +22,7 @@ pub const FIXED: [(&str, &str, &str); 11] = [
     ("Window", "Quit", "Ctrl+Q"),
 ];
 
-const RESERVED: [&str; 20] = [
+const RESERVED: [&str; 18] = [
     "ctrl+1",
     "ctrl+2",
     "ctrl+3",
@@ -45,8 +41,6 @@ const RESERVED: [&str; 20] = [
     ZOOM_IN_SHIFTED,
     FIND_NEXT,
     FIND_PREVIOUS,
-    NEXT_TAB,
-    PREVIOUS_TAB,
 ];
 
 struct Linux;
@@ -126,6 +120,8 @@ pub fn display(keys: &str) -> String {
             "alt" => "Alt".to_owned(),
             "shift" => "Shift".to_owned(),
             "" => "+".to_owned(),
+            "pageup" => "Page Up".to_owned(),
+            "pagedown" => "Page Down".to_owned(),
             key if key.chars().count() == 1 => key.to_uppercase(),
             key => {
                 let mut c = key.chars();

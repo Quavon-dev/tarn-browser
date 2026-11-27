@@ -186,7 +186,8 @@ impl Browser {
     pub(crate) fn close_popups(&mut self, cx: &mut App) {
         self.toast.popup = None;
         self.link_status.popup = None;
-        let popups: [Option<AnyWindowHandle>; 11] = [
+        let popups: [Option<AnyWindowHandle>; 12] = [
+            self.tab_switcher.take().and_then(|o| o.strip).map(Into::into),
             self.space_popover.take().map(|(p, _)| p.into()),
             self.hover_card.window.take().map(Into::into),
             self.site_popover.window.take().map(Into::into),

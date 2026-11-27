@@ -1,4 +1,6 @@
 use browser_core::shortcuts::{self, Action, Keyboard};
+use browser_core::switcher::{COMMIT_DELAY, SHOW_DELAY, Switcher};
+use browser_core::tabs::TabKey;
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 use serde_json::Value;
@@ -15,6 +17,10 @@ fn select_tab(ui: Ui, action: Action) {
         Action::PreviousTab => s.model.cycled(false),
         _ => None,
     });
+    activate(ui, target);
+}
+
+fn activate(ui: Ui, target: Option<TabKey>) {
     if let Some(key) = target {
         ui.act(|s| {
             s.activate(key);
@@ -22,6 +28,69 @@ fn select_tab(ui: Ui, action: Action) {
         });
         ui.show(Screen::Browse);
     }
+}
+
+fn recent_tab(ui: Ui, forward: bool) {
+    let mut open = ui.switcher.get_untracked();
+    ui.read(|s| Switcher::press(&mut open, &s.model, forward, tarn_nsh_shared::switcher::PER_ROW));
+    let Some(presses) = open.as_ref().map(|s| s.presses) else { return };
+    if ui.switcher.with_untracked(Option::is_none) {
+        ui.show(Screen::Browse);
+    }
+    let first = open.as_ref().is_some_and(|s| s.opened == presses);
+    ui.switcher.set(open);
+    ui.root.run(|| {
+        if first {
+            drop(set_timeout(SHOW_DELAY, move || {
+                if ui.switcher.with_untracked(|s| s.as_ref().is_some_and(|s| s.opened == presses)) {
+                    ui.switcher.update(|s| s.iter_mut().for_each(|s| s.shown = true));
+                }
+            }));
+        }
+        drop(set_timeout(COMMIT_DELAY, move || {
+            if ui.switcher.with_untracked(|s| s.as_ref().map(|s| s.presses)) == Some(presses) {
+                commit(ui);
+            }
+        }))
+    });
+}
+
+fn commit(ui: Ui) {
+    let open = ui.switcher.get_untracked();
+    ui.switcher.set(None);
+    activate(ui, open.map(|s| s.selected()));
+}
+
+pub(super) fn switcher(ui: Ui) -> impl IntoElement {
+    dynamic(move || {
+        let open = ui.switcher.get().filter(|s| s.shown)?;
+        // A tab closed while the strip is open drops out of it rather than leaving an empty card.
+        let keys: Vec<TabKey> = untracked(|| ui.read(|s| open.order.iter().copied().filter(|k| s.model.tab(*k).is_some()).collect()));
+        let cards = untracked(|| {
+            ui.read(|s| {
+                let card = |key: &TabKey| {
+                    let url = s.tab_url(*key);
+                    tarn_nsh_shared::switcher::Card { icon: s.site_icon(&url), host: super::sidebar::host(&url), title: s.tab_title(*key) }
+                };
+                keys.iter().map(card).collect()
+            })
+        });
+        let selected = keys.iter().position(|k| *k == open.selected()).unwrap_or(0);
+        let pick = move |ix: usize| {
+            if let Some(key) = keys.get(ix).copied() {
+                ui.switcher.update(|s| s.iter_mut().for_each(|s| s.pick(key)));
+            }
+            commit(ui);
+        };
+        Some(tarn_nsh_shared::switcher::strip(
+            cards,
+            selected,
+            "Tab to move · Return or a pause switches · Esc to stay",
+            pick,
+            move || commit(ui),
+            move || ui.switcher.set(None),
+        ))
+    })
 }
 
 pub(super) fn keyboard() -> Keyboard {
@@ -83,6 +152,7 @@ fn run(ui: Ui, action: Action) {
             Vec::new()
         }),
         Action::NextTab | Action::PreviousTab | Action::LastTab | Action::SelectTab(_) => select_tab(ui, action),
+        Action::RecentTab | Action::RecentTabBack => recent_tab(ui, action == Action::RecentTab),
         Action::Reload => ui.act(|s| s.active_command("reload", Value::Null)),
         Action::ReloadFromOrigin => ui.act(|s| s.active_command("reloadFromOrigin", Value::Null)),
         Action::Back => ui.act_on_screen(|s| s.active_command("back", Value::Null)),

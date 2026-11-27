@@ -293,6 +293,7 @@ impl Browser {
             MenuItem::separator(),
             tabs.action("Next Tab", crate::NextTab),
             tabs.action("Previous Tab", crate::PreviousTab),
+            tabs.action("Switch to Recent Tab", crate::RecentTab),
             MenuItem::separator(),
             tabs.action("Show Library", crate::ToggleLibrary),
             tabs.action(state_label(&crate::TogglePin, pinned).unwrap_or_default(), crate::TogglePin),

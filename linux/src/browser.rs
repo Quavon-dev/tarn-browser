@@ -183,6 +183,7 @@ pub struct Browser {
     /// When the page area last changed under the pointer; guarded buttons wait `BYPASS_DELAY`.
     pub guard_since: std::time::Instant,
     pub link_peek: Option<link_peek::LinkPeek>,
+    pub switcher: Option<browser_core::switcher::Switcher>,
     pub peek_outbox: Vec<(&'static str, Value)>,
     pub page_fullscreen: browser_core::fullscreen::PageFullScreen,
     pub window_request: Option<nsh_core::desktop::WindowMode>,
@@ -297,6 +298,7 @@ impl Browser {
             splits: Default::default(),
             guard_since: std::time::Instant::now(),
             link_peek: None,
+            switcher: None,
             peek_outbox: Vec::new(),
             page_fullscreen: Default::default(),
             window_request: None,
@@ -327,6 +329,7 @@ impl Browser {
     }
 
     pub fn switch_space(&mut self, ix: usize) {
+        self.switcher = None;
         let _span = (ix != self.model.space_ix).then(|| engine::startup::span(engine::startup::SPACE_SWITCH)).flatten();
         let burning = self.model.burner_shown();
         self.close_reader();
@@ -416,6 +419,12 @@ impl Browser {
                 self.core.restore_downloads(private, profile, &rows);
             }
             Some(ToastAction::Reveal(_)) | None => {}
+        }
+    }
+
+    pub fn commit_switcher(&mut self) {
+        if let Some(open) = self.switcher.take() {
+            self.activate(open.selected());
         }
     }
 
@@ -544,6 +553,7 @@ impl Browser {
     }
 
     pub fn close_tabs(&mut self, keys: Vec<TabKey>) {
+        self.switcher = None;
         self.close_batch(keys, None);
     }
 

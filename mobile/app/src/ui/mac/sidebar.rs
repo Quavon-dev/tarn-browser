@@ -67,7 +67,7 @@ fn activate(ui: Ui, key: TabKey) {
     ui.show(Screen::Browse);
 }
 
-fn host(url: &str) -> String {
+pub(super) fn host(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 

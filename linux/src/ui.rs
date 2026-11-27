@@ -15,6 +15,7 @@ mod peek;
 mod profiles;
 mod settings;
 mod split;
+mod switcher;
 mod tools;
 
 use std::cell::{Cell, RefCell};
@@ -258,7 +259,10 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let forgotten = std::mem::take(&mut b.forgotten);
         let groups = std::mem::take(&mut b.forgotten_groups);
         let regrouped = b.regrouped_space.take();
-        let shown = shown && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
+        let shown = shown
+            && !b.switcher.as_ref().is_some_and(|s| s.shown)
+            && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key))
+            && b.active_json().is_none();
         b.heavy_shown = b.heavy_tabs();
         let snap = snapshot::snapshot_with(b, shown, &b.heavy_shown);
         if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
@@ -671,7 +675,7 @@ fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {
     Theme::profile_color(color).map(|c| Rgba { a: alpha, ..c })
 }
 
-fn host_of(url: &str) -> String {
+pub(crate) fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
@@ -2544,7 +2548,7 @@ fn hang_bar(ui: Ui) -> AnyElement {
 
 fn content(ui: Ui) -> View {
     let covered = move || {
-        ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.cert.is_some() || s.json.is_some())
+        ui.snap.with(|s| s.blank || s.reader.is_some() || s.blocked.is_some() || s.cert.is_some() || s.json.is_some() || s.switcher.is_some())
             || ui.panel.get() != Panel::None
             || ui.editing.get()
     };
@@ -2564,6 +2568,7 @@ fn content(ui: Ui) -> View {
         .child(themed(move || start_card(ui)))
         .child(themed(move || blocking::page(ui)))
         .child(themed(move || blocking::cert_page(ui)))
+        .child(switcher::layer(ui))
         .child(web_views(ui).flex_grow(move || if covered() { 0.0_f32 } else { 1.0 }).h(px(0.0)))
 }
 
@@ -2608,6 +2613,7 @@ fn run_action(ui: Ui, action: Action) {
         }
         Action::NextTab => act(ui, |b| b.cycle(true)),
         Action::PreviousTab => act(ui, |b| b.cycle(false)),
+        Action::RecentTab | Action::RecentTabBack => switcher::press(ui, action == Action::RecentTab),
         Action::TogglePin => act(ui, |b| b.model.active.into_iter().for_each(|k| b.pin_toggle(k))),
         Action::BurnerTab => tools::run(ui, tools::Command::BurnerTab),
         Action::NewGroup => groups::new_group(ui, None),
@@ -2677,7 +2683,12 @@ fn bound_keys(ui: Ui) -> AnyElement {
         ui.keys_rev.get();
         let stored = untracked(|| read(ui, |b| crate::shortcuts::stored(&b.core.disk))).unwrap_or_default();
         for (keys, action) in crate::shortcuts::keymap(&stored) {
-            on_key(&keys, move |_| run_action(ui, action));
+            // Tab counts as a text key, so the switcher would not open from a focused page or field.
+            if matches!(action, Action::RecentTab | Action::RecentTabBack) {
+                on_key_with(&keys, KeyOptions { when: nsh_core::keymap::When::Always, ..KeyOptions::default() }, move |_| run_action(ui, action));
+            } else {
+                on_key(&keys, move |_| run_action(ui, action));
+            }
         }
         bind_fixed(ui);
         Some(view())
@@ -2771,8 +2782,6 @@ fn bind_fixed(ui: Ui) {
     }
     on_key_with("mod+z", KeyOptions { when: nsh_core::keymap::When::NotEditing, ..KeyOptions::default() }, move |_| act(ui, Browser::undo));
     on_key(crate::shortcuts::ZOOM_IN_SHIFTED, move |_| run_action(ui, Action::ZoomIn));
-    on_key(crate::shortcuts::NEXT_TAB, move |_| run_action(ui, Action::NextTab));
-    on_key(crate::shortcuts::PREVIOUS_TAB, move |_| run_action(ui, Action::PreviousTab));
     on_key_with("escape", KeyOptions { when: nsh_core::keymap::When::Always, pass_through: true, ..KeyOptions::default() }, move |_| escape(ui));
     for (keys, backwards) in [(crate::shortcuts::FIND_NEXT, false), (crate::shortcuts::FIND_PREVIOUS, true)] {
         on_key(keys, move |_| find_again(ui, backwards));
