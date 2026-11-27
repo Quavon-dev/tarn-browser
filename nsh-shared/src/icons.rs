@@ -77,6 +77,8 @@ pub const FILE_VIDEO: &str = include_str!("../../crates/ui/icons/file-video.svg"
 pub const LAYOUT_GRID: &str = include_str!("../../crates/ui/icons/layout-grid.svg");
 pub const USER_PLUS: &str = include_str!("../../crates/ui/icons/user-plus.svg");
 pub const ARCHIVE: &str = include_str!("../../crates/ui/icons/archive.svg");
+pub const EYE: &str = include_str!("../../crates/ui/icons/eye.svg");
+pub const EYE_OFF: &str = include_str!("../../crates/ui/icons/eye-off.svg");
 pub const COPY: &str = include_str!("../../crates/ui/icons/copy.svg");
 pub const ZAP: &str = include_str!("../../crates/ui/icons/zap.svg");
 pub const COLUMNS_2: &str = include_str!("../../crates/ui/icons/columns-2.svg");
@@ -174,6 +176,8 @@ pub const NAMED: &[(&str, &str)] = &[
     ("layout-grid", LAYOUT_GRID),
     ("user-plus", USER_PLUS),
     ("archive", ARCHIVE),
+    ("eye", EYE),
+    ("eye-off", EYE_OFF),
     ("copy", COPY),
     ("zap", ZAP),
     ("columns-2", COLUMNS_2),
