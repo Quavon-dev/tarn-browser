@@ -5288,7 +5288,7 @@ dependencies = [
 
 [[package]]
 name = "tarn-mobile"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "ai",
  "browser-core",
@@ -5311,7 +5311,7 @@ dependencies = [
 
 [[package]]
 name = "tarn-mobile-android"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "ai",
  "browser-core",
@@ -5325,7 +5325,7 @@ dependencies = [
 
 [[package]]
 name = "tarn-mobile-ios"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "block2",
  "browser-core",
