@@ -12299,7 +12299,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 =====
-cookie 0.18.2
+cookie 0.18.3
 Licence: MIT OR Apache-2.0
 Source: https://github.com/SergioBenitez/cookie-rs
 
