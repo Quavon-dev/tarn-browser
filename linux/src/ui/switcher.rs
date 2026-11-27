@@ -49,6 +49,13 @@ pub(super) fn layer(ui: Ui) -> AnyElement {
                 b.commit_switcher();
             })
         };
-        Some(strip(cards, selected, pick, move || act(ui, Browser::commit_switcher), move || act(ui, |b| b.switcher = None)))
+        Some(strip(
+            cards,
+            selected,
+            "Tab to move · release Ctrl to switch · Esc to stay",
+            pick,
+            move || act(ui, Browser::commit_switcher),
+            move || act(ui, |b| b.switcher = None),
+        ))
     })
 }

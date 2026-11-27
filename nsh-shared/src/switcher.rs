@@ -1,16 +1,16 @@
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
 
-use crate::controls::{pressable, site_tile};
-use crate::theme::{RADIUS_TILE, TEXT_SMALL, Theme};
+use crate::controls::{pressable, site_tile, surface};
+use crate::theme::{RADIUS_PANEL, RADIUS_TILE, TEXT_SMALL, TEXT_TITLE, Theme};
 
-const CARD_WIDTH: f32 = 184.;
+const CARD_WIDTH: f32 = 168.;
 const STILL_HEIGHT: f32 = CARD_WIDTH * 10. / 16.;
 const ICON: f32 = 40.;
 /// Cards on the strip's one row.
 pub const PER_ROW: usize = 5;
-const RING: f32 = 5.;
-const GAP: f32 = 20.;
+const RING: f32 = 4.;
+const GAP: f32 = 12.;
 
 pub struct Card {
     pub icon: Option<String>,
@@ -18,12 +18,27 @@ pub struct Card {
     pub title: String,
 }
 
-/// The recent-tab switcher's strip: Return switches to the `selected` card, a click to the card
-/// clicked (`pick`), Esc cancels.
-pub fn strip(cards: Vec<Card>, selected: usize, pick: impl Fn(usize) + Clone + 'static, commit: impl Fn() + 'static, cancel: impl Fn() + 'static) -> View {
+/// The recent-tab switcher's strip on a panel, with the selected tab's title and host spelled out
+/// under it and `hint` below: Return switches to the `selected` card, a click to the card clicked
+/// (`pick`), Esc cancels.
+pub fn strip(
+    cards: Vec<Card>,
+    selected: usize,
+    hint: &str,
+    pick: impl Fn(usize) + Clone + 'static,
+    commit: impl Fn() + 'static,
+    cancel: impl Fn() + 'static,
+) -> View {
     let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
     on_key_with("enter", always, move |_| commit());
     on_key_with("escape", always, move |_| cancel());
+    let detail = cards.get(selected).map(|card| {
+        view()
+            .items_center()
+            .gap(px(2.))
+            .child(text(card.title.clone()).text_size(px(TEXT_TITLE)).font_weight(FontWeight::SEMIBOLD).text_color(Theme::text()).number_of_lines(1_u32))
+            .child(text(card.host.clone()).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).number_of_lines(1_u32))
+    });
     let cards: Vec<AnyElement> = cards
         .into_iter()
         .enumerate()
@@ -39,30 +54,31 @@ pub fn strip(cards: Vec<Card>, selected: usize, pick: impl Fn(usize) + Clone + '
                 .border_color(Theme::surface_edge())
                 .items_center()
                 .justify_center()
+                .opacity(if on { 1. } else { 0.72 })
                 .child(site_tile(card.icon, &card.host, ICON));
-            let edge = Rgba { a: if on { 0.3 } else { 0. }, ..Theme::text() };
             let still = view()
                 .p(px(RING))
                 .rounded(px(RADIUS_TILE + RING))
-                .border_1()
-                .border_color(edge)
-                .bg(Rgba { a: if on { 0.06 } else { 0. }, ..Theme::text() })
+                .border_2()
+                .border_color(Rgba { a: if on { 1. } else { 0. }, ..Theme::accent() })
+                .bg(Rgba { a: if on { 0.14 } else { 0. }, ..Theme::accent() })
                 .child(still);
             let title = text(card.title.clone())
                 .text_size(px(TEXT_SMALL))
                 .text_color(if on { Theme::text() } else { Theme::muted() })
+                .font_weight(if on { FontWeight::MEDIUM } else { FontWeight::NORMAL })
                 .number_of_lines(1_u32)
-                .px(px(RING + 4.));
+                .px(px(RING + 2.));
             pressable(card.title, move || pick(ix)).w(px(CARD_WIDTH + 2. * RING)).flex_col().gap_1().child(still).child(title).into_element()
         })
         .collect();
-    view()
-        .absolute()
-        .inset_0()
-        .z_index(10)
-        .items_center()
-        .justify_center()
-        .p_6()
-        .test_id("tab-switcher")
-        .child(view().flex_row().justify_center().gap(px(GAP)).children(cards))
+    view().absolute().inset_0().z_index(10).items_center().justify_center().p_6().test_id("tab-switcher").bg(Rgba { r: 0., g: 0., b: 0., a: 0.35 }).child(
+        surface(RADIUS_PANEL)
+            .p(px(20.))
+            .gap(px(14.))
+            .items_center()
+            .child(view().flex_row().justify_center().gap(px(GAP)).children(cards))
+            .children(detail)
+            .child(text(hint.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::muted())),
+    )
 }

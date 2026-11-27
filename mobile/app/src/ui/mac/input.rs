@@ -69,7 +69,14 @@ pub(super) fn switcher(ui: Ui) -> impl IntoElement {
             ui.switcher.update(|s| s.iter_mut().for_each(|s| s.index = ix));
             commit(ui);
         };
-        Some(tarn_nsh_shared::switcher::strip(cards, open.index, pick, move || commit(ui), move || ui.switcher.set(None)))
+        Some(tarn_nsh_shared::switcher::strip(
+            cards,
+            open.index,
+            "Tab to move · Return or a pause switches · Esc to stay",
+            pick,
+            move || commit(ui),
+            move || ui.switcher.set(None),
+        ))
     })
 }
 
