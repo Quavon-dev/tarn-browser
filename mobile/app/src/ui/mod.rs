@@ -180,6 +180,10 @@ impl Ui {
     }
 
     pub fn show(self, screen: Screen) {
+        // Another screen cancels a pending recent-tab switch, so its delayed commit cannot close it.
+        if self.switcher.with_untracked(Option::is_some) {
+            self.switcher.set(None);
+        }
         if self.editing.get_untracked() {
             dismiss_keyboard();
         }
@@ -289,7 +293,7 @@ impl Ui {
         let screen = self.screen.get();
         (matches!(screen, Screen::Browse | Screen::Find | Screen::Share) || self.mac.get() && mac::owns(screen))
             && (!self.editing.get() || self.mac.get())
-            && (!self.mac.get() || self.switcher.with(Option::is_none))
+            && (!self.mac.get() || !self.switcher.with(|s| s.as_ref().is_some_and(|s| s.shown)))
             && self.read(|s| s.active_prompt().is_none() && s.external.is_none())
     }
 }

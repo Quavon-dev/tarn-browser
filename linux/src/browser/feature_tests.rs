@@ -1297,6 +1297,8 @@ fn the_recent_tab_switcher_steps_commits_and_closes_with_a_tab() {
     let active = b.model.active;
     let order = b.model.recent_order();
     browser_core::switcher::Switcher::press(&mut b.switcher, &b.model, true, tarn_nsh_shared::switcher::PER_ROW);
+    assert!(crate::snapshot::snapshot(&b, true).switcher.is_none(), "the strip waits out its delay");
+    b.switcher.iter_mut().for_each(|s| s.shown = true);
     assert_eq!(crate::snapshot::snapshot(&b, true).switcher.map(|(cards, ix)| (cards.len(), ix)), Some((3, 1)));
     b.close_tab(order[2]);
     assert!(b.switcher.is_none(), "closing a tab closes the strip");

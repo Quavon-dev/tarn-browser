@@ -1,5 +1,5 @@
 use browser_core::shortcuts::{self, Action, Keyboard};
-use browser_core::switcher::{COMMIT_DELAY, Switcher};
+use browser_core::switcher::{COMMIT_DELAY, SHOW_DELAY, Switcher};
 use browser_core::tabs::TabKey;
 use nsh_core::keymap::When;
 use nsh_core::prelude::*;
@@ -37,8 +37,16 @@ fn recent_tab(ui: Ui, forward: bool) {
     if ui.switcher.with_untracked(Option::is_none) {
         ui.show(Screen::Browse);
     }
+    let first = open.as_ref().is_some_and(|s| s.opened == presses);
     ui.switcher.set(open);
     ui.root.run(|| {
+        if first {
+            drop(set_timeout(SHOW_DELAY, move || {
+                if ui.switcher.with_untracked(|s| s.as_ref().is_some_and(|s| s.opened == presses)) {
+                    ui.switcher.update(|s| s.iter_mut().for_each(|s| s.shown = true));
+                }
+            }));
+        }
         drop(set_timeout(COMMIT_DELAY, move || {
             if ui.switcher.with_untracked(|s| s.as_ref().map(|s| s.presses)) == Some(presses) {
                 commit(ui);
@@ -55,23 +63,28 @@ fn commit(ui: Ui) {
 
 pub(super) fn switcher(ui: Ui) -> impl IntoElement {
     dynamic(move || {
-        let open = ui.switcher.get()?;
+        let open = ui.switcher.get().filter(|s| s.shown)?;
+        // A tab closed while the strip is open drops out of it rather than leaving an empty card.
+        let keys: Vec<TabKey> = untracked(|| ui.read(|s| open.order.iter().copied().filter(|k| s.model.tab(*k).is_some()).collect()));
         let cards = untracked(|| {
             ui.read(|s| {
                 let card = |key: &TabKey| {
                     let url = s.tab_url(*key);
                     tarn_nsh_shared::switcher::Card { icon: s.site_icon(&url), host: super::sidebar::host(&url), title: s.tab_title(*key) }
                 };
-                open.order.iter().map(card).collect()
+                keys.iter().map(card).collect()
             })
         });
-        let pick = move |ix| {
-            ui.switcher.update(|s| s.iter_mut().for_each(|s| s.index = ix));
+        let selected = keys.iter().position(|k| *k == open.selected()).unwrap_or(0);
+        let pick = move |ix: usize| {
+            if let Some(key) = keys.get(ix).copied() {
+                ui.switcher.update(|s| s.iter_mut().for_each(|s| s.pick(key)));
+            }
             commit(ui);
         };
         Some(tarn_nsh_shared::switcher::strip(
             cards,
-            open.index,
+            selected,
             "Tab to move · Return or a pause switches · Esc to stay",
             pick,
             move || commit(ui),

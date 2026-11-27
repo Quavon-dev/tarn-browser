@@ -533,8 +533,10 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         cleanable: browser_core::sidebar::cleanable(&b.model),
         compact: b.compact_toolbar(),
         link_peek: peek_item(b).filter(|_| web_shown),
-        switcher: b.switcher.as_ref().map(|open| {
-            let card = |key: &TabKey| b.model.tab(*key).map(|t| (crate::ui::host_of(&t.url), tab_label(t, b, *key))).unwrap_or_default();
+        switcher: b.switcher.as_ref().filter(|open| open.shown).map(|open| {
+            let card = |key: &TabKey| {
+                b.model.tab(*key).map(|t| (crate::ui::host_of(&t.url), browser_core::text::bounded_title(&tab_label(t, b, *key)))).unwrap_or_default()
+            };
             (open.order.iter().map(card).collect(), open.index)
         }),
         fullscreen: b.page_fullscreen.is_on(),

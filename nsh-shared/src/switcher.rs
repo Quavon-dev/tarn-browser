@@ -5,7 +5,6 @@ use crate::controls::{pressable, site_tile, surface};
 use crate::theme::{RADIUS_PANEL, RADIUS_TILE, TEXT_SMALL, TEXT_TITLE, Theme};
 
 const CARD_WIDTH: f32 = 168.;
-const STILL_HEIGHT: f32 = CARD_WIDTH * 10. / 16.;
 const ICON: f32 = 40.;
 /// Cards on the strip's one row.
 pub const PER_ROW: usize = 5;
@@ -29,9 +28,14 @@ pub fn strip(
     commit: impl Fn() + 'static,
     cancel: impl Fn() + 'static,
 ) -> View {
+    // NSH matches modifiers exactly, and Ctrl is usually still held here.
     let always = KeyOptions { when: When::Always, ..KeyOptions::default() };
-    on_key_with("enter", always, move |_| commit());
-    on_key_with("escape", always, move |_| cancel());
+    let (commit, cancel) = (std::rc::Rc::new(commit), std::rc::Rc::new(cancel));
+    for held in ["", "ctrl+", "ctrl+shift+"] {
+        let (commit, cancel) = (commit.clone(), cancel.clone());
+        on_key_with(&format!("{held}enter"), always, move |_| commit());
+        on_key_with(&format!("{held}escape"), always, move |_| cancel());
+    }
     let detail = cards.get(selected).map(|card| {
         view()
             .items_center()
@@ -47,7 +51,7 @@ pub fn strip(
             let pick = pick.clone();
             let still = view()
                 .w_full()
-                .h(px(STILL_HEIGHT))
+                .aspect_ratio(16. / 10.)
                 .rounded(px(RADIUS_TILE))
                 .bg(Theme::panel())
                 .border_1()
@@ -69,15 +73,25 @@ pub fn strip(
                 .font_weight(if on { FontWeight::MEDIUM } else { FontWeight::NORMAL })
                 .number_of_lines(1_u32)
                 .px(px(RING + 2.));
-            pressable(card.title, move || pick(ix)).w(px(CARD_WIDTH + 2. * RING)).flex_col().gap_1().child(still).child(title).into_element()
+            pressable(card.title, move || pick(ix))
+                .flex_1()
+                .min_w(px(0.))
+                .max_w(px(CARD_WIDTH + 2. * RING))
+                .flex_col()
+                .gap_1()
+                .child(still)
+                .child(title)
+                .into_element()
         })
         .collect();
     view().absolute().inset_0().z_index(10).items_center().justify_center().p_6().test_id("tab-switcher").bg(Rgba { r: 0., g: 0., b: 0., a: 0.35 }).child(
         surface(RADIUS_PANEL)
+            .w_full()
+            .max_w(px((CARD_WIDTH + 2. * RING + GAP) * PER_ROW as f32 + 40.))
             .p(px(20.))
             .gap(px(14.))
             .items_center()
-            .child(view().flex_row().justify_center().gap(px(GAP)).children(cards))
+            .child(view().w_full().flex_row().justify_center().gap(px(GAP)).children(cards))
             .children(detail)
             .child(text(hint.to_owned()).text_size(px(TEXT_SMALL)).text_color(Theme::muted())),
     )

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use browser_core::switcher::Switcher;
+use browser_core::switcher::{SHOW_DELAY, Switcher};
 use nsh_core::prelude::*;
 use tarn_nsh_shared::switcher::{Card, strip};
 
@@ -13,8 +13,11 @@ const POLL: Duration = Duration::from_millis(50);
 
 pub(super) fn press(ui: Ui, forward: bool) {
     act(ui, |b| Switcher::press(&mut b.switcher, &b.model, forward, tarn_nsh_shared::switcher::PER_ROW));
-    if let Some(at) = presses(ui) {
-        watch(ui, at);
+    let Some(at) = presses(ui) else { return };
+    watch(ui, at);
+    // A first press: the strip, and the page it hides, show only if Ctrl is still held after a moment.
+    if read(ui, |b| b.switcher.as_ref().is_some_and(|s| s.opened == at)) == Some(true) {
+        peek::later(ui, SHOW_DELAY, move || act(ui, |b| b.switcher.iter_mut().filter(|s| s.opened == at).for_each(|s| s.shown = true)));
     }
 }
 
@@ -45,7 +48,7 @@ pub(super) fn layer(ui: Ui) -> AnyElement {
             .collect();
         let pick = move |ix| {
             act(ui, |b| {
-                b.switcher.iter_mut().for_each(|s| s.index = ix);
+                b.switcher.iter_mut().for_each(|s| s.select(ix));
                 b.commit_switcher();
             })
         };

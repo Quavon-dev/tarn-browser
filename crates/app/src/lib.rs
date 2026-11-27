@@ -299,9 +299,7 @@ impl Browser {
                 if b.page_fullscreen.is_on() { b.leave_page_fullscreen(w) } else { w.toggle_fullscreen() }
             }))
             .on_action(cx.listener(|b, _: &CloseOverlay, w, cx| {
-                if b.tab_switcher.is_some() {
-                    b.cancel_switcher(w, cx);
-                } else if b.close_capture_overlay(cx) {
+                if b.close_capture_overlay(cx) {
                 } else if b.overlay_open() {
                     b.dismiss_overlay(w, cx);
                 } else if b.active_prompt().is_some() {
@@ -316,16 +314,16 @@ impl Browser {
                 }
             }))
             .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| {
-                let Some(open) = &mut b.tab_switcher else { return };
+                if b.tab_switcher.is_none() {
+                    return;
+                }
+                // With Ctrl still held these arrive as ctrl-enter and ctrl-escape, which no binding takes.
                 match e.keystroke.key.as_str() {
                     "enter" => b.commit_switcher(w, cx),
                     "escape" => b.cancel_switcher(w, cx),
-                    "right" | "down" => open.state.step(true),
-                    "left" | "up" => open.state.step(false),
                     _ => return,
                 }
                 cx.stop_propagation();
-                cx.notify();
             }))
             .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| b.prompt_key(e, w, cx)))
             .on_key_down(|e: &gpui::KeyDownEvent, w, cx| {

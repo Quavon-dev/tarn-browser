@@ -44,7 +44,6 @@ pub struct Open {
     _deactivated: Subscription,
 }
 
-/// The strip draws the switcher's state; the main window shows none of it, so it is left alone.
 /// A card's width when `n` of them share one row of a page `width` wide.
 fn card_width(width: f32, n: usize) -> f32 {
     let n = n.max(1) as f32;
@@ -138,10 +137,10 @@ impl Browser {
         // WebKit encodes each still on the main thread, so take it no larger than its card.
         let card = card_width(f32::from(bounds.size.width), open.state.order.len());
         for key in open.state.order.clone() {
-            self.request_switcher_shot(key, Some(key), card, cx);
+            self.request_switcher_shot(opened, key, Some(key), card, cx);
         }
         if let Some(active) = self.model.active.filter(|_| self.core.themes.borrow().glass) {
-            self.request_switcher_shot(active, None, BACKDROP_WIDTH, cx);
+            self.request_switcher_shot(opened, active, None, BACKDROP_WIDTH, cx);
         }
         bounds.origin += window.bounds().origin;
         let (display, main) = (window.display(cx).map(|d| d.id()), window.window_handle());
@@ -174,7 +173,7 @@ impl Browser {
     }
 
     /// A still of `key` at `width` points, for card `card`, or the backdrop when `None`.
-    fn request_switcher_shot(&self, key: TabKey, card: Option<TabKey>, width: f32, cx: &mut Context<Self>) {
+    fn request_switcher_shot(&self, opened: Instant, key: TabKey, card: Option<TabKey>, width: f32, cx: &mut Context<Self>) {
         let Some(view) = self.views.get(&key) else { return };
         let (tx, mut rx) = mpsc::unbounded();
         view.snapshot_png(Some(f64::from(width)), move |png| drop(tx.unbounded_send(png)));
@@ -182,7 +181,8 @@ impl Browser {
             let Some(Some(png)) = rx.next().await else { return };
             let Some(image) = cx.background_spawn(async move { crate::hover_card::decode(&png) }).await else { return };
             this.update(cx, |b, cx| {
-                if let Some(open) = &mut b.tab_switcher {
+                // A still that arrives after its switcher closed and another opened is dropped.
+                if let Some(open) = b.tab_switcher.as_mut().filter(|o| o.opened == opened) {
                     match card {
                         Some(key) => drop(open.shots.insert(key, image)),
                         None => open.backdrop = Some(image),

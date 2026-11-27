@@ -9,6 +9,8 @@ use crate::tabs::{Model, TabKey};
 pub const MAX_CARDS: usize = 10;
 /// Where the platform reports no modifier release, a pause this long after the last press stands in for it.
 pub const COMMIT_DELAY: Duration = Duration::from_millis(800);
+/// The strip shows only after this, so a quick press and release switches without it flashing.
+pub const SHOW_DELAY: Duration = Duration::from_millis(100);
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Switcher {
@@ -16,6 +18,10 @@ pub struct Switcher {
     pub index: usize,
     /// The last press, unique across switchers, so a delayed commit can tell whether another came meanwhile.
     pub presses: u64,
+    /// The first press, which names this switcher for its delayed show.
+    pub opened: u64,
+    /// Whether the strip shows; a quick press and release switches before it does.
+    pub shown: bool,
 }
 
 impl Switcher {
@@ -23,7 +29,8 @@ impl Switcher {
     /// press and release toggles between the two most recent tabs. `None` when there is nowhere to go.
     pub fn open(order: Vec<TabKey>, active: Option<TabKey>, back: bool) -> Option<Self> {
         let first = usize::from(order.first().is_some_and(|k| Some(*k) == active));
-        (order.len() > first).then(|| Self { index: if back { order.len() - 1 } else { first }, order, presses: next_press() })
+        let press = next_press();
+        (order.len() > first).then(|| Self { index: if back { order.len() - 1 } else { first }, order, presses: press, opened: press, shown: false })
     }
 
     /// A press of the switcher's key without a modifier release: opens `open` over at most `max` of
@@ -43,6 +50,13 @@ impl Switcher {
 
     pub fn pick(&mut self, key: TabKey) {
         if let Some(ix) = self.order.iter().position(|k| *k == key) {
+            self.index = ix;
+        }
+    }
+
+    /// Selects card `ix`, as a click or the pointer does; out of range leaves the selection.
+    pub fn select(&mut self, ix: usize) {
+        if ix < self.order.len() {
             self.index = ix;
         }
     }
@@ -110,6 +124,11 @@ mod tests {
         assert_eq!(s.selected().id, 3);
         s.pick(TabKey { private: false, id: 2 });
         assert_eq!(s.selected().id, 2);
+        s.select(0);
+        assert_eq!(s.selected().id, 1);
+        s.select(9);
+        assert_eq!(s.selected().id, 1, "out of range keeps the selection");
+        assert!(!s.shown, "the strip shows only after its delay");
     }
 
     #[test]

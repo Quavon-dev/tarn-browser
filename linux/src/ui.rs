@@ -259,7 +259,10 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let forgotten = std::mem::take(&mut b.forgotten);
         let groups = std::mem::take(&mut b.forgotten_groups);
         let regrouped = b.regrouped_space.take();
-        let shown = shown && b.switcher.is_none() && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key)) && b.active_json().is_none();
+        let shown = shown
+            && !b.switcher.as_ref().is_some_and(|s| s.shown)
+            && b.reader.as_ref().is_none_or(|r| b.model.active != Some(r.key))
+            && b.active_json().is_none();
         b.heavy_shown = b.heavy_tabs();
         let snap = snapshot::snapshot_with(b, shown, &b.heavy_shown);
         if ui.snap.with_untracked(|s| s.notice != snap.notice || s.prompt != snap.prompt || s.error != snap.error) {
@@ -2680,7 +2683,12 @@ fn bound_keys(ui: Ui) -> AnyElement {
         ui.keys_rev.get();
         let stored = untracked(|| read(ui, |b| crate::shortcuts::stored(&b.core.disk))).unwrap_or_default();
         for (keys, action) in crate::shortcuts::keymap(&stored) {
-            on_key(&keys, move |_| run_action(ui, action));
+            // Tab counts as a text key, so the switcher would not open from a focused page or field.
+            if matches!(action, Action::RecentTab | Action::RecentTabBack) {
+                on_key_with(&keys, KeyOptions { when: nsh_core::keymap::When::Always, ..KeyOptions::default() }, move |_| run_action(ui, action));
+            } else {
+                on_key(&keys, move |_| run_action(ui, action));
+            }
         }
         bind_fixed(ui);
         Some(view())
