@@ -25,6 +25,7 @@ const RING: f32 = 5.;
 const GAP: f32 = 20.;
 /// A quick press and release switches without the strip flashing over the page.
 const SHOW_DELAY: Duration = Duration::from_millis(150);
+const RELEASE_POLL: Duration = Duration::from_millis(30);
 
 /// The open switcher and stills of its awake tabs, taken when the strip shows and dropped when it closes.
 pub struct Open {
@@ -51,7 +52,8 @@ impl Browser {
         // As many cards as fit on one row of this window.
         let fits = ((f32::from(self.page_area(window).size.width) - 2. * GAP) / (CARD_WIDTH + 2. * RING + GAP)).floor().max(2.) as usize;
         let Some(state) = self.model.open_switcher(forward, fits) else { return };
-        if !window.modifiers().modified() {
+        // A focused web view takes the modifier's key events, so ask the system what is held.
+        if !engine::modifier_held() {
             return self.switch_to(state.selected(), window, cx);
         }
         self.close_command(window, cx);
@@ -74,6 +76,24 @@ impl Browser {
         cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(SHOW_DELAY).await;
             this.update_in(cx, |b, window, cx| b.show_switcher(opened, window, cx)).ok();
+        })
+        .detach();
+        // The release can go to a web view or another window, so watch the system's state as well.
+        cx.spawn_in(window, async move |this, cx| {
+            loop {
+                cx.background_executor().timer(RELEASE_POLL).await;
+                let open = this.update_in(cx, |b, window, cx| {
+                    let open = b.tab_switcher.as_ref().is_some_and(|o| o.opened == opened);
+                    if open && !engine::modifier_held() {
+                        b.commit_switcher(window, cx);
+                        return false;
+                    }
+                    open
+                });
+                if !matches!(open, Ok(true)) {
+                    break;
+                }
+            }
         })
         .detach();
     }

@@ -98,8 +98,8 @@ pub use data_store_windows::{DataStore, FilterLists, builtin_rules_failed};
 pub use events::{Event, Protection};
 #[cfg(windows)]
 pub use host_windows::{
-    Host, MIN_ZOOM, Popup, alert, app_active, bundle_identifier, is_default_browser, local_app_data, make_default_browser, open_external, option_held,
-    reduce_motion, refresh_browser_registration, restrict_to_user, reveal_in_finder, screen_insets, shift_held,
+    Host, MIN_ZOOM, Popup, alert, app_active, bundle_identifier, is_default_browser, local_app_data, make_default_browser, modifier_held, open_external,
+    option_held, reduce_motion, refresh_browser_registration, restrict_to_user, reveal_in_finder, screen_insets, shift_held,
 };
 pub use nav_policy::{Features, SiteFor};
 #[cfg(any(target_os = "macos", windows))]
@@ -114,6 +114,6 @@ pub use view::WebView;
 pub use view_windows::WebView;
 #[cfg(target_os = "macos")]
 pub use webview::{
-    Host, MIN_ZOOM, Popup, alert, app_active, bundle_identifier, is_default_browser, make_default_browser, open_external, option_held, reduce_motion,
-    reveal_in_finder, screen_insets, shift_held,
+    Host, MIN_ZOOM, Popup, alert, app_active, bundle_identifier, is_default_browser, make_default_browser, modifier_held, open_external, option_held,
+    reduce_motion, reveal_in_finder, screen_insets, shift_held,
 };
