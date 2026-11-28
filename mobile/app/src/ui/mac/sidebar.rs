@@ -919,7 +919,7 @@ fn open_chat(ui: Ui, id: Option<Id>) {
 /// The profile's latest assistant chats under a header that folds them and starts a new one.
 fn chats(bar: Bar) -> AnyElement {
     let ui = bar.ui;
-    // Read again each minute, so a time from yesterday turns into its date soon after midnight.
+    // Read again when the profile or its chats change; the minute only counts when something else redraws.
     let key = computed(move || ui.read(|s| (s.chat_profile(), s.core.disk.chat_changes(), browser_core::now() / 60_000)));
     let listed = computed(move || {
         let (profile, ..) = key.get();

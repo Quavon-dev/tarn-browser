@@ -1207,6 +1207,8 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 chat.submit(host)
             }
         })
+        // Assistive tools hear that there is nothing to send yet.
+        .disabled(move || !ready())
         // A finger's 44-point target around the 28-point circle.
         .w(px(44.))
         .h(px(44.))

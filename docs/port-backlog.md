@@ -21,6 +21,22 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Toolbar in the sidebar and auto-hide on tablets (2026-11-28)
+
+What it does: Settings › Appearance › Design › Design puts Back, Forward, Reload and the address
+field at the top of the sidebar (Sidebar), in a bar above the page (Classic) or in a slimmer bar
+(Compact), and Hide sidebar automatically slides the hidden sidebar in at the window's edge.
+Shared API: `browser_core::prefs::{SIDEBAR_TOOLBAR, COMPACT_TOOLBAR}`.
+Reference: `crates/app/src/sidebar.rs` (`content`), `crates/app/src/toolbar.rs` (`sidebar_address`,
+`history`), `linux/src/ui/chrome.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [x] Linux
+- [ ] iOS, Android — the tablet Mac layout keeps the address in the toolbar and offers no Design
+  choice: the sidebar header needs room for Split View, Share and the extensions the toolbar holds,
+  and the address field must raise the on-screen keyboard under a field at the top; the Mac layout
+  also has no automatic hiding of the sidebar yet
+
 ### Tab previews setting (2026-11-28)
 
 What it does: resting the pointer on a tab shows a snapshot of its page without holding Alt (not
@@ -582,7 +598,7 @@ macOS reference: `crates/app/src/sidebar.rs` (`chosen_icon`, `icon_picker`, `gro
 
 ### Clean Up (2026-11-16, reworked 2026-11-17)
 
-What it does: the Clean Up button in the New Tab row sorts the space's loose tabs into tab groups by what each page
+What it does: Tidy, on the rule above the loose tabs, sorts the space's loose tabs into tab groups by what each page
 is (on this device: a known site decides, else host labels, path and title words), into the user's own
 group when that group already holds two or more tabs of the same host and no other group does,
 orders category groups and keeps tabs of one host together; Undo Sort in its toast puts the layout
@@ -591,10 +607,10 @@ Shared API: `browser_core::cleanup::{plan, apply, undo, category}`. `apply` and 
 `Store::apply_layout` transaction; `plan` and `category` take no `Store`. Archiving goes through
 `Model::archive_unused`.
 macOS reference: `crates/app/src/browser/context.rs` (`clean_up_tabs`, `undo_sort`), `crates/app/src/toast.rs`
-(`Action::UndoSort`), `crates/app/src/sidebar.rs` (`ephemeral`).
+(`Action::UndoSort`), `crates/app/src/sidebar.rs` (`tidy`).
 
 - [x] Windows — same code in `crates/app`
-- [x] Linux — `linux/src/ui.rs` (`new_tab_row`), `linux/src/ui/groups.rs` (group card and panel), `linux/src/browser/groups.rs` (`clean_up_tabs`, `undo_sort`, `ToastAction::UndoSort`), Settings › Tabs in `linux/src/ui/settings.rs`
+- [x] Linux — `linux/src/ui/chrome.rs` (`tidy`), `linux/src/ui/groups.rs` (group card and panel), `linux/src/browser/groups.rs` (`clean_up_tabs`, `undo_sort`, `ToastAction::UndoSort`), Settings › Tabs in `linux/src/ui/settings.rs`
 - [ ] iOS — the tablet Mac layout sorts by category with Undo Sort in its toast
   (`mobile/app/src/ui/mac/sidebar.rs`, `browser_core::sidebar::{clean_up, undo_sort}`); archiving unused tabs and the
   phone and Touch layouts are still missing

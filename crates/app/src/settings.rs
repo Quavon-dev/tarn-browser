@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot style modern classic preset",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot window solid toolbar",
     ),
     (
         SettingsPane::Tabs,

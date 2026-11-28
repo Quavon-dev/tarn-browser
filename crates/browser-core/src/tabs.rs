@@ -1129,6 +1129,24 @@ mod tests {
     }
 
     #[test]
+    fn the_sidebar_lists_chats_only_while_the_profiles_ai_is_on_and_reads_them_again_when_they_change() {
+        let (_dir, core, mut model) = opened();
+        let profile = model.profile().unwrap().1;
+        core.open_profile(false, profile, || std::rc::Rc::new(|_| {}));
+        let mut list = crate::sidebar::ChatList::default();
+        assert!(list.rows(&model, &core, crate::now()).is_none(), "AI is off by default");
+        core.disk.set_profile_ai(profile, true).unwrap();
+        assert_eq!(list.rows(&model, &core, crate::now()).map(<[_]>::len), Some(0));
+        let turns = [store::ChatTurn { you: true, text: "hi".into(), by: None, interrupted: false, command: false }];
+        core.disk.save_chat(profile, None, Some("Trip"), &turns, &[]).unwrap();
+        assert_eq!(list.rows(&model, &core, crate::now()).map(|r| r[0].title.clone()), Some("Trip".to_owned()));
+        let ix = model.open_burner(&core).unwrap();
+        model.switch_space(&core, ix).unwrap();
+        core.open_profile(true, model.profile().unwrap().1, || std::rc::Rc::new(|_| {}));
+        assert!(list.rows(&model, &core, crate::now()).is_none(), "a burner lists none");
+    }
+
+    #[test]
     fn a_tab_dragged_out_moves_to_a_space_only_its_window_lists() {
         let (_dir, core, mut model) = opened();
         let space = model.current_space().unwrap().space.id;

@@ -942,8 +942,8 @@ its options in the macOS order, from Tabs through the window's Solid or Glass an
 sites, Groups and folders, Chats, Mark changed tabs and Dim sleeping tabs. Back, Forward, Reload and the
 address field stay in the toolbar above the page instead of moving into the sidebar as on macOS: the
 toolbar also holds Split View, Share and the extensions that the macOS address pill gathers, and a tap in
-the address field raises the on-screen keyboard under a field at the top of the window. Design therefore
-offers no toolbar choice. The sidebar shows no agent or update cards: agent
+the address field raises the on-screen keyboard under a field at the top of the window. Design offers no
+toolbar choice yet (`docs/port-backlog.md`). The sidebar shows no agent or update cards: agent
 control is a desktop-only listener (threat model S22), and the App Store and Google Play install updates.
 The profile menu has no New Profile…, since the mobile clients make profiles only in the space card.
 In the Mac layout, Ctrl+Tab and Ctrl+Shift+Tab show the recent-tab switcher strip shared with Linux

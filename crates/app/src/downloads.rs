@@ -205,9 +205,8 @@ impl Browser {
         }
     }
 
-    /// Opens the popover under the sidebar header's download button, its caret on the button, or
-    /// under the toolbar while the sidebar is hidden, with room for the downloads saving now to
-    /// finish into rows.
+    /// Opens the popover above the sidebar footer's download button, or under the toolbar while the
+    /// sidebar is hidden, with room for the downloads saving now to finish into rows.
     fn show_downloads(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let top = match (self.peek.is_window(window), self.sidebar_open) {

@@ -1,11 +1,7 @@
 use browser_core::prefs;
 use browser_core::sidebar::ChatRow;
-use store::Id;
 
 use super::Browser;
-
-/// The listed chats, read again when the profile, its chats or the minute changes.
-pub(super) type ChatCache = ((Id, u64, i64), Vec<ChatRow>);
 
 impl Browser {
     /// Whether the sidebar holds the navigation buttons and the address field.
@@ -15,18 +11,10 @@ impl Browser {
 
     /// The profile's latest chats, while its AI is on, it is not private and the sidebar shows them.
     pub fn sidebar_chats(&self) -> Option<Vec<ChatRow>> {
-        // Listing titles sends nothing, so the profile's level decides, not the page's.
-        if !self.pref(prefs::SIDEBAR_CHATS) || !self.model.assistant_offered(&self.core, None) {
+        if !self.pref(prefs::SIDEBAR_CHATS) {
             return None;
         }
-        let profile = self.model.assistant_origin(&self.core, None)?.profile;
-        let now = browser_core::now();
-        let key = (profile, self.core.disk.chat_changes(), now / 60_000);
-        let mut cache = self.chat_rows.borrow_mut();
-        if cache.as_ref().is_none_or(|(k, _)| *k != key) {
-            *cache = Some((key, browser_core::sidebar::chat_rows(&self.core.disk, profile, now)));
-        }
-        cache.as_ref().map(|(_, rows)| rows.clone())
+        self.chat_rows.borrow_mut().rows(&self.model, &self.core, browser_core::now()).map(<[_]>::to_vec)
     }
 }
 

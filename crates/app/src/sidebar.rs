@@ -629,16 +629,7 @@ impl Browser {
 
     /// The current profile's latest chats, while the profile's AI switch is on and it is not private.
     fn sidebar_chats(&self) -> Option<Vec<browser_core::sidebar::ChatRow>> {
-        // Listing titles sends nothing, so a site at Lockdown does not hide them; the profile's switch does.
-        let (origin, _) = self.assistant_origin().filter(|(o, on)| *on && browser_core::assistant::allowed(*o))?;
-        let now = browser_core::now();
-        // Read again each minute, so a time from yesterday turns into its date soon after midnight.
-        let key = (origin.profile, self.core.disk.chat_changes(), now / 60_000);
-        let mut cache = self.chat_rows.borrow_mut();
-        if cache.as_ref().is_none_or(|(k, _)| *k != key) {
-            *cache = Some((key, browser_core::sidebar::chat_rows(&self.core.disk, origin.profile, now)));
-        }
-        cache.as_ref().map(|(_, rows)| rows.clone())
+        self.chat_rows.borrow_mut().rows(&self.model, &self.core, browser_core::now()).map(<[_]>::to_vec)
     }
 }
 
@@ -819,10 +810,15 @@ fn name(b: &Browser, target: RenameTarget, name: &str, cx: &mut Context<Browser>
     }
 }
 
+/// The chevron's turn at animation progress `t`, which the bounce carries past 0 and 1. Radians,
+/// not a percentage, which asserts on values outside 0 to 1 and once crashed Tarn at start.
+fn chevron_turn(open: bool, t: f32) -> gpui::Radians {
+    radians(std::f32::consts::FRAC_PI_2 * if open { t } else { 1. - t })
+}
+
 /// A chevron that turns between closed and open each time `open` changes.
 fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
-    // Radians, not a percentage: the bounce overshoots past both ends.
-    let turn = move |t: f32| radians(std::f32::consts::FRAC_PI_2 * if open { t } else { 1. - t });
+    let turn = move |t: f32| chevron_turn(open, t);
     let glyph = icon(Icon::ChevronRight, ICON_SMALL, Theme::muted()).with_transformation(Transformation::rotate(turn(1.)));
     animate_linear(glyph, (if open { "open" } else { "shut" }, id as u64), SETTLE, b.pref(Pref::ReduceMotion), move |g, t| {
         g.with_transformation(Transformation::rotate(turn(bounce(t))))
@@ -1584,6 +1580,13 @@ mod tests {
         assert_eq!(tile_grid(420., 9, false).0, 7, "a wider sidebar fits more in a row");
         assert_eq!(tile_grid(SIDEBAR_WIDTH, 9, true).0, 6, "the compact row fits more");
         assert_eq!(tile_grid(SIDEBAR_WIDTH, 2, false), (2, 53.), "two tiles share the row and keep their height");
+    }
+
+    #[test]
+    fn a_chevron_bouncing_past_either_end_still_turns() {
+        assert!(super::chevron_turn(false, 1.12).0 < 0., "a closing bounce overshoots below zero");
+        assert!(super::chevron_turn(true, 1.12).0 > std::f32::consts::FRAC_PI_2);
+        assert_eq!(super::chevron_turn(true, 0.).0, 0.);
     }
 
     #[test]

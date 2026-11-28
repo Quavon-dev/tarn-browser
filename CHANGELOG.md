@@ -12,7 +12,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   field move above the tabs, and the page gets the window's full height. Under the tiles, Chats
   lists the profile's four latest assistant chats with their time (shown only while the profile's
   AI is on, never in a private space); the pen starts a new one, and Settings › Appearance ›
-  Sidebar › Chats, View › Chats in Sidebar, the command bar or right-clicking Chats hides them. A
+  Design › Chats, View › Chats in Sidebar, the command bar or right-clicking Chats hides them. A
   rule with Tidy sorts loose tabs into groups (right-click for the other ways to organise). Loose
   tabs come before the groups, which show as cards; a closed group takes its colour and shows its
   first sites and how many tabs it holds. Pinned folders show as the same cards, closed ones with

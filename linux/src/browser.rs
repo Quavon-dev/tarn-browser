@@ -46,7 +46,7 @@ use crate::input;
 use crate::webview::policy::DEFAULT_LEVEL_KEY;
 
 pub const START_URL: &str = "about:blank";
-pub const COMPACT_TOOLBAR: &str = "compact_toolbar";
+pub const COMPACT_TOOLBAR: &str = browser_core::prefs::COMPACT_TOOLBAR.key;
 pub const AUTO_HIDE_SIDEBAR: &str = "auto_hide_sidebar";
 pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
@@ -200,7 +200,7 @@ pub struct Browser {
     /// lets everything through), and its bar.
     pub agent_sites: Option<Vec<String>>,
     pub agent_banner: Option<browser_core::agent::control::Banner>,
-    chat_rows: std::cell::RefCell<Option<sidebar::ChatCache>>,
+    chat_rows: std::cell::RefCell<browser_core::sidebar::ChatList>,
     window: SavedWindow,
     seq: u64,
     toast_serial: u64,

@@ -467,37 +467,6 @@ pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) ->
     }
 }
 
-pub const SPACE_DOT: f32 = 14.;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpaceBar {
-    pub width: f32,
-    pub icon: f32,
-    pub gap: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpaceStrip {
-    pub compact: bool,
-    pub scroll: Option<f32>,
-}
-
-impl SpaceBar {
-    pub fn strip(&self, count: usize, current: usize) -> SpaceStrip {
-        let gaps = count.saturating_sub(1) as f32 * self.gap;
-        let compact = count as f32 * self.icon + gaps > self.width;
-        if !compact {
-            return SpaceStrip { compact, scroll: None };
-        }
-        let content = self.icon + count.saturating_sub(1) as f32 * SPACE_DOT + gaps;
-        let scroll = (content > self.width).then(|| {
-            let middle = current.min(count.saturating_sub(1)) as f32 * (SPACE_DOT + self.gap) + self.icon / 2.;
-            (middle - self.width / 2.).clamp(0., content - self.width)
-        });
-        SpaceStrip { compact, scroll }
-    }
-}
-
 /// How many of a profile's latest chats the sidebar lists.
 pub const CHATS_SHOWN: usize = 4;
 
@@ -522,6 +491,34 @@ pub fn chat_rows(store: &Store, profile: Id, now: i64) -> Vec<ChatRow> {
             ChatRow { id: c.id, title: c.title, when }
         })
         .collect()
+}
+
+/// The sidebar's chats, read again only when the profile, its chats, its settings or the minute
+/// change, so a time from yesterday turns into its date soon after midnight.
+#[derive(Default)]
+pub struct ChatList {
+    key: Option<((bool, Id), u64, u64, i64)>,
+    rows: Option<Vec<ChatRow>>,
+}
+
+/// The profile whose chats the sidebar lists: the current one, while its AI is on and it is not
+/// private. Listing titles sends nothing, so the profile's Shield level decides, not the page's.
+pub fn chat_profile<D: WebsiteData>(model: &Model, core: &Core<D>) -> Option<Id> {
+    let origin = model.assistant_origin(core, None).filter(|o| crate::assistant::allowed(*o))?;
+    core.disk.profile(origin.profile).is_ok_and(|p| p.ai_enabled).then_some(origin.profile)
+}
+
+impl ChatList {
+    /// `chat_profile`'s latest chats.
+    pub fn rows<D: WebsiteData>(&mut self, model: &Model, core: &Core<D>, now: i64) -> Option<&[ChatRow]> {
+        // Private profiles count their ids apart, so the store they live in is part of the key.
+        let key = (model.profile()?, core.disk.chat_changes(), core.disk.settings_changes(), now / 60_000);
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.rows = chat_profile(model, core).map(|p| chat_rows(&core.disk, p, now));
+        }
+        self.rows.as_deref()
+    }
 }
 
 /// `YYYY-MM-DD` as `Mon D`, or as given when it is not such a date.
@@ -1006,19 +1003,5 @@ mod tests {
         let not_work = |s: &SpaceRef| s.space.name != "Work";
         assert_eq!(neighbour_space(&model, Step::Next, not_work), Some(2), "a space the process may not show is stepped over");
         assert_eq!(neighbour_space(&model, Step::Next, |_| false), None);
-    }
-
-    #[test]
-    fn the_space_bar_shrinks_to_dots_and_then_scrolls() {
-        let bar = SpaceBar { width: 150., icon: 28., gap: 2. };
-        let plain = SpaceStrip { compact: false, scroll: None };
-        assert_eq!(bar.strip(0, 0), plain);
-        assert_eq!(bar.strip(5, 0), plain, "five icons with their gaps fill it exactly");
-        assert_eq!(bar.strip(6, 0), SpaceStrip { compact: true, scroll: None });
-        assert_eq!(bar.strip(8, 0), SpaceStrip { compact: true, scroll: None }, "one icon and seven dots with gaps fit");
-        assert_eq!(bar.strip(9, 0), SpaceStrip { compact: true, scroll: Some(0.) }, "the dots' gaps count");
-        assert_eq!(bar.strip(20, 10), SpaceStrip { compact: true, scroll: Some(99.) }, "a middle space is centred");
-        assert_eq!(bar.strip(20, 19), SpaceStrip { compact: true, scroll: Some(182.) }, "the last space ends the strip");
-        assert_eq!(bar.strip(20, 25), bar.strip(20, 19), "an index past the end is the last space");
     }
 }

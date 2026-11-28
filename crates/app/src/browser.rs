@@ -270,9 +270,6 @@ fn record_ended(core: &crate::shared::AppCore, private: bool, profile_id: Id, id
 type IconKey = ((bool, Id), String, favicon::Ticket);
 type SiteStoppedKey = (u64, bool, Id, String);
 
-/// The profile and store change the sidebar's chats were read at, and the chats.
-pub(crate) type ChatCache = ((store::Id, u64, i64), Vec<browser_core::sidebar::ChatRow>);
-
 pub struct Browser {
     pub(crate) core: Rc<crate::shared::AppCore>,
     pub(crate) warning: Option<String>,
@@ -436,7 +433,7 @@ pub struct Browser {
     pub(crate) tab_switcher: Option<crate::switcher::Open>,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
     /// The sidebar's chats, read again once the store or the profile changes.
-    pub(crate) chat_rows: std::cell::RefCell<Option<ChatCache>>,
+    pub(crate) chat_rows: std::cell::RefCell<browser_core::sidebar::ChatList>,
     pub(crate) chats_open: bool,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,

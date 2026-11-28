@@ -104,18 +104,19 @@ pub(super) fn chats(ui: Ui) -> AnyElement {
             .child(view().text_color(Theme::faint()).child(icons::icon(if open { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.)))
             .child(view().flex_1())
             .child(icon_button(icons::SQUARE_PEN, "New Chat", move || new_chat(ui)));
+        let header = super::keyboard_row(ui, "chats".to_owned(), header);
         let shown = ui.assistant.get().then(|| ui.chat.saved()).flatten();
         let rows = rows.into_iter().filter(|_| open).map(|row| {
             let id = row.id;
-            controls::row(row.title.clone(), move || open_chat(ui, id))
+            let button = controls::row(row.title.clone(), move || open_chat(ui, id))
                 .h(move || px(Theme::tab_row()))
                 .pl(px(10.))
                 .gap(px(10.))
                 .bg(if shown == Some(id) { Theme::selected() } else { Theme::clear() })
                 .child(view().w(px(16.)).items_center().text_color(Theme::muted()).child(icons::icon(icons::MESSAGE_CIRCLE, 14.)))
                 .child(body(browser_core::text::bounded_title(&row.title)).flex_1().truncate())
-                .child(small(row.when).text_color(Theme::faint()))
-                .into_element()
+                .child(small(row.when).text_color(Theme::faint()));
+            super::keyboard_row(ui, format!("chat-{id}"), button).into_element()
         });
         Some(
             view()

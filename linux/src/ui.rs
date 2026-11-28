@@ -735,6 +735,10 @@ fn keyboard_order(s: &Snapshot) -> Vec<String> {
         r.panes.iter().for_each(|p| push(p, out));
     }
     let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
+    if let Some(chats) = &s.chats {
+        out.push("chats".to_owned());
+        out.extend(chats.iter().map(|c| format!("chat-{}", c.id)));
+    }
     s.rows.iter().filter(|r| in_pinned_section(r)).for_each(|r| push(r, &mut out));
     out.push("tidy".to_owned());
     s.rows.iter().filter(|r| !in_pinned_section(r)).for_each(|r| push(r, &mut out));
@@ -769,8 +773,10 @@ fn move_row_focus(ui: Ui, down: bool) {
     let Some(current) = ROW_FOCUS.with_borrow(|f| f.get(&ui.window).cloned()) else { return };
     let order = ui.snap.with_untracked(keyboard_order);
     let Some(ix) = order.iter().position(|id| *id == current) else { return };
-    let next = if down { order.get(ix + 1) } else { ix.checked_sub(1).and_then(|ix| order.get(ix)) };
-    if let Some((_, r)) = next.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned())) {
+    // Rows not drawn, such as folded chats, are passed over.
+    let drawn = |id: &String| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned());
+    let next = if down { order[ix + 1..].iter().find_map(drawn) } else { order[..ix].iter().rev().find_map(drawn) };
+    if let Some((_, r)) = next {
         r.focus();
     }
 }
