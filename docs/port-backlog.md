@@ -21,16 +21,6 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
-### Modern assistant note (2026-11-28)
-
-What it does: in the Modern style, the note under the assistant's input that says what Send
-carries takes the macOS look.
-Reference: `crates/app/src/assistant.rs` (`will_send`).
-
-- [x] Windows — same code in `crates/app`
-- [ ] Linux — the note is drawn by `nsh-shared/src/assistant.rs`; restyling it there reaches iOS
-  and Android as well
-
 ### Tab previews setting (2026-11-28)
 
 What it does: resting the pointer on a tab shows a snapshot of its page without holding Alt (not
