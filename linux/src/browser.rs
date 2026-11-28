@@ -923,11 +923,7 @@ impl Browser {
     }
 
     pub fn pref(&self, switch: Switch) -> bool {
-        match self.core.disk.setting(switch.key).ok().flatten().as_deref() {
-            Some("on") => true,
-            Some("off") => false,
-            _ => prefs::style_default(&self.core.disk, switch),
-        }
+        switch.on(&self.core.disk)
     }
 
     pub fn set_pref(&mut self, switch: Switch, on: bool) {

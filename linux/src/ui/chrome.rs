@@ -192,7 +192,7 @@ pub(super) fn summary(ui: Ui, (hosts, count): (Vec<String>, usize)) -> View {
 /// What waits on the user outside the page: an agent at work in this window, or its question.
 pub(super) fn pills(ui: Ui) -> AnyElement {
     themed(move || {
-        let (text, asking) = ui.snap.with(|s| s.agent.as_ref().map(|a| (a.text.clone(), a.asking)))?;
+        let (text, asking) = ui.snap.with(|s| s.agent.as_ref().filter(|_| s.chrome).map(|a| (a.text.clone(), a.asking)))?;
         let tint = if asking { Theme::warning() } else { Theme::muted() };
         Some(
             view()
@@ -313,7 +313,7 @@ pub(super) fn space_rows(ui: Ui) -> View {
     let spaces = ui.snap.with_untracked(|s| s.spaces.iter().filter(|x| x.shown).cloned().collect::<Vec<_>>());
     group().children(spaces.into_iter().map(|space| {
         let ix = space.ix;
-        let name = if space.private { space.label.clone() } else { space.label.rsplit(" · ").next().unwrap_or_default().to_owned() };
+        let name = space.name;
         controls::row(name.clone(), move || {
             ui.panel.set(Panel::None);
             tarn_nsh_shared::motion::space_switch();

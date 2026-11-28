@@ -723,6 +723,8 @@ fn tiles(ui: Ui) -> View {
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
+                .on_mouse_enter(move |e: &MouseEvent| peek::hover_row(ui, key, true, e.page_position.y.0))
+                .on_mouse_leave(move |_: &MouseEvent| peek::hover_row(ui, key, false, 0.))
                 .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                 .child(tile)
                 .into_element()
@@ -743,9 +745,11 @@ fn keyboard_order(s: &Snapshot) -> Vec<String> {
         r.panes.iter().for_each(|p| push(p, out));
     }
     let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
-    for pinned in [true, false] {
-        s.rows.iter().filter(|r| in_pinned_section(r) == pinned).for_each(|r| push(r, &mut out));
+    s.rows.iter().filter(|r| in_pinned_section(r)).for_each(|r| push(r, &mut out));
+    if s.chrome {
+        out.push("tidy".to_owned());
     }
+    s.rows.iter().filter(|r| !in_pinned_section(r)).for_each(|r| push(r, &mut out));
     out
 }
 
@@ -815,14 +819,14 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
 }
 
 fn folder_row(ui: Ui, id: store::Id, item: ReadSignal<snapshot::Row>) -> AnyElement {
-    let depth = item.with_untracked(|r| r.depth) as f32;
+    let depth = indent(ui, item);
     let name = move || item.with(|r| r.label.clone());
     view()
         .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
         .child(
             keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))))
                 .h(move || px(Theme::tab_row()))
-                .pl(px(8. + depth * 16.))
+                .pl(move || px(8. + depth() * 16.))
                 .child(
                     view()
                         .text_color(Theme::muted())
@@ -842,8 +846,12 @@ fn folder_icon(stored: &str) -> AnyElement {
     }
 }
 
+fn indent(ui: Ui, item: ReadSignal<snapshot::Row>) -> impl Fn() -> f32 + Copy {
+    move || item.with(|r| r.depth).saturating_sub(ui.snap.with(|s| s.cards) as usize) as f32
+}
+
 fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
-    let depth = item.with_untracked(|r| r.depth) as f32;
+    let depth = indent(ui, item);
     let name = move || item.with(|r| r.label.clone());
     let active = move || item.with(|r| r.active);
     let hovered = signal(false);
@@ -880,7 +888,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .on_press_down(move || ui.dragging.set(Some(key)))
         .h(move || px(Theme::tab_row()))
         .relative()
-        .pl(px(10. + depth * 16.))
+        .pl(move || px(10. + depth() * 16.))
         .pr_1()
         .gap(px(CLOSE_GAP))
         .bg(move || match (dropping().is_some(), active()) {
@@ -3447,6 +3455,8 @@ mod tests {
         let snap = crate::snapshot::snapshot(&b, true);
         let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
         let order = super::keyboard_order(&snap);
-        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), id(super::RowKind::Tab(first))]);
+        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), "tidy".to_owned(), id(super::RowKind::Tab(first))]);
+        b.set_style(false);
+        assert!(!super::keyboard_order(&crate::snapshot::snapshot(&b, true)).contains(&"tidy".to_owned()), "Classic has no Tidy row");
     }
 }
