@@ -228,7 +228,7 @@ impl Browser {
     pub fn space_menu(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         let mut items = Vec::new();
         // The switcher at the sidebar's bottom edge lists the spaces to go to first.
-        if self.sidebar_chrome() && ix == self.model.space_ix {
+        if ix == self.model.space_ix {
             let shown = (0..self.model.spaces.len()).filter(|i| self.model.space_shown(*i));
             items.extend(shown.map(|i| Item::action(ui::text::bounded_title(&self.model.spaces[i].space.name), Cmd::SwitchSpace(i)).checked(i == ix)));
             items.push(Item::Separator);

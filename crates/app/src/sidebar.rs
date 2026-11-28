@@ -457,7 +457,7 @@ fn content(b: &mut Browser, inset: f32, window: Option<&Window>, cx: &mut Contex
     let other = b.slide_other().map(|(_, left, shown)| {
         let (title, list) = b.as_other(|b| (title(b, cx).into_any_element(), list(b, cx)));
         (
-            div().absolute().inset_0().flex().items_center().when(b.sidebar_chrome(), |d| d.justify_center()).opacity(shown).child(title).child(blocker()),
+            div().absolute().inset_0().flex().items_center().justify_center().opacity(shown).child(title).child(blocker()),
             shown,
             [list.left(px(left)).into_any_element(), blocker().left(px(left)).into_any_element()],
         )
@@ -470,12 +470,11 @@ fn content(b: &mut Browser, inset: f32, window: Option<&Window>, cx: &mut Contex
         .h_full()
         .relative()
         .flex()
-        .child(div().size_full().flex().items_center().when(b.sidebar_chrome(), |d| d.justify_center()).opacity(1. - shown).child(title(b, cx)))
+        .child(div().size_full().flex().items_center().justify_center().opacity(1. - shown).child(title(b, cx)))
         .children(other_title);
-    let mut titles = Some(titles);
-    let chrome = b.sidebar_chrome();
     // The floating card shows while the toolbar is back above the page, so it leaves out its buttons.
-    let nav = chrome && b.sidebar_shown() > 0.;
+    let docked = b.sidebar_shown() > 0.;
+    let nav = b.sidebar_chrome() && docked;
     let header = div().h(px(HEADER_HEIGHT)).flex_none().pl(px(inset)).pr(px(TILE_GAP)).flex().items_center().gap_1();
     let header = if nav {
         let page = b.model.active.map(|k| b.page(k)).unwrap_or_default();
@@ -483,16 +482,12 @@ fn content(b: &mut Browser, inset: f32, window: Option<&Window>, cx: &mut Contex
             .child(crate::toolbar::sidebar_toggle(b, cx))
             .child(div().flex_1().h_full().window_control_area(gpui::WindowControlArea::Drag))
             .child(crate::toolbar::history(b, &page, cx))
-    } else if chrome {
-        div().h(px(TILE_GAP)).flex_none()
+    } else if docked {
+        // With the toolbar above the page this row only keeps the traffic lights clear.
+        header.child(div().flex_1().h_full().window_control_area(gpui::WindowControlArea::Drag))
     } else {
-        header.child(titles.take().unwrap_or_else(div)).child(crate::downloads::header_button(b, cx)).child(
-            icon_button("settings", Icon::Gear, true)
-                .tooltip(crate::shortcuts::tip("Settings", &crate::Settings))
-                .on_click(cx.listener(|b, _, window, cx| b.open_settings(window, cx))),
-        )
+        div().h(px(TILE_GAP)).flex_none()
     };
-    let footer = if chrome { footer(b, titles.take().unwrap_or_else(div), cx).into_any_element() } else { space_dots(b, cx).into_any_element() };
     div()
         .flex()
         .flex_col()
@@ -512,8 +507,8 @@ fn content(b: &mut Browser, inset: f32, window: Option<&Window>, cx: &mut Contex
                 .children(other_list.into_iter().flatten()),
         )
         .children(crate::mini_player::render(b, cx))
-        .when_some(window.filter(|_| chrome), |d, window| d.children(pills(b, window, cx)))
-        .child(footer)
+        .when_some(window, |d, window| d.children(pills(b, window, cx)))
+        .child(footer(b, titles, cx))
 }
 
 /// What waits on the user outside the page: an agent in this window, an update to restart into.
@@ -617,9 +612,9 @@ fn list(b: &Browser, cx: &mut Context<Browser>) -> Stateful<Div> {
         .px(px(TILE_GAP))
         .pb_2()
         .child(tiles(b, cx))
-        .when(b.sidebar_chrome() && b.pref(Pref::SidebarChats), |d| d.children(chats(b, cx)))
+        .when(b.pref(Pref::SidebarChats), |d| d.children(chats(b, cx)))
         .child(pinned(b, cx))
-        .map(|d| if b.sidebar_chrome() { d.child(tidy(b, cx)) } else { d.child(div().mx_2().my_1p5().h(px(1.)).bg(Theme::hairline())) })
+        .child(tidy(b, cx))
         .child(ephemeral(b, cx))
 }
 
@@ -734,7 +729,6 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         (false, tint) => (ui::icon::space_icon(&s.space.icon), tint.unwrap_or(Theme::space_label())),
     });
     let renaming = b.rename_input(RenameTarget::Space(space_id)).is_some();
-    let chrome = b.sidebar_chrome();
     let private = b.model.current_space().is_some_and(|s| s.private);
     let at = std::rc::Rc::<std::cell::Cell<_>>::default();
     let menu = move |b: &mut Browser, button: Option<gpui::Bounds<gpui::Pixels>>, w: &mut Window, cx: &mut Context<Browser>| {
@@ -757,23 +751,12 @@ fn title(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .child(crate::address::measure(at.clone()))
         .on_click(cx.listener(move |b, _, w, cx| menu(b, Some(at.get()), w, cx)))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| menu(b, None, w, cx)))
-        .children(glyph.filter(|_| !chrome).map(|(glyph, color)| {
-            div()
-                .size(px(28.))
-                .flex_none()
-                .flex()
-                .items_center()
-                .justify_center()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::selected())
-                .child(icon(glyph, 16., color))
-        }))
         .text_size(px(14.))
         .font_weight(FontWeight::BOLD)
-        .when(chrome, |d| d.px_2())
-        .when_some(glyph.filter(|_| chrome && private), |d, (glyph, color)| d.child(icon(glyph, 14., color)))
+        .px_2()
+        .when_some(glyph.filter(|_| private), |d, (glyph, color)| d.child(icon(glyph, 14., color)))
         .child(name(b, RenameTarget::Space(space_id), &space_name, cx))
-        .when(chrome && !renaming, |d| d.child(icon(Icon::ChevronUp, ICON_SMALL, Theme::muted())))
+        .when(!renaming, |d| d.child(icon(Icon::ChevronUp, ICON_SMALL, Theme::muted())))
 }
 
 fn tab_drop(
@@ -847,15 +830,10 @@ fn chevron(b: &Browser, id: Id, open: bool) -> AnyElement {
 fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let tiles: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Tile).collect();
     let reduce = b.pref(Pref::ReduceMotion);
-    let chrome = b.sidebar_chrome();
-    let small = chrome && b.pref(Pref::SmallTiles);
-    let dim = !chrome || b.pref(Pref::DimSleeping);
+    let small = b.pref(Pref::SmallTiles);
+    let dim = b.pref(Pref::DimSleeping);
     let (columns, side) = tile_grid(b.sidebar_width, tiles.len(), small);
-    let (height, glyph) = match (chrome, small) {
-        (true, true) => (34., 16.),
-        (true, false) => ((side * 0.72).round(), 20.),
-        (false, _) => (side, 22.),
-    };
+    let (height, glyph) = if small { (34., 16.) } else { ((side * 0.72).round(), 20.) };
     div()
         .id("tiles")
         .grid()
@@ -884,7 +862,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     (false, true, _) => Theme::accent(),
                     (false, false, true) => Theme::faint(),
                     // Dark themes need no edge; in light ones it keeps a white icon from vanishing into its tile.
-                    (false, false, false) if chrome && !Theme::is_light() => Rgba { a: 0., ..Theme::hairline() },
+                    (false, false, false) if !Theme::is_light() => Rgba { a: 0., ..Theme::hairline() },
                     (false, false, false) => Theme::hairline(),
                 })
                 .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
@@ -911,8 +889,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let closable = t.kind == TabKind::Ephemeral;
     let loading = b.loading(key);
     let asleep = b.sleeping(key);
-    let chrome = b.sidebar_chrome();
-    let dim = !chrome || b.pref(Pref::DimSleeping);
+    let dim = b.pref(Pref::DimSleeping);
     let drift = b.pinned_drift(key).and_then(|u| u.host_str().map(str::to_owned));
     let drifted = drift.is_some();
     let renaming = b.rename_input(RenameTarget::Tab(t.id)).is_some();
@@ -1003,7 +980,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .when(engine != b.core.default_web_engine.get() && !renaming, |d| {
             d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(crate::tabs::web_engine_name(engine)))
         })
-        .when(chrome && b.pref(Pref::UnreadDots) && b.model.unread(key) && !renaming, |d| {
+        .when(b.pref(Pref::UnreadDots) && b.model.unread(key) && !renaming, |d| {
             d.child(
                 div()
                     .id(("unread", t.id as u64))
@@ -1038,8 +1015,8 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
                 t,
                 asleep && dim,
                 active && closable || drifted || renaming || closable && b.motion.grown(key) > 0.,
-                if chrome && !asleep { b.sound(key) } else { None },
-                !(chrome && b.pref(Pref::SidebarCards)),
+                if asleep { None } else { b.sound(key) },
+                !b.pref(Pref::SidebarCards),
             )
             .map(|glyph| {
                 let shown = div().flex_none().w(px(CLOSE_WIDTH)).flex().justify_center().child(glyph);
@@ -1208,11 +1185,11 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
         .flex_col()
         .gap(px(Theme::row_gap()))
         .mt_1()
-        .min_h(px(if b.sidebar_chrome() && !cx.has_active_drag() { 0. } else { 12. }))
+        .min_h(px(if cx.has_active_drag() { 12. } else { 0. }))
         .rounded(px(Theme::radius_row()))
         .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
         .on_drop(cx.listener(tab_drop(TabKind::Pinned, None, None, None)))
-        .when(!b.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && b.model.folders.is_empty() && (!b.sidebar_chrome() || cx.has_active_drag()), |d| {
+        .when(!b.model.tabs.iter().any(|t| t.kind == TabKind::Pinned) && b.model.folders.is_empty() && cx.has_active_drag(), |d| {
             d.child(
                 div()
                     .h(px(Theme::tab_row()))
@@ -1239,7 +1216,7 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 /// A folder row with its tabs and subfolders, each level indented one step further.
 fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> AnyElement {
     let id = f.id;
-    let chrome = b.sidebar_chrome() && b.pref(Pref::SidebarCards);
+    let chrome = b.pref(Pref::SidebarCards);
     // In a card the top folder's tabs sit flush, so each subfolder steps in one level less.
     let indent = 16. * if chrome { depth.saturating_sub(1) } else { depth } as f32;
     let open = b.model.expanded.contains(&id);
@@ -1324,7 +1301,6 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let chrome = b.sidebar_chrome();
     div()
         .id("ephemeral")
         .flex()
@@ -1350,35 +1326,13 @@ fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .cursor_pointer()
                 .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
                 .active(|s| s.bg(Theme::pressed()))
-                .map(|d| match chrome {
-                    true => d.child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Plus, ICON, Theme::muted()))),
-                    false => d.child(
-                        div()
-                            .size(px(16.))
-                            .flex()
-                            .flex_none()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(Theme::radius_small()))
-                            .bg(Theme::accent())
-                            .child(icon(Icon::Plus, 11., Theme::on_fill(Theme::accent()))),
-                    ),
-                })
-                .child(div().flex_1().child(if chrome { "New tab" } else { "New Tab" }))
-                .when(!chrome, |d| {
-                    d.child(icon_button("organize", Icon::Ellipsis, true).tooltip(tooltip(browser_core::sidebar::ORGANIZE, None)).on_click(cx.listener(
-                        |b, _, w, cx| {
-                            cx.stop_propagation();
-                            b.organize_menu(w, cx);
-                        },
-                    )))
-                })
+                .child(div().size(px(16.)).flex().flex_none().items_center().justify_center().child(icon(Icon::Plus, ICON, Theme::muted())))
+                .child(div().flex_1().child("New tab"))
                 .on_click(cx.listener(|b, _, window, cx| b.new_tab_page(window, cx))),
         )
         .map(|d| {
             let groups = b.model.groups.iter().enumerate().map(|(ix, g)| group_card(b, ix, g, cx)).collect::<Vec<_>>();
-            let loose = rows(b, None, |_| true, cx);
-            if chrome { d.children(loose).children(groups) } else { d.children(groups).children(loose) }
+            d.children(rows(b, None, |_| true, cx)).children(groups)
         })
 }
 
@@ -1472,7 +1426,7 @@ fn inner_height(rows: usize) -> f32 {
 
 fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> AnyElement {
     let id = g.id;
-    let chrome = b.sidebar_chrome() && b.pref(Pref::SidebarCards);
+    let chrome = b.pref(Pref::SidebarCards);
     let name_text: SharedString = bounded_title(&g.name).into();
     let header = keyboard_row(div().id(("group", id as u64)), move |b, w, cx| b.group_menu(id, w, cx), cx)
         .group("group-head")
@@ -1556,83 +1510,6 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .children(icon_picker(b, RenameTarget::Group(id), &g.icon, cx))
         .children(inner)
         .into_any_element()
-}
-
-fn space_dots(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
-    let bar = browser_core::sidebar::SpaceBar { width: b.sidebar_width - 18. - 2. * 30., icon: 28., gap: 2. };
-    let listed: Vec<usize> = (0..b.model.spaces.len()).filter(|ix| b.model.space_shown(*ix)).collect();
-    let at = listed.iter().position(|ix| *ix == b.model.space_ix).unwrap_or(listed.len());
-    let strip = bar.strip(listed.len(), at);
-    let shown = (at, listed.len(), b.sidebar_width.round() as i32);
-    match strip.scroll {
-        Some(x) if b.space_strip_shown.replace(Some(shown)) != Some(shown) => b.space_strip_scroll.set_offset(gpui::point(px(-x), px(0.))),
-        Some(_) => {}
-        None => b.space_strip_shown.set(None),
-    }
-    let dots = listed.into_iter().map(|ix| {
-        let s = &b.model.spaces[ix];
-        let current = ix == b.model.space_ix;
-        let color = match (current, s.private, space_tint(s)) {
-            (true, true, _) => Theme::warning(),
-            (true, false, tint) => tint.unwrap_or(Theme::text()),
-            (false, _, Some(tint)) => Rgba { a: 0.45, ..tint },
-            (false, _, None) => Theme::faint(),
-        };
-        let name = bounded_title(&s.space.name);
-        let glyph = if s.private && Some(s.space.id) == b.model.burner { Icon::Flame } else { ui::icon::space_icon(&s.space.icon) };
-        let dot = strip.compact && !current;
-        div()
-            .id(("space", ix))
-            .w(px(if dot { browser_core::sidebar::SPACE_DOT } else { 28. }))
-            .h(px(28.))
-            .flex_none()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded(px(Theme::radius_row()))
-            .cursor_pointer()
-            .when(current, |d| d.bg(Theme::hover()))
-            .hover(|st| st.bg(Theme::hover()))
-            .map(|d| if dot { d.child(div().size(px(6.)).rounded_full().bg(color)) } else { d.child(icon(glyph, 16., color)) })
-            .map(|d| match crate::menubar::SPACES.get(ix) {
-                Some(action) => d.tooltip(crate::shortcuts::tip(name, *action)),
-                None => d.tooltip(tooltip(name, None)),
-            })
-            .on_click(cx.listener(move |b, _, window, cx| b.switch_space(ix, window, cx)))
-            .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.space_menu(ix, w, cx)))
-    });
-    div()
-        .h(px(36.))
-        .flex_none()
-        .px_2()
-        .flex()
-        .items_center()
-        .gap_0p5()
-        .child(
-            icon_button("library", Icon::Library, true)
-                .tooltip(crate::shortcuts::tip("Library", &crate::ToggleLibrary))
-                .when(b.library.is_some(), |d| d.bg(Theme::selected()))
-                .on_click(cx.listener(|b, _, window, cx| b.toggle_library(window, cx))),
-        )
-        .child(
-            div()
-                .id("space-dots")
-                .flex_1()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .gap_0p5()
-                .when(strip.scroll.is_none(), |d| d.justify_center())
-                .overflow_x_scroll()
-                .track_scroll(&b.space_strip_scroll)
-                .children(dots),
-        )
-        .child(
-            ui::controls::icon_frame("new-space", true)
-                .child(icon(Icon::Plus, 14., Theme::faint()))
-                .tooltip(crate::shortcuts::tip("New Space", &crate::NewSpace))
-                .on_click(cx.listener(|b, _, window, cx| b.new_space(window, cx))),
-        )
 }
 
 #[cfg(test)]

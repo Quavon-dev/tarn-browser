@@ -238,8 +238,6 @@ pub fn apply_accent(store: &Store) {
     }
 }
 
-pub use browser_core::prefs::Style;
-
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Prefs(u64);
 
@@ -258,10 +256,6 @@ impl Prefs {
 
     pub fn get(self, pref: Pref) -> bool {
         self.0 & (1 << pref as u64) != 0
-    }
-
-    pub fn style(self) -> Style {
-        browser_core::prefs::style(|s| Pref::ALL.iter().find(|p| p.key() == s.key).is_some_and(|p| self.get(*p)))
     }
 
     fn with(self, pref: Pref, on: bool) -> Self {
@@ -295,15 +289,6 @@ impl crate::shared::AppCore {
 impl Browser {
     pub fn pref(&self, pref: Pref) -> bool {
         self.core.pref(pref)
-    }
-
-    /// Sets every option of the Modern style, or of the Classic one.
-    pub fn set_style(&mut self, modern: bool, cx: &mut Context<Self>) {
-        for (switch, in_modern, in_classic) in browser_core::prefs::STYLE {
-            if let Some(pref) = Pref::ALL.into_iter().find(|p| p.key() == switch.key) {
-                self.set_pref(pref, if modern { in_modern } else { in_classic }, cx);
-            }
-        }
     }
 
     pub fn set_pref(&mut self, pref: Pref, on: bool, cx: &mut Context<Self>) {
@@ -464,19 +449,6 @@ impl Browser {
         }
         cx.refresh_windows();
     }
-}
-
-#[test]
-fn styles_set_their_options_and_anything_else_is_custom() {
-    let store = Store::open_in_memory().unwrap();
-    assert_eq!(Prefs::load(&store).style(), Style::Modern, "a new install starts Modern");
-    let pref = |key: &str| Pref::ALL.into_iter().find(|p| p.key() == key).unwrap();
-    let classic = browser_core::prefs::STYLE.iter().fold(Prefs::load(&store), |p, (s, _, classic)| p.with(pref(s.key), *classic));
-    assert_eq!(classic.style(), Style::Classic);
-    assert_eq!(classic.with(Pref::SidebarChats, true).style(), Style::Custom);
-    assert_eq!(classic.with(Pref::Gestures, false).style(), Style::Classic, "options outside the style do not count");
-    store.set_setting(Pref::CompactToolbar.key(), "off").unwrap();
-    assert_eq!(Prefs::load(&store).style(), Style::Classic, "an earlier Classic toolbar keeps the Classic layout");
 }
 
 #[test]

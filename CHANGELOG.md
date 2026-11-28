@@ -75,16 +75,15 @@ All notable changes to Tarn are documented in this file. The format is based on
   computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
   only while ⌥ (Alt on Linux) is held. Chromium tabs on macOS show the title card. On macOS,
   Windows and Linux.
-- Settings › Appearance › Style › Layout switches the whole layout at once: Modern (toolbar in the
-  sidebar, cards for groups and folders, Chats, page previews) or Classic, Tarn's earlier layout;
-  it shows neither when single options were changed. On macOS, Windows and Linux, and in the Mac
-  layout on iPad and Android tablets, where Modern leaves the address field in the toolbar.
-- Settings › Appearance › Sidebar sets how the sidebar looks: large pinned-site tiles or a compact
-  row, groups and folders as cards or in the classic style, Chats on or off, a dot on changed tabs
-  on or off, and sleeping tabs dimmed or in full colour. Corners (Square, Theme, Round, Rounder)
-  now work in the Classic design too, which keeps the theme's own until you pick others. On macOS,
-  Windows and Linux, and the Sidebar options in the Mac layout on iPad and Android tablets; Corners
-  in Classic and the new Square corners also on iOS and Android.
+- Settings › Appearance › Design gathers every layout option in one place. Its first choice, also
+  called Design, puts Back, Forward and the address field at the top of the sidebar (Sidebar), in
+  a bar above the page (Classic) or in a slimmer bar (Compact); the sidebar itself looks the same
+  with all three. Beside it: tabs in the sidebar or on top, the window Solid or Glass, Corners
+  (Square, Theme, Round, Rounder, now in Solid too, where Theme keeps the theme's own until you pick
+  others), large pinned-site tiles or a compact row, groups and folders as cards or with the classic
+  coloured badges, Chats, the dot on changed tabs, dimmed sleeping tabs, tab previews, compact
+  density and hiding the sidebar automatically. On macOS, Windows and Linux, and the sidebar
+  options in the Mac layout on iPad and Android tablets.
 - The assistant opens as a card beside the page, drawn like the sidebar in every theme and in
   Glass: a slimmer header with Saved Chats, New Chat and Close, a rounder question field that holds
   the model picker and a round Send (Stop while it answers) button, and a quieter note on what Send

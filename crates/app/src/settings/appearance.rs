@@ -500,16 +500,16 @@ impl SettingsWindow {
         let (reached, safe) = (core.themes.borrow().reached, core.themes.borrow().safe);
         let mut rows = vec![
             wide_row(
-                true,
+                false,
                 text_block(
-                    "Design",
+                    "Window",
                     if cfg!(target_os = "macos") {
                         "Glass makes the window translucent over your desktop, with rounder, softer panels."
                     } else {
                         "Glass gives rounder, softer panels."
                     },
                 ),
-                Self::picks("design", on, [("Classic", false), ("Glass", true)], library::set_glass_on, cx),
+                Self::picks("design", on, [("Solid", false), ("Glass", true)], library::set_glass_on, cx),
             )
             .into_any_element(),
         ];

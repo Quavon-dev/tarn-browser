@@ -220,7 +220,7 @@ impl Browser {
         let painted = self.downloads_popover.button.get();
         // The painted button counts only where it is on screen in this window.
         let shown = self.sidebar_open || self.peek.is_window(window);
-        let above = shown && self.sidebar_chrome() && painted.size.width > px(0.) && painted.center().y > window.viewport_size().height / 2.;
+        let above = shown && painted.size.width > px(0.) && painted.center().y > window.viewport_size().height / 2.;
         let caret = !above && shown;
         self.peek.owns[1] = self.peek.is_window(window);
         if !self.peek.owns[1] {

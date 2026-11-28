@@ -73,13 +73,12 @@ pub fn style(on: impl Fn(Switch) -> bool) -> Style {
     }
 }
 
-/// What a style's switch reads with nothing stored: someone who picked the Classic or Compact
-/// toolbar before the sidebar toolbar existed keeps the Classic layout, everyone else starts
-/// Modern. A toolbar picked since then stores the sidebar switch too, so it changes only itself.
+/// What a switch reads with nothing stored. The sidebar is the same with every toolbar, so only
+/// the toolbar choice carries over: someone who picked the Classic or Compact toolbar before the
+/// sidebar toolbar existed keeps it; every other switch starts at its default.
 pub fn style_default(store: &Store, switch: Switch) -> bool {
-    let Some((_, _, classic)) = STYLE.iter().find(|(s, ..)| *s == switch) else { return switch.default };
     let stored = |s: Switch| store.setting(s.key).ok().flatten().is_some();
-    if stored(COMPACT_TOOLBAR) && !stored(SIDEBAR_TOOLBAR) { *classic } else { switch.default }
+    if switch == SIDEBAR_TOOLBAR && stored(COMPACT_TOOLBAR) { false } else { switch.default }
 }
 
 /// Sets every switch of the Modern style, or of the Classic one; false when a write failed.
@@ -149,25 +148,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_new_install_starts_modern_and_an_earlier_toolbar_choice_keeps_classic() {
+    fn only_an_earlier_toolbar_choice_carries_over() {
         let store = Store::open_in_memory().unwrap();
-        let read = |store: &Store| style(|s| store.setting(s.key).ok().flatten().map_or_else(|| style_default(store, s), |v| v == "on"));
-        assert_eq!(read(&store), Style::Modern);
+        assert!(SIDEBAR_TOOLBAR.on(&store) && SIDEBAR_CARDS.on(&store), "a new install gets the toolbar in the sidebar");
         store.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
-        assert_eq!(read(&store), Style::Classic);
-        store.set_setting(SIDEBAR_CHATS.key, "on").unwrap();
-        assert_eq!(read(&store), Style::Custom);
-        assert_eq!(style_default(&store, GESTURES), GESTURES.default, "switches outside the style keep their own default");
-        assert!(!style_default(&store, SIDEBAR_CARDS), "a style switch takes the Classic value after an earlier toolbar choice");
-        let fresh = Store::open_in_memory().unwrap();
-        fresh.set_setting(SIDEBAR_TOOLBAR.key, "off").unwrap();
-        fresh.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
-        assert!(style_default(&fresh, SIDEBAR_CARDS), "picking a toolbar now changes only the toolbar");
-        assert!(!SIDEBAR_CARDS.on(&store), "an unset style switch reads its style default");
-        assert!(set_style(&store, true));
-        assert_eq!(style(|s| s.on(&store)), Style::Modern);
-        assert!(set_style(&store, false));
-        assert_eq!(style(|s| s.on(&store)), Style::Classic);
+        assert!(!SIDEBAR_TOOLBAR.on(&store), "someone who picked a toolbar before keeps it");
+        assert!(SIDEBAR_CARDS.on(&store) && SIDEBAR_CHATS.on(&store), "the sidebar is the same with every toolbar");
+        assert_eq!(style_default(&store, GESTURES), GESTURES.default);
     }
 
     #[test]

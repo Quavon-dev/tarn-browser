@@ -249,7 +249,7 @@ impl Browser {
         root = self.root_listeners(root, cx);
         root = self.root_late_actions(root, cx);
         self.model.seen();
-        self.model.loose_first = self.sidebar_chrome();
+        self.model.loose_first = self.tab_placement == browser_core::layout::TabPlacement::Side;
         let shown = self.sidebar_shown();
         // A list taken away under the pointer sends no hover-out.
         if shown < 1. {

@@ -1025,44 +1025,25 @@ impl SettingsWindow {
             .child(section("Theme"))
             .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
             .child(self.theme_sections(window, cx))
-            .child(section("Style"))
-            .child(group().child({
-                // Modern needs the tabs in the sidebar too.
-                let style = match s.prefs.style() {
-                    crate::prefs::Style::Modern if top == 1 => crate::prefs::Style::Custom,
-                    style => style,
-                };
-                self.choice_row(
-                    true,
-                    "Layout",
-                    match style {
-                        crate::prefs::Style::Custom => "Custom: you changed single options under Layout and Sidebar. Pick one to set them all again.",
-                        _ => "Modern puts the toolbar in the sidebar with cards for groups and folders; Classic is Tarn's earlier layout. Single options are under Layout and Sidebar.",
-                    },
-                    &["Modern", "Classic"],
-                    match style {
-                        crate::prefs::Style::Modern => 0,
-                        crate::prefs::Style::Classic => 1,
-                        crate::prefs::Style::Custom => 2,
-                    },
-                    |b, ix, cx| {
-                        b.set_style(ix == 0, cx);
-                        b.hide_hover_card(cx);
-                    },
-                    cx,
-                )
-            }))
             .child(section("Design"))
-            .child(group().children(self.design_rows(cx)))
-            .child(section("Motion"))
-            .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
-            .child(section("Tips"))
-            .child(group().child(self.pref_row(true, Pref::FeatureHints, "Shortcut tips", browser_core::hints::NOTE, s.prefs.get(Pref::FeatureHints), cx)))
-            .child(section("Layout"))
             .child(
                 group()
                     .child(self.choice_row(
                         true,
+                        "Design",
+                        "Where Back, Forward and the address field sit: at the top of the sidebar, in a bar above the page, or in a slimmer bar. The sidebar below looks the same in all three; with tabs on top, or the sidebar hidden, Sidebar shows as Compact.",
+                        &["Sidebar", "Classic", "Compact"],
+                        toolbar,
+                        |b, ix, cx| {
+                            b.set_pref(Pref::SidebarToolbar, ix == 0, cx);
+                            if ix > 0 {
+                                b.set_pref(Pref::CompactToolbar, ix == 2, cx);
+                            }
+                        },
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
                         "Tabs",
                         format!(
                             "In the sidebar, or in a strip across the top with the sidebar hidden ({}).",
@@ -1078,59 +1059,9 @@ impl SettingsWindow {
                         },
                         cx,
                     ))
+                    .children(self.design_rows(cx))
                     .child(self.choice_row(
                         false,
-                        "Toolbar",
-                        "Sidebar puts Back, Forward and the address field above the tabs; with tabs on top, or the sidebar hidden, it shows as Compact. Compact puts the address field into a slimmer bar.",
-                        &["Sidebar", "Classic", "Compact"],
-                        toolbar,
-                        |b, ix, cx| {
-                            b.set_pref(Pref::SidebarToolbar, ix == 0, cx);
-                            if ix > 0 {
-                                b.set_pref(Pref::CompactToolbar, ix == 2, cx);
-                            }
-                        },
-                        cx,
-                    ))
-                    .child(self.pref_row(
-                        false,
-                        Pref::CompactDensity,
-                        "Compact density",
-                        browser_core::prefs::COMPACT_NOTE,
-                        s.prefs.get(Pref::CompactDensity),
-                        cx,
-                    ))
-                    .child(self.pref_row(
-                        false,
-                        Pref::AutoHideSidebar,
-                        "Hide sidebar automatically",
-                        format!(
-                            "With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.",
-                            crate::shortcuts::shown(&crate::ToggleSidebar, cx)
-                        ),
-                        s.prefs.get(Pref::AutoHideSidebar),
-                        cx,
-                    ))
-                    .child(self.choice_row(
-                        false,
-                        "Tab previews",
-                        "While the pointer rests on a tab: a snapshot of its page with its title, the title alone, or nothing. Snapshots stay on this computer and are dropped when the pointer leaves.",
-                        &["Page", "Title", "Off"],
-                        if !s.prefs.get(Pref::HoverCards) { 2 } else if s.prefs.get(Pref::PagePreviews) { 0 } else { 1 },
-                        |b, ix, cx| {
-                            b.set_pref(Pref::HoverCards, ix < 2, cx);
-                            b.set_pref(Pref::PagePreviews, ix == 0, cx);
-                            b.hide_hover_card(cx);
-                        },
-                        cx,
-                    )),
-            )
-            .child(section("Sidebar"))
-            .child(note("These apply while the toolbar sits in the sidebar (Layout › Toolbar › Sidebar).").pt_0().pb_2())
-            .child(
-                group()
-                    .child(self.choice_row(
-                        true,
                         "Pinned sites",
                         "The tiles at the top of the sidebar: large, or a compact row that fits more.",
                         &["Large", "Compact"],
@@ -1170,8 +1101,44 @@ impl SettingsWindow {
                         "Grey out the icons of tabs that sleep to save memory, with a moon beside them.",
                         s.prefs.get(Pref::DimSleeping),
                         cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "Tab previews",
+                        "While the pointer rests on a tab: a snapshot of its page with its title, the title alone, or nothing. Snapshots stay on this computer and are dropped when the pointer leaves.",
+                        &["Page", "Title", "Off"],
+                        if !s.prefs.get(Pref::HoverCards) { 2 } else if s.prefs.get(Pref::PagePreviews) { 0 } else { 1 },
+                        |b, ix, cx| {
+                            b.set_pref(Pref::HoverCards, ix < 2, cx);
+                            b.set_pref(Pref::PagePreviews, ix == 0, cx);
+                            b.hide_hover_card(cx);
+                        },
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::CompactDensity,
+                        "Compact density",
+                        browser_core::prefs::COMPACT_NOTE,
+                        s.prefs.get(Pref::CompactDensity),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::AutoHideSidebar,
+                        "Hide sidebar automatically",
+                        format!(
+                            "With the sidebar hidden ({}), it slides in over the page while the pointer rests at the window's left edge.",
+                            crate::shortcuts::shown(&crate::ToggleSidebar, cx)
+                        ),
+                        s.prefs.get(Pref::AutoHideSidebar),
+                        cx,
                     )),
             )
+            .child(section("Motion"))
+            .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
+            .child(section("Tips"))
+            .child(group().child(self.pref_row(true, Pref::FeatureHints, "Shortcut tips", browser_core::hints::NOTE, s.prefs.get(Pref::FeatureHints), cx)))
             .into_any_element()
     }
 
