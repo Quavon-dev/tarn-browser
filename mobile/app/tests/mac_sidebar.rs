@@ -21,18 +21,16 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
-    app.wait_for("Groups and folders").expect("Classic still lists the Modern sidebar's options to preset them");
+    // These checks read groups and folders as plain rows; tests/mac_cards.rs covers the cards.
+    app.press("label:Classic").unwrap();
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
-    for part in ["label:/^Space /", "label:Downloads", "label:Organize Tabs", "label:Library", "label:New Space", "label:Close Tab"] {
+    for part in ["label:/^Space /", "label:Downloads", "label:Tidy", "label:/^Profile /", "label:Close Tab"] {
         app.wait_for(part).unwrap();
     }
-    assert!(app.screen().shows("Pin tabs from their menu"), "no pinned tab yet");
-    app.press("label:Organize Tabs").unwrap();
+    assert!(!app.screen().matches("label:Pinned").unwrap(), "no pinned tab yet");
+    app.long_press("label:Tidy").unwrap();
     for part in ["label:New Tab Group", "label:New Folder"] {
         app.wait_for(part).unwrap();
     }
@@ -50,7 +48,6 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     assert!(!app.screen().enabled("label:Duplicate").unwrap(), "an empty tab has nothing to duplicate");
     app.press("label:Pin Tab").unwrap();
     app.wait_for("label:Pinned").unwrap();
-    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
     assert!(!app.screen().matches("label:Close Tab").unwrap(), "a pinned tab has no close button");
 
     app.long_press("label:New Tab >> nth=0").unwrap();
@@ -59,7 +56,6 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     assert!(!app.screen().matches("text:Close Tab").unwrap(), "a pinned tab is never deleted from its menu");
     app.press("label:Add to Tiles").unwrap();
     app.wait_for_gone("label:Pinned", WAIT).unwrap();
-    app.wait_for("Pin tabs from their menu").unwrap();
 
     app.long_press("label:New Tab >> nth=0").unwrap();
     app.wait_for("label:Unload Tab").unwrap();
@@ -79,14 +75,18 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     })
     .unwrap();
     app.hover("label:example.com").unwrap();
-    app.wait_for("Drag tabs here to pin them").unwrap();
-    app.drag("label:example.com", point(Points(0.), Points(-74.))).unwrap();
+    let bounds = |app: &Headless, selector: &str| {
+        let node = app.screen().press_target(selector).unwrap().unwrap();
+        app.screen().layout_nodes().into_iter().find(|n| n.id == node).unwrap().bounds
+    };
+    let (tidy, row) = (bounds(&app, "label:Tidy"), bounds(&app, "label:example.com"));
+    let above_tidy = tidy.origin.y.0 - 10. - (row.origin.y.0 + row.size.height.0 / 2.);
+    app.drag("label:example.com", point(Points(0.), Points(above_tidy))).unwrap();
     app.wait_for("label:Pinned").unwrap();
-    app.wait_for_gone("Drag tabs here to pin them", WAIT).unwrap();
     app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
     app.long_press("label:example.com").unwrap();
     app.press("label:Unpin Tab").unwrap();
-    app.wait_for("Drag tabs here to pin them").unwrap();
+    app.wait_for_gone("label:Pinned", WAIT).unwrap();
 
     app.long_press("label:example.com").unwrap();
     app.wait_for("label:Duplicate").unwrap();
@@ -129,7 +129,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.wait_for("label:Close Group and Its Tabs").unwrap();
     app.wait_for("label:Group 1").unwrap();
 
-    app.press("label:Organize Tabs").unwrap();
+    app.long_press("label:Tidy").unwrap();
     app.press("label:New Tab Group").unwrap();
     app.wait_for("label:Group 1").unwrap();
     app.long_press("label:Group 1").unwrap();
@@ -137,7 +137,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     app.press("label:Ungroup").unwrap();
     app.wait_for_gone("label:Group 1", WAIT).unwrap();
 
-    app.press("label:Organize Tabs").unwrap();
+    app.long_press("label:Tidy").unwrap();
     app.press("label:New Folder").unwrap();
     app.wait_for("label:Folder 1").unwrap();
     app.long_press("label:Folder 1").unwrap();

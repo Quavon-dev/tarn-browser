@@ -29,9 +29,6 @@ fn the_mac_layout_answers_the_macos_keys() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
     app.press_key("escape").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
     tabs(&mut app, 1);
@@ -108,10 +105,13 @@ fn the_mac_layout_answers_the_macos_keys() {
     app.press_key("mod+,").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
-    app.press_key("mod+d").unwrap();
-    app.wait_for("label:Pinned").unwrap();
-    app.press_key("mod+d").unwrap();
-    app.wait_for_gone("label:Pinned", WAIT).unwrap();
+    for entry in ["label:Unpin Tab", "label:Pin Tab"] {
+        app.press_key("mod+d").unwrap();
+        app.long_press("id:tab").unwrap();
+        app.wait_for(entry).unwrap();
+        app.press_key("escape").unwrap();
+        app.wait_for_gone(entry, WAIT).unwrap();
+    }
 
     app.long_press("label:New Tab >> nth=1").unwrap();
     app.press("label:New Group").unwrap();

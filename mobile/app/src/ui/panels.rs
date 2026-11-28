@@ -15,6 +15,7 @@ use super::{
 };
 use crate::shell::{FILTER_SWITCHES, SpaceItem};
 use crate::theme::{GAP, SHEET_WIDTH, Secure, TAB_MIN_WIDTH, TAB_PREVIEW_HEIGHT, TEXT_TITLE, TOUCH_TARGET, Theme};
+use tarn_nsh_shared::appearance::choice_row;
 use tarn_nsh_shared::controls::{Segment, described, empty, empty_state, list_row, row_action, section_with};
 use tarn_nsh_shared::icons as glyphs;
 use tarn_nsh_shared::panes::{self, Pane};
@@ -588,38 +589,68 @@ fn layout_choice(ui: Ui) -> impl IntoElement {
                         .number_of_lines(0)
                         .px_1(),
                 )
-                .child(when(
-                    move || ui.mac.get(),
-                    move || {
-                        let pick = move |top: bool| {
-                            ui.act(|s| {
-                                if s.tabs_on_top() != top {
-                                    s.toggle_tabs_on_top();
-                                }
-                                Vec::new()
-                            })
-                        };
-                        view()
-                            .gap_2()
-                            .child(section("Tabs"))
-                            .child(segmented(vec![
-                                (
-                                    "Sidebar".to_owned(),
-                                    Box::new(move || !ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>,
-                                    Box::new(move || pick(false)) as Box<dyn Fn()>,
-                                ),
-                                (
-                                    "Top".to_owned(),
-                                    Box::new(move || ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>,
-                                    Box::new(move || pick(true)) as Box<dyn Fn()>,
-                                ),
-                            ]))
-                            .child(caption("Top lists tabs in a strip across the window, with the sidebar hidden.").number_of_lines(0).px_1())
-                            .child(sidebar_style(ui))
-                    },
-                ))
         },
     )
+}
+
+/// Settings › Appearance › Design, above the window's rows: where the Mac layout lists tabs.
+pub(super) fn layout_rows(ui: Ui) -> Vec<AnyElement> {
+    let pick = move |top: bool| {
+        ui.act(|s| {
+            if s.tabs_on_top() != top {
+                s.toggle_tabs_on_top();
+            }
+            Vec::new()
+        })
+    };
+    let tabs = move || {
+        segmented(vec![
+            (
+                "Sidebar".to_owned(),
+                Box::new(move || !ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>,
+                Box::new(move || pick(false)) as Box<dyn Fn()>,
+            ),
+            ("Top".to_owned(), Box::new(move || ui.read_data(|s| s.tabs_on_top())) as Box<dyn Fn() -> bool>, Box::new(move || pick(true)) as Box<dyn Fn()>),
+        ])
+    };
+    vec![mac_only(ui, move || choice_row("Tabs", "In the sidebar, or in a strip across the top with the sidebar hidden.", tabs()))]
+}
+
+/// Settings › Appearance › Design, below Corners: the Mac layout's sidebar; the address stays in the toolbar on touch.
+pub(super) fn sidebar_rows(ui: Ui) -> Vec<AnyElement> {
+    use browser_core::prefs::{DIM_SLEEPING, SIDEBAR_CARDS, SIDEBAR_CHATS, SMALL_TILES, UNREAD_DOTS};
+    vec![
+        mac_only(ui, move || {
+            choice_row(
+                "Pinned sites",
+                "The tiles at the top of the sidebar: large, or a compact row that fits more.",
+                switch_choice(ui, SMALL_TILES, [("Large", false), ("Compact", true)]),
+            )
+        }),
+        mac_only(ui, move || {
+            choice_row(
+                "Groups and folders",
+                "Cards show a folder icon and, when closed, the first sites and how many tabs; Classic keeps the coloured badges.",
+                switch_choice(ui, SIDEBAR_CARDS, [("Cards", true), ("Classic", false)]),
+            )
+        }),
+        mac_only(ui, move || switch_line(ui, SIDEBAR_CHATS, "Chats", "Your latest assistant chats under the pinned sites, while the profile's AI is on.")),
+        mac_only(ui, move || {
+            switch_line(
+                ui,
+                UNREAD_DOTS,
+                "Mark changed tabs",
+                "A dot on a tab whose page changed its title while you looked elsewhere, such as a new message count.",
+            )
+        }),
+        mac_only(ui, move || {
+            switch_line(ui, DIM_SLEEPING, "Dim sleeping tabs", "Grey out the icons of tabs that sleep to save memory, with a moon beside them.")
+        }),
+    ]
+}
+
+fn mac_only<E: IntoElement>(ui: Ui, row: impl Fn() -> E + 'static) -> AnyElement {
+    when(move || ui.mac.get(), row).into_element()
 }
 
 fn switch_choice(ui: Ui, switch: browser_core::prefs::Switch, choices: [(&str, bool); 2]) -> View {
@@ -650,62 +681,6 @@ fn switch_line(ui: Ui, switch: browser_core::prefs::Switch, name: &'static str, 
         })
     };
     described(switch_row(name, move || ui.read_data(|s| s.switch_on(switch)), flip), about).into_element()
-}
-
-/// Settings › Appearance › Style and the Modern sidebar's options; the address stays in the toolbar on touch.
-fn sidebar_style(ui: Ui) -> View {
-    use browser_core::prefs::{DIM_SLEEPING, SIDEBAR_CARDS, SIDEBAR_CHATS, SMALL_TILES, Style, UNREAD_DOTS, style};
-    let current = move || ui.read_data(|s| if s.tabs_on_top() { Style::Custom } else { style(|switch| s.switch_on(switch)) });
-    let styles = [("Modern", Style::Modern), ("Classic", Style::Classic)]
-        .into_iter()
-        .map(|(name, picked)| -> Segment {
-            (
-                name.to_owned(),
-                Box::new(move || current() == picked),
-                Box::new(move || {
-                    ui.act(|s| {
-                        s.set_style(picked == Style::Modern);
-                        Vec::new()
-                    })
-                }),
-            )
-        })
-        .collect();
-    let about = move || {
-        SharedString::from(match current() {
-            Style::Custom => {
-                "Custom: you changed single options under Sidebar, or tabs are on top, which Modern and Classic leave as they are. Pick one to set its options again."
-            }
-            _ => "Modern shows Chats, Tidy and cards for groups and folders in the sidebar; Classic is Tarn's earlier layout.",
-        })
-    };
-    let options = move || {
-        view()
-            .gap_2()
-            .child(section("Sidebar"))
-            .child(caption("These apply while the Style is Modern, which puts the toolbar, Chats and Tidy in the sidebar.").number_of_lines(0).px_1())
-            .child(label("Pinned sites").px_1())
-            .child(switch_choice(ui, SMALL_TILES, [("Large", false), ("Compact", true)]))
-            .child(label("Groups and folders").px_1())
-            .child(switch_choice(ui, SIDEBAR_CARDS, [("Cards", true), ("Classic", false)]))
-            .child(framed(
-                group()
-                    .child(switch_line(ui, SIDEBAR_CHATS, "Chats", "Your latest assistant chats under the pinned sites, while the profile's AI is on."))
-                    .child(switch_line(
-                        ui,
-                        UNREAD_DOTS,
-                        "Mark changed tabs",
-                        "A dot on a tab whose page changed its title while you looked elsewhere, such as a new message count.",
-                    ))
-                    .child(switch_line(
-                        ui,
-                        DIM_SLEEPING,
-                        "Dim sleeping tabs",
-                        "Grey out the icons of tabs that sleep to save memory, with a moon beside them.",
-                    )),
-            ))
-    };
-    view().gap_2().child(section("Style")).child(segmented(styles)).child(caption(about).number_of_lines(0).px_1()).child(options())
 }
 
 fn pane_heading(pane: Pane) -> impl IntoElement {

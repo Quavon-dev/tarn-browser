@@ -140,11 +140,7 @@ pub(super) fn popovers(ui: Ui) -> impl IntoElement {
 }
 
 fn downloads_anchor(ui: Ui, sidebar: bool) -> Anchor {
-    match (sidebar, ui.read_data(|s| s.sidebar_chrome())) {
-        (true, true) => Anchor::Above(ui.popovers.downloads, Align::Start),
-        (true, false) => Anchor::Below(ui.popovers.downloads, Align::Center),
-        (false, _) => Anchor::Below(ui.popovers.toggle, Align::Start),
-    }
+    if sidebar { Anchor::Above(ui.popovers.downloads, Align::Start) } else { Anchor::Below(ui.popovers.toggle, Align::Start) }
 }
 
 fn site_header(ui: Ui, host: Option<String>, secure: bool) -> View {

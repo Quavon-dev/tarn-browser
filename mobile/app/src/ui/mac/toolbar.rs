@@ -291,7 +291,7 @@ fn offered(ui: Ui, command: Command) -> bool {
     OFFERED.contains(&command)
         && match command {
             Command::ToggleSplitView | Command::TabsOnTop => ui.wide(),
-            Command::SidebarChats => ui.read_data(|s| s.sidebar_chrome()),
+            Command::SidebarChats => !ui.read_data(|s| s.tabs_on_top()),
             Command::Reader => ui.read(|s| s.offers_reader()),
             Command::ZapElement => ui.read(|s| s.zappable()),
             Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage | Command::InsertSnippet => {

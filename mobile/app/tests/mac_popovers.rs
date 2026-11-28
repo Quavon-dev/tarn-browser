@@ -31,9 +31,6 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
@@ -65,7 +62,7 @@ fn mac_popovers_anchor_under_their_buttons_and_close() {
     app.wait_for("No downloads yet").unwrap();
     let (button, card) = (bounds_of(&app, "label:Downloads"), bounds(&app, "popover"));
     assert_eq!(card.size.width, Points(320.));
-    assert!((card.origin.y.0 - (button.origin.y.0 + button.size.height.0 + 4.)).abs() < 0.5, "4 pt under the button: {button:?} {card:?}");
+    assert!(card.origin.y.0 + card.size.height.0 <= button.origin.y.0, "the footer's Downloads opens upwards: {button:?} {card:?}");
     assert!(!app.screen().shows("Done"));
     assert!(page_shown(&app), "the page stays visible behind Downloads");
     app.press_key("escape").unwrap();

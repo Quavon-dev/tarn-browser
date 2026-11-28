@@ -49,6 +49,12 @@ impl Host for Looks {
     fn desktop(self) -> bool {
         false
     }
+    fn layout_rows(self) -> Vec<AnyElement> {
+        super::panels::layout_rows(self.0)
+    }
+    fn sidebar_rows(self) -> Vec<AnyElement> {
+        super::panels::sidebar_rows(self.0)
+    }
 }
 
 pub(super) fn pane(ui: Ui) -> AnyElement {

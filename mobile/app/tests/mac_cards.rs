@@ -24,7 +24,7 @@ fn open(app: &mut Headless, url: &str) {
 }
 
 #[test]
-fn the_modern_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_menus() {
+fn the_mac_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_menus() {
     let dir = tempfile::tempdir().unwrap();
     // SAFETY: this binary has one test, and it sets the variable before the engine starts.
     unsafe { std::env::set_var("TARN_DATA_DIR", dir.path()) };

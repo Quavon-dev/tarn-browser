@@ -927,24 +927,23 @@ The Mac layout mirrors the macOS surfaces: the sidebar (space switcher, Download
 pinned tabs, folders and groups with their icons and Change Icon…, Clean Up by category with Undo Sort, tab rows with one tab menu in the macOS order, footer); the toolbar
 (sidebar toggle, Back, Forward, Reload, the private-space mark while the sidebar is hidden, the address
 capsule with the Shield chip, Split View, Share) and the command palette with key caps on its commands;
-Site settings, Downloads, Share and QR as popovers anchored under their buttons with the page still shown
-behind them; New Space and Edit Space as the shared space card in a popover above the sidebar's +
-button; the start card's space and Shield pills; the Settings window with one pane at a time, General
+Site settings, Share and QR as popovers anchored under their buttons, and Downloads above its sidebar
+button, with the page still shown behind them; New Space and Edit Space as the shared space card in a
+popover above the sidebar's space switcher; the start card's space and Shield pills; the Settings window with one pane at a time, General
 listing every profile, the Shortcuts pane read from
 `browser_core::shortcuts`, and Back stepping from a licence to the list and then to the pane. A hardware
 keyboard runs the macOS shortcuts from the same table (⌘ on iPad, Ctrl on Android), the sidebar's shown
 state is stored like the macOS one (`sidebar_open`), and the address and palette fields have
 autocorrection, spell-check and capitals off.
-Settings › Appearance › Style picks Modern (the default, also for an install from before it, since the
-mobile clients stored no toolbar choice to keep) or Classic, from the switches
-`browser_core::prefs::STYLE` sets on every client. Modern gives the sidebar the macOS one's Chats, Tidy
-rule, loose tabs before group and folder cards, the changed-tab dot, the speaker on the tab the
-mini-player follows, and downloads, the space switcher and the profile menu along its bottom edge, with
-their menus opening upwards; Settings › Appearance › Sidebar holds its single options. Back, Forward,
-Reload and the address field stay in the toolbar above the page instead of moving into the sidebar as on
-macOS: the toolbar also holds Split View, Share and the extensions that the macOS address pill gathers, and
-a tap in the address field raises the on-screen keyboard under a field at the top of the window. The
-Settings therefore offer Style but no Toolbar choice. The sidebar shows no agent or update cards: agent
+The sidebar is the macOS one: Chats, the Tidy rule, loose tabs before group and folder cards, the
+changed-tab dot, the speaker on the tab the mini-player follows, and downloads, the space switcher and the
+profile menu along its bottom edge, with their menus opening upwards. Settings › Appearance › Design holds
+its options in the macOS order, from Tabs through the window's Solid or Glass and Corners to Pinned
+sites, Groups and folders, Chats, Mark changed tabs and Dim sleeping tabs. Back, Forward, Reload and the
+address field stay in the toolbar above the page instead of moving into the sidebar as on macOS: the
+toolbar also holds Split View, Share and the extensions that the macOS address pill gathers, and a tap in
+the address field raises the on-screen keyboard under a field at the top of the window. Design therefore
+offers no toolbar choice. The sidebar shows no agent or update cards: agent
 control is a desktop-only listener (threat model S22), and the App Store and Google Play install updates.
 The profile menu has no New Profile…, since the mobile clients make profiles only in the space card.
 In the Mac layout, Ctrl+Tab and Ctrl+Shift+Tab show the recent-tab switcher strip shared with Linux

@@ -36,9 +36,6 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
@@ -64,14 +61,14 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
     app.press("label:Hide Sidebar").unwrap();
-    app.wait_for_gone("label:Library", WAIT).unwrap();
+    app.wait_for_gone("label:Tidy", WAIT).unwrap();
     app.wait_for("label:Show Sidebar").unwrap();
     app.press("label:Show Sidebar").unwrap();
-    app.wait_for("label:Library").unwrap();
+    app.wait_for("label:Tidy").unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for_gone("label:Library", WAIT).unwrap();
+    app.wait_for_gone("label:Tidy", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for("label:Library").unwrap();
+    app.wait_for("label:Tidy").unwrap();
     assert_eq!(panics.load(std::sync::atomic::Ordering::SeqCst), 0, "hiding and showing the sidebar panics nothing");
 
     app.press_key("mod+l").unwrap();
@@ -134,10 +131,12 @@ fn the_mac_toolbar_opens_a_command_palette() {
     app.wait_for("label:Pin Tab").unwrap();
     app.press_key("mod+d").unwrap();
     app.wait_for("label:Unpin Tab").unwrap();
-    app.wait_for_gone("Pin tabs from their menu", WAIT).unwrap();
     app.submit("id:palette-field").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
-    app.wait_for("Pin tabs from their menu").unwrap();
+    app.long_press("id:tab").unwrap();
+    app.wait_for("label:Pin Tab").expect("running Unpin Tab unpins it again");
+    app.press_key("escape").unwrap();
+    app.wait_for_gone("label:Pin Tab", WAIT).unwrap();
 
     app.press_key("mod+l").unwrap();
     app.wait_for("id:palette-field").unwrap();

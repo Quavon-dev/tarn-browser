@@ -675,7 +675,7 @@ pub fn App() -> impl IntoElement {
         }
     });
     effect(move || {
-        let loose_first = ui.mac.get() && ui.read_data(|s| s.sidebar_chrome());
+        let loose_first = ui.mac.get() && !ui.read_data(|s| s.tabs_on_top());
         if ui.read_data(|s| s.model.loose_first) != loose_first {
             ui.act_on_screen(|s| {
                 s.model.loose_first = loose_first;
