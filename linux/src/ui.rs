@@ -723,6 +723,8 @@ fn tiles(ui: Ui) -> View {
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
+                .on_mouse_enter(move |e: &MouseEvent| peek::hover_row(ui, key, true, e.page_position.y.0))
+                .on_mouse_leave(move |_: &MouseEvent| peek::hover_row(ui, key, false, 0.))
                 .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                 .child(tile)
                 .into_element()
