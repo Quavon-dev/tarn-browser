@@ -514,11 +514,7 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
     let corners = Corners::ALL.map(|c| (c.label(), c));
     if !on {
         let picked = host.with_store(library::classic_corners);
-        return rows.child(choice_row(
-            "Corners",
-            "How round panels, cards and tiles are. Theme keeps the theme's own.",
-            picks(pane, picked, &corners, library::set_classic_corners),
-        ));
+        return rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, picked, &corners, library::set_classic_corners)));
     }
     if backing != Backing::Opaque {
         let labels = library::TRANSPARENCY_STEPS.map(|v| format!("{v} %"));
@@ -530,8 +526,10 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
         let blur = glass.blur;
         rows = rows.child(switch_row("Blur behind the window", move || blur, move || pane.quietly(host.with_store(|s| library::set_blur(s, !blur)))));
     }
-    rows.child(choice_row("Corners", "How round panels and cards are.", picks(pane, glass.corners, &corners, library::set_corners)))
+    rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, glass.corners, &corners, library::set_corners)))
 }
+
+const CORNERS_NOTE: &str = "How round panels, cards and tiles are. Theme keeps the theme's own.";
 
 fn pending_card<H: Host>(pane: Pane<H>) -> Option<View> {
     let p = pane.get(|s| s.pending.clone())?;

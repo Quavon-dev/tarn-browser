@@ -25,7 +25,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   spaces) and your profile's menu (Settings, Library, profiles) sit along the bottom edge, and
   their menus open upwards. With tabs on top or the sidebar hidden the toolbar comes back as
   Compact. Settings › Appearance › Toolbar, View › Toolbar in Sidebar or the command bar switch
-  back to Classic or Compact. On macOS, Windows and Linux (Linux has no View menu).
+  back to Classic or Compact. On macOS, Windows and Linux (Linux has no View menu). The Mac layout
+  on iPad and Android tablets gets the same sidebar (Chats, Tidy, cards, the dot, the speaker,
+  sleeping tabs in colour, and downloads, the space switcher and the profile menu along the bottom
+  edge), while Back, Forward, Reload and the address field stay in the toolbar above the page; the
+  command bar's Chats in Sidebar hides Chats there too.
 - Ctrl+Tab switches to your most recently used tab. Hold Ctrl to see the space's tabs as
   snapshots, most recent first: press Tab or Shift+Tab to move, let go of Ctrl
   or press Return to switch, Esc to stay. Snapshots are taken when the switcher opens and dropped
@@ -73,16 +77,20 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows and Linux.
 - Settings › Appearance › Style › Layout switches the whole layout at once: Modern (toolbar in the
   sidebar, cards for groups and folders, Chats, page previews) or Classic, Tarn's earlier layout;
-  it shows neither when single options were changed. On macOS, Windows and Linux.
+  it shows neither when single options were changed. On macOS, Windows and Linux, and in the Mac
+  layout on iPad and Android tablets, where Modern leaves the address field in the toolbar.
 - Settings › Appearance › Sidebar sets how the sidebar looks: large pinned-site tiles or a compact
   row, groups and folders as cards or in the classic style, Chats on or off, a dot on changed tabs
   on or off, and sleeping tabs dimmed or in full colour. Corners (Square, Theme, Round, Rounder)
   now work in the Classic design too, which keeps the theme's own until you pick others. On macOS,
-  Windows and Linux; the new Square corners also show in Glass on iOS and Android.
+  Windows and Linux, and the Sidebar options in the Mac layout on iPad and Android tablets; Corners
+  in Classic and the new Square corners also on iOS and Android.
 - The assistant opens as a card beside the page, drawn like the sidebar in every theme and in
   Glass: a slimmer header with Saved Chats, New Chat and Close, a rounder question field that holds
   the model picker and a round Send (Stop while it answers) button, and a quieter note on what Send
-  carries. On macOS, Windows and Linux.
+  carries. On macOS, Windows and Linux, and beside the page in the Mac layout on iPad and Android
+  tablets; the question field with the model picker and the round Send also in the assistant sheet
+  on iPhone and Android phones.
 - Deleting a profile's last space now deletes the profile with it, after a confirmation that says
   so; only the last space of the last profile stays. On macOS, Windows and Linux; iOS and Android
   delete any other space from the Edit Space sheet.

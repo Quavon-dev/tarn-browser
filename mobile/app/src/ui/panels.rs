@@ -615,10 +615,101 @@ fn layout_choice(ui: Ui) -> impl IntoElement {
                                 ),
                             ]))
                             .child(caption("Top lists tabs in a strip across the window, with the sidebar hidden.").number_of_lines(0).px_1())
+                            .child(sidebar_style(ui))
                     },
                 ))
         },
     )
+}
+
+fn switch_choice(ui: Ui, switch: browser_core::prefs::Switch, choices: [(&str, bool); 2]) -> View {
+    segmented(
+        choices
+            .into_iter()
+            .map(|(name, on)| -> Segment {
+                (
+                    name.to_owned(),
+                    Box::new(move || ui.read_data(|s| s.switch_on(switch)) == on),
+                    Box::new(move || {
+                        ui.act(|s| {
+                            s.set_switch(switch, on);
+                            Vec::new()
+                        })
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn switch_line(ui: Ui, switch: browser_core::prefs::Switch, name: &'static str, about: &'static str) -> AnyElement {
+    let flip = move || {
+        ui.act(|s| {
+            s.set_switch(switch, !s.switch_on(switch));
+            Vec::new()
+        })
+    };
+    described(switch_row(name, move || ui.read_data(|s| s.switch_on(switch)), flip), about).into_element()
+}
+
+/// Settings › Appearance › Style and the Modern sidebar's options; the address stays in the toolbar on touch.
+fn sidebar_style(ui: Ui) -> View {
+    use browser_core::prefs::{DIM_SLEEPING, SIDEBAR_CARDS, SIDEBAR_CHATS, SMALL_TILES, Style, UNREAD_DOTS, style};
+    let current = move || ui.read_data(|s| if s.tabs_on_top() { Style::Custom } else { style(|switch| s.switch_on(switch)) });
+    let styles = [("Modern", Style::Modern), ("Classic", Style::Classic)]
+        .into_iter()
+        .map(|(name, picked)| -> Segment {
+            (
+                name.to_owned(),
+                Box::new(move || current() == picked),
+                Box::new(move || {
+                    ui.act(|s| {
+                        s.set_style(picked == Style::Modern);
+                        Vec::new()
+                    })
+                }),
+            )
+        })
+        .collect();
+    let about = move || {
+        SharedString::from(match current() {
+            Style::Custom => {
+                "Custom: you changed single options under Sidebar, or tabs are on top, which Modern and Classic leave as they are. Pick one to set its options again."
+            }
+            _ => "Modern shows Chats, Tidy and cards for groups and folders in the sidebar; Classic is Tarn's earlier layout.",
+        })
+    };
+    let options = move || {
+        view()
+            .gap_2()
+            .child(section("Sidebar"))
+            .child(label("Pinned sites").px_1())
+            .child(switch_choice(ui, SMALL_TILES, [("Large", false), ("Compact", true)]))
+            .child(label("Groups and folders").px_1())
+            .child(switch_choice(ui, SIDEBAR_CARDS, [("Cards", true), ("Classic", false)]))
+            .child(framed(
+                group()
+                    .child(switch_line(ui, SIDEBAR_CHATS, "Chats", "Your latest assistant chats under the pinned sites, while the profile's AI is on."))
+                    .child(switch_line(
+                        ui,
+                        UNREAD_DOTS,
+                        "Mark changed tabs",
+                        "A dot on a tab whose page changed its title while you looked elsewhere, such as a new message count.",
+                    ))
+                    .child(switch_line(
+                        ui,
+                        DIM_SLEEPING,
+                        "Dim sleeping tabs",
+                        "Grey out the icons of tabs that sleep to save memory, with a moon beside them.",
+                    )),
+            ))
+    };
+    view()
+        .gap_2()
+        .child(section("Style"))
+        .child(segmented(styles))
+        .child(caption(about).number_of_lines(0).px_1())
+        .child(when(move || ui.read_data(|s| s.sidebar_chrome()), options))
 }
 
 fn pane_heading(pane: Pane) -> impl IntoElement {

@@ -1217,7 +1217,7 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
         let composer = view()
             .gap_1()
             .p_1()
-            .rounded(px(Theme::radius_group()))
+            .rounded(px(Theme::radius_tile()))
             .bg(Theme::raised())
             .border_1()
             .border_color(Theme::hairline())

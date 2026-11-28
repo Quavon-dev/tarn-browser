@@ -30,39 +30,9 @@ Reference: `crates/app/src/hover_card.rs` (`schedule_hover_card`, `request_shot`
 
 - [x] Windows — same code in `crates/app`
 - [x] Linux
-- iOS and Android have no hover.
-
-### Toolbar in the sidebar (2026-11-28)
-
-What it does: Back, Forward, Reload and the address field sit at the top of the sidebar; under the
-tiles a Chats section lists the latest assistant chats; a Tidy rule sorts loose tabs; loose tabs
-come before group cards, and a closed group shows its colour, first sites and tab count; a dot
-marks a tab that retitled itself in the background; cards at the bottom show an agent at work and
-an update ready; the bottom edge holds downloads, the space switcher and the profile menu.
-Pinned folders show as the same cards as groups, closed ones with their first sites and tab count;
-the Chats section can be hidden (setting, right-click, `Command::SidebarChats`); the assistant is
-a card beside the page drawn like the sidebar, with the model picker and a round Send in its
-question field. Settings › Appearance › Style switches all of it between Modern and Classic
-(`crates/app/src/prefs.rs` `Style`); Settings › Appearance › Sidebar picks large or compact pinned-site tiles, cards or the
-classic group style, Chats, the changed-tab dot and dimmed sleeping tabs; Corners also applies in
-the Classic design.
-Shared API: `browser_core::sidebar::{chat_rows, ChatRow, CHATS_SHOWN, group_summary, folder_summary}`,
-`browser_core::tabs::{Model::{note_title, seen, unread}, tile_row_sized, SMALL_TILE_MIN_WIDTH}`,
-`browser_core::theme_library::classic_corners`, `palette::Command::{SidebarToolbar, SidebarChats}`.
-Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `pills`,
-`group_card`, `folder`, `summary_row`), `crates/app/src/toolbar.rs` (`sidebar_address`, `history`,
-`render`), `crates/app/src/assistant.rs` (`render`, `chat`, `model_chip`).
-
-- [x] Windows — same code in `crates/app`; a 32 px strip above the page keeps the window
-  buttons. Not yet run on Windows.
-- macOS shows no update card: Sparkle downloads, announces and installs updates in its own
-  window, so `Updater::ready_version` is always `None` there.
-- [x] Linux — `linux/src/ui/chrome.rs`; no update card, as Tarn has no updater there
-  (`docs/nsh-plan.md`)
-- [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats (and the switch to hide
-  them), Tidy, group and folder cards with their summary, unread dot, footer, the assistant card;
-  the address stays in its bar on touch
-- [ ] Android — the same sidebar in the Mac layout
+- [ ] iOS, Android — the Mac layout shows no tab hover card yet, though a trackpad or mouse hovers
+  rows there (`on_mouse_enter` in `mobile/app/src/ui/mac/sidebar.rs`); a finger has no hover, so the
+  Touch layout and phones need none
 
 ### Delete a profile's last space (2026-11-26)
 

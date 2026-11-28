@@ -21,7 +21,7 @@ use url::Url;
 use super::super::{Screen, Ui, bars};
 use crate::theme::{TEXT_TITLE, TOOLBAR_HEIGHT, Theme, themed};
 
-const OFFERED: [Command; 30] = [
+const OFFERED: [Command; 31] = [
     Command::OpenFile,
     Command::ReopenClosedTab,
     Command::TogglePin,
@@ -47,6 +47,7 @@ const OFFERED: [Command; 30] = [
     Command::CloseSplit,
     Command::TabsOnTop,
     Command::GlassDesign,
+    Command::SidebarChats,
     Command::Ask,
     Command::AskPage,
     Command::ShowHistory,
@@ -290,6 +291,7 @@ fn offered(ui: Ui, command: Command) -> bool {
     OFFERED.contains(&command)
         && match command {
             Command::ToggleSplitView | Command::TabsOnTop => ui.wide(),
+            Command::SidebarChats => ui.read_data(|s| s.sidebar_chrome()),
             Command::Reader => ui.read(|s| s.offers_reader()),
             Command::ZapElement => ui.read(|s| s.zappable()),
             Command::TakeScreenshot | Command::CaptureArea | Command::CaptureElement | Command::CaptureFullPage | Command::InsertSnippet => {
@@ -506,6 +508,10 @@ fn run(ui: Ui, command: Command) {
         }),
         Command::GlassDesign => ui.act(|s| {
             s.toggle_glass_design();
+            Vec::new()
+        }),
+        Command::SidebarChats => ui.act(|s| {
+            s.set_switch(browser_core::prefs::SIDEBAR_CHATS, !s.switch_on(browser_core::prefs::SIDEBAR_CHATS));
             Vec::new()
         }),
         Command::Ask => super::super::assistant::open(ui, false),

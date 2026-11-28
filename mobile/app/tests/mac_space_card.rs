@@ -33,6 +33,9 @@ fn a_tall_space_card_fits_above_its_button_and_keeps_its_footer() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
+    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
+    app.press("label:Classic >> nth=0").unwrap();
+    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 

@@ -40,6 +40,9 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
+    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
+    app.press("label:Classic >> nth=0").unwrap();
+    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:General").unwrap();
     app.wait_for("Profiles").unwrap();
     app.wait_for("This window").unwrap();

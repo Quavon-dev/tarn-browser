@@ -83,12 +83,18 @@ pub fn style_default(store: &Store, switch: Switch) -> bool {
     }
 }
 
+/// Sets every switch of the Modern style, or of the Classic one.
+pub fn set_style(store: &Store, modern: bool) -> bool {
+    STYLE.iter().all(|(s, in_modern, in_classic)| s.set(store, if modern { *in_modern } else { *in_classic }))
+}
+
 impl Switch {
+    /// A style's switch with nothing stored reads `style_default`.
     pub fn on(self, store: &Store) -> bool {
         match store.setting(self.key).ok().flatten().as_deref() {
             Some("on") => true,
             Some("off") => false,
-            _ => self.default,
+            _ => style_default(store, self),
         }
     }
 
@@ -154,6 +160,11 @@ mod tests {
         assert_eq!(read(&store), Style::Custom);
         assert_eq!(style_default(&store, GESTURES), GESTURES.default, "switches outside the style keep their own default");
         assert!(!style_default(&store, SIDEBAR_CARDS), "a style switch takes the Classic value after an earlier toolbar choice");
+        assert!(!SIDEBAR_CARDS.on(&store), "an unset style switch reads its style default");
+        assert!(set_style(&store, true));
+        assert_eq!(style(|s| s.on(&store)), Style::Modern);
+        assert!(set_style(&store, false));
+        assert_eq!(style(|s| s.on(&store)), Style::Classic);
     }
 
     #[test]
