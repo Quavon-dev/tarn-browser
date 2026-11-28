@@ -536,12 +536,47 @@ pub fn short_date(date: &str) -> String {
 
 /// A collapsed group's first few page addresses and how many tabs it holds.
 pub fn group_summary(model: &Model, group: Id) -> (Vec<String>, usize) {
-    let tabs: Vec<&Tab> = model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(group)).collect();
+    summary(model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(group)))
+}
+
+/// The same for a closed folder, whose `tree` (`tabs::folder_tree`) counts its subfolders' tabs too.
+pub fn folder_summary(model: &Model, tree: &HashSet<Id>) -> (Vec<String>, usize) {
+    summary(model.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f))))
+}
+
+fn summary<'a>(tabs: impl Iterator<Item = &'a Tab>) -> (Vec<String>, usize) {
+    let tabs: Vec<&Tab> = tabs.collect();
     (tabs.iter().take(3).map(|t| t.url.clone()).collect(), tabs.len())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_closed_folder_sums_up_its_subfolders_too() {
+        use super::folder_summary;
+        let folder = |id, parent_id| store::Folder { id, space_id: 1, parent_id, name: String::new(), position: 0, icon: String::new() };
+        let tab = |id, folder_id: Option<store::Id>| store::Tab {
+            id,
+            space_id: 1,
+            folder_id,
+            kind: store::TabKind::Pinned,
+            url: format!("https://{id}.test/"),
+            title: String::new(),
+            position: 0,
+            last_active: 0,
+            group_id: None,
+            pinned_url: None,
+            custom_title: String::new(),
+            web_engine: None,
+        };
+        let mut model = crate::tabs::Model::new(4);
+        model.folders = vec![folder(1, None), folder(2, Some(1)), folder(3, None)];
+        model.tabs = vec![tab(10, Some(1)), tab(11, Some(2)), tab(12, Some(2)), tab(13, Some(2)), tab(14, Some(3)), tab(15, None)];
+        let (urls, count) = folder_summary(&model, &crate::tabs::folder_tree(&model.folders, 1));
+        assert_eq!((urls.len(), count), (3, 4), "three icons, and every tab of the folder and its subfolder");
+        assert_eq!(folder_summary(&model, &crate::tabs::folder_tree(&model.folders, 3)).1, 1);
+    }
+
     #[test]
     fn chats_show_their_time_today_and_their_date_before() {
         use super::{CHATS_SHOWN, chat_rows, short_date};

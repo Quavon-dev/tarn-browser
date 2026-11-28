@@ -14,6 +14,8 @@ pub const SEARCH_EFFECT_SETTING: &str = "search_effect";
 pub const DESIGN_SETTING: &str = "design";
 pub const TRANSPARENCY_SETTING: &str = "design.transparency";
 pub const CORNERS_SETTING: &str = "design.corners";
+/// Classic's corners, apart from Glass's, so each design keeps its own.
+pub const CLASSIC_CORNERS_SETTING: &str = "design.classic_corners";
 pub const GLASS_BLUR: Switch = Switch { key: "design.blur", default: true };
 
 pub fn revoked(store: &Store) -> String {
@@ -122,13 +124,26 @@ pub fn set_blur(store: &Store, on: bool) -> Result<(), String> {
     if GLASS_BLUR.set(store, on) { Ok(()) } else { Err("The setting could not be saved.".to_owned()) }
 }
 
+/// Classic keeps the theme's own corners until the user picks others.
+pub fn classic_corners(store: &Store) -> Corners {
+    store.setting(CLASSIC_CORNERS_SETTING).ok().flatten().and_then(|v| Corners::parse(&v)).unwrap_or(Corners::Theme)
+}
+
+pub fn set_classic_corners(store: &Store, corners: Corners) -> Result<(), String> {
+    store.set_setting(CLASSIC_CORNERS_SETTING, corners.name()).map_err(|e| e.to_string())
+}
+
 pub fn set_corners(store: &Store, corners: Corners) -> Result<(), String> {
     store.set_setting(CORNERS_SETTING, corners.name()).map_err(|e| e.to_string())
 }
 
 pub fn look(store: &Store, active: &Active, safe: bool, can: Backing) -> Look {
-    let tokens = active.parsed.tokens;
-    if safe || !glass_on(store) {
+    let mut tokens = active.parsed.tokens;
+    if safe {
+        return Look { tokens, window: Backing::Opaque, transparency: 0 };
+    }
+    if !glass_on(store) {
+        tokens.radius = classic_corners(store).apply(tokens.radius);
         return Look { tokens, window: Backing::Opaque, transparency: 0 };
     }
     let (tokens, window, transparency) = theme::glass(&tokens, glass_settings(store), can);
@@ -271,7 +286,7 @@ pub fn set_page_css(store: &Store, id: Id, on: bool) -> Result<(), String> {
 }
 
 pub fn reset(store: &Store) -> Result<(), String> {
-    for key in [DESIGN_SETTING, TRANSPARENCY_SETTING, CORNERS_SETTING, GLASS_BLUR.key] {
+    for key in [DESIGN_SETTING, TRANSPARENCY_SETTING, CORNERS_SETTING, CLASSIC_CORNERS_SETTING, GLASS_BLUR.key] {
         store.delete_setting(key).map_err(|e| e.to_string())?;
     }
     Selection { dark: ThemeRef::DARK, light: ThemeRef::LIGHT, match_system: false }.save(store).map_err(|e| e.to_string())
@@ -439,7 +454,7 @@ mod tests {
         s.set_setting(TRANSPARENCY_SETTING, "300").unwrap();
         assert_eq!(glass_settings(&s).transparency, 60);
         s.set_setting(TRANSPARENCY_SETTING, "x").unwrap();
-        s.set_setting(CORNERS_SETTING, "square").unwrap();
+        s.set_setting(CORNERS_SETTING, "pointy").unwrap();
         s.set_setting(DESIGN_SETTING, "other").unwrap();
         assert_eq!((glass_on(&s), glass_settings(&s).transparency, glass_settings(&s).corners), (false, 60, Corners::Round));
     }
@@ -467,14 +482,26 @@ mod tests {
     }
 
     #[test]
+    fn classic_keeps_the_themes_corners_until_others_are_picked() {
+        let (_d, s) = store();
+        assert_eq!(classic_corners(&s), Corners::Theme);
+        set_corners(&s, Corners::Rounder).unwrap();
+        assert_eq!(classic_corners(&s), Corners::Theme, "Glass's choice stays Glass's");
+        set_classic_corners(&s, Corners::Square).unwrap();
+        assert_eq!((classic_corners(&s), glass_settings(&s).corners), (Corners::Square, Corners::Rounder));
+    }
+
+    #[test]
     fn reset_clears_the_design() {
         let (_d, s) = store();
         set_glass_on(&s, true).unwrap();
         set_transparency(&s, 10).unwrap();
         set_blur(&s, false).unwrap();
         set_corners(&s, Corners::Theme).unwrap();
+        set_classic_corners(&s, Corners::Square).unwrap();
         reset(&s).unwrap();
         assert_eq!((glass_on(&s), glass_settings(&s)), (false, Glass::default()));
+        assert_eq!(classic_corners(&s), Corners::Theme);
     }
 
     #[test]

@@ -221,6 +221,7 @@ impl Browser {
             self.tab_placement,
             self.pref(crate::prefs::Pref::CompactToolbar),
             self.pref(crate::prefs::Pref::SidebarToolbar),
+            self.pref(crate::prefs::Pref::SidebarChats),
             self.pref(crate::prefs::Pref::AutoHideSidebar),
         )
             .hash(&mut hash);
@@ -396,6 +397,7 @@ impl Browser {
             view.action(if self.sidebar_open { "Hide Sidebar" } else { "Show Sidebar" }, crate::ToggleSidebar),
             view.item("Tabs on Top", Box::new(crate::ToggleTabsOnTop), None, self.tab_placement == browser_core::layout::TabPlacement::Top),
             view.item("Toolbar in Sidebar", Box::new(crate::ToggleSidebarToolbar), None, self.pref(crate::prefs::Pref::SidebarToolbar)),
+            view.item("Chats in Sidebar", Box::new(crate::ToggleSidebarChats), None, self.pref(crate::prefs::Pref::SidebarChats)),
             view.item("Compact Toolbar", Box::new(crate::ToggleCompactToolbar), None, compact),
             view.item("Auto-Hide Sidebar", Box::new(crate::ToggleAutoHideSidebar), None, auto_hide),
             view.item("Glass Design", Box::new(crate::ToggleGlassDesign), None, self.core.themes.borrow().glass),

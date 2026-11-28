@@ -103,7 +103,18 @@ actions!(
 
 actions!(
     tarn,
-    [ReopenClosedTab, CloseAllTabs, DuplicateTab, CopyLink, CopyCleanLink, ToggleCompactToolbar, ToggleSidebarToolbar, ToggleGlassDesign, OpenAppMenu]
+    [
+        ReopenClosedTab,
+        CloseAllTabs,
+        DuplicateTab,
+        CopyLink,
+        CopyCleanLink,
+        ToggleCompactToolbar,
+        ToggleSidebarToolbar,
+        ToggleSidebarChats,
+        ToggleGlassDesign,
+        OpenAppMenu
+    ]
 );
 actions!(tarn, [AboutTarn, CheckForUpdates, RestartToUpdate, HideTarn, HideOthers, ShowAll, ToggleFullScreen, NewChromiumWindow, NewWindow]);
 actions!(tarn, [NewGroup, ToggleLibrary, BookmarkTab, BookmarkAllTabs, ToggleAutoHideSidebar, ToggleDownloads]);
@@ -131,6 +142,7 @@ pub(crate) fn command_action(command: browser_core::palette::Command) -> Option<
         C::AutoHideSidebar => &ToggleAutoHideSidebar,
         C::CompactToolbar => &ToggleCompactToolbar,
         C::SidebarToolbar => &ToggleSidebarToolbar,
+        C::SidebarChats => &ToggleSidebarChats,
         C::GlassDesign => &ToggleGlassDesign,
         C::CloseAllTabs => &CloseAllTabs,
         C::ShowLibrary => &ToggleLibrary,
@@ -477,6 +489,7 @@ impl Browser {
                 b.set_pref(prefs::Pref::CompactToolbar, !compact, cx);
             }))
             .on_action(cx.listener(|b, _: &ToggleSidebarToolbar, _, cx| b.set_pref(prefs::Pref::SidebarToolbar, !b.pref(prefs::Pref::SidebarToolbar), cx)))
+            .on_action(cx.listener(|b, _: &ToggleSidebarChats, _, cx| b.set_pref(prefs::Pref::SidebarChats, !b.pref(prefs::Pref::SidebarChats), cx)))
             .on_action(cx.listener(|b, _: &ToggleGlassDesign, _, cx| {
                 let on = browser_core::theme_library::glass_on(&b.core.disk);
                 if let Err(e) = browser_core::theme_library::set_glass_on(&b.core.disk, !on) {

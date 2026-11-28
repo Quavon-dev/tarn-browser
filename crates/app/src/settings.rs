@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim",
     ),
     (
         SettingsPane::Tabs,
@@ -1082,6 +1082,53 @@ impl SettingsWindow {
                             crate::shortcuts::shown(&crate::ToggleSidebar, cx)
                         ),
                         s.prefs.get(Pref::AutoHideSidebar),
+                        cx,
+                    )),
+            )
+            .child(section("Sidebar"))
+            .child(note("These apply while the toolbar sits in the sidebar (Layout › Toolbar › Sidebar).").pt_0().pb_2())
+            .child(
+                group()
+                    .child(self.choice_row(
+                        true,
+                        "Pinned sites",
+                        "The tiles at the top of the sidebar: large, or a compact row that fits more.",
+                        &["Large", "Compact"],
+                        s.prefs.get(Pref::SmallTiles) as usize,
+                        |b, ix, cx| b.set_pref(Pref::SmallTiles, ix == 1, cx),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "Groups and folders",
+                        "Cards show a folder icon and, when closed, the first sites and how many tabs; Classic keeps the coloured badges.",
+                        &["Cards", "Classic"],
+                        !s.prefs.get(Pref::SidebarCards) as usize,
+                        |b, ix, cx| b.set_pref(Pref::SidebarCards, ix == 0, cx),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::SidebarChats,
+                        "Chats",
+                        "Your latest assistant chats under the pinned sites, while the profile's AI is on.",
+                        s.prefs.get(Pref::SidebarChats),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::UnreadDots,
+                        "Mark changed tabs",
+                        "A dot on a tab whose page changed its title while you looked elsewhere, such as a new message count.",
+                        s.prefs.get(Pref::UnreadDots),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::DimSleeping,
+                        "Dim sleeping tabs",
+                        "Grey out the icons of tabs that sleep to save memory, with a moon beside them.",
+                        s.prefs.get(Pref::DimSleeping),
                         cx,
                     )),
             )

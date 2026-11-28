@@ -28,18 +28,28 @@ tiles a Chats section lists the latest assistant chats; a Tidy rule sorts loose 
 come before group cards, and a closed group shows its colour, first sites and tab count; a dot
 marks a tab that retitled itself in the background; cards at the bottom show an agent at work and
 an update ready; the bottom edge holds downloads, the space switcher and the profile menu.
-Shared API: `browser_core::sidebar::{chat_rows, ChatRow, CHATS_SHOWN, group_summary}`,
-`browser_core::tabs::Model::{note_title, seen, unread}`, `palette::Command::SidebarToolbar`.
+Pinned folders show as the same cards as groups, closed ones with their first sites and tab count;
+the Chats section can be hidden (setting, right-click, `Command::SidebarChats`); the assistant is
+a card beside the page drawn like the sidebar, with the model picker and a round Send in its
+question field. Settings › Appearance › Sidebar picks large or compact pinned-site tiles, cards or the
+classic group style, Chats, the changed-tab dot and dimmed sleeping tabs; Corners also applies in
+the Classic design.
+Shared API: `browser_core::sidebar::{chat_rows, ChatRow, CHATS_SHOWN, group_summary, folder_summary}`,
+`browser_core::tabs::{Model::{note_title, seen, unread}, tile_row_sized, SMALL_TILE_MIN_WIDTH}`,
+`browser_core::theme_library::classic_corners`, `palette::Command::{SidebarToolbar, SidebarChats}`.
 Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `pills`,
-`group_card`), `crates/app/src/toolbar.rs` (`sidebar_address`, `history`, `render`).
+`group_card`, `folder`, `summary_row`), `crates/app/src/toolbar.rs` (`sidebar_address`, `history`,
+`render`), `crates/app/src/assistant.rs` (`render`, `chat`, `model_chip`).
 
 - [x] Windows — same code in `crates/app`; a 32 px strip above the page keeps the window
   buttons. Not yet run on Windows.
-- [ ] Linux — `linux/src/ui.rs` `sidebar`: header with navigation and address, chats, Tidy,
-  group summary, unread dot (call `note_title` from the title signal), footer; offer
-  `Command::SidebarToolbar` in `linux/src/ui/tools.rs`
-- [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats, Tidy, group summary, unread
-  dot, footer; the address stays in its bar on touch
+- [ ] Linux — `linux/src/ui.rs` `sidebar`: header with navigation and address, chats (and the
+  switch to hide them), Tidy, group and folder cards with their summary, unread dot (call
+  `note_title` from the title signal), footer, the assistant card; offer `Command::SidebarToolbar`
+  and `Command::SidebarChats` in `linux/src/ui/tools.rs`
+- [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats (and the switch to hide
+  them), Tidy, group and folder cards with their summary, unread dot, footer, the assistant card;
+  the address stays in its bar on touch
 - [ ] Android — the same sidebar in the Mac layout
 
 ### Delete a profile's last space (2026-11-26)

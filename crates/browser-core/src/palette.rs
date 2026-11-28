@@ -67,6 +67,7 @@ pub enum Command {
     AutoHideSidebar,
     CompactToolbar,
     SidebarToolbar,
+    SidebarChats,
     GlassDesign,
     CloseAllTabs,
     ShowLibrary,
@@ -127,7 +128,7 @@ pub enum Command {
     AskPage,
 }
 
-pub const COMMANDS: [(&str, &str, Command); 77] = [
+pub const COMMANDS: [(&str, &str, Command); 78] = [
     ("Settings", "preferences options", Command::Settings),
     ("Open File\u{2026}", "local disk html pdf image text document view", Command::OpenFile),
     ("New Tab Group", "group", Command::NewGroup),
@@ -147,6 +148,7 @@ pub const COMMANDS: [(&str, &str, Command); 77] = [
     ("Auto-Hide Sidebar", "floating", Command::AutoHideSidebar),
     ("Compact Toolbar", "toggle address", Command::CompactToolbar),
     ("Toolbar in Sidebar", "address navigation back forward layout", Command::SidebarToolbar),
+    ("Chats in Sidebar", "assistant ai conversations show hide", Command::SidebarChats),
     ("Glass Design", "liquid classic translucent transparent blur appearance look", Command::GlassDesign),
     ("Close All Tabs", "clear", Command::CloseAllTabs),
     ("Show Library", "bookmarks history", Command::ShowLibrary),

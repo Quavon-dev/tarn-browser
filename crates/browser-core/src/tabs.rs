@@ -884,7 +884,15 @@ pub fn tile_grid(width: f32, gap: f32) -> (usize, f32) {
 
 /// Columns and tile width for `count` tiles: fewer tiles than fit a row share its whole width.
 pub fn tile_row(width: f32, gap: f32, count: usize) -> (usize, f32) {
-    let columns = (((width + gap) / (TILE_MIN_WIDTH + gap)).floor() as usize).min(count).max(1);
+    tile_row_sized(width, gap, count, TILE_MIN_WIDTH)
+}
+
+/// The narrowest small tile, for the sidebar's compact row of pinned sites.
+pub const SMALL_TILE_MIN_WIDTH: f32 = 30.;
+
+/// `tile_row` with tiles at least `min` wide.
+pub fn tile_row_sized(width: f32, gap: f32, count: usize, min: f32) -> (usize, f32) {
+    let columns = (((width + gap) / (min + gap)).floor() as usize).min(count).max(1);
     (columns, ((width - (columns - 1) as f32 * gap) / columns as f32).floor().max(0.))
 }
 
@@ -1384,6 +1392,12 @@ mod tests {
         model.lifecycle.remove(never);
         assert_eq!(model.pick(|_| false), Some(old));
         assert_eq!(core.disk.tab(old.id).unwrap().last_active, 99);
+    }
+
+    #[test]
+    fn small_tiles_fit_more_to_a_row() {
+        assert_eq!(super::tile_row_sized(238., 8., 12, super::SMALL_TILE_MIN_WIDTH).0, 6);
+        assert_eq!(super::tile_row(238., 8., 12).0, 4);
     }
 
     #[test]

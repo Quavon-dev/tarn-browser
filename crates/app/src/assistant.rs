@@ -85,7 +85,7 @@ pub(crate) struct Assistant {
     chat_search: Entity<TextInput>,
     rename: Entity<TextInput>,
     renaming: Option<store::Id>,
-    /// The provider and model picker under the header is open.
+    /// The provider and model picker above the question field is open.
     models: bool,
     /// The question starts with `/`, so the column lists commands.
     slash: bool,
@@ -116,7 +116,7 @@ impl Assistant {
     }
 
     pub(crate) fn new(window: &mut Window, cx: &mut Context<Browser>) -> Self {
-        let input = cx.new(|cx| TextInput::new("Ask about the pills above, or anything", cx));
+        let input = cx.new(|cx| TextInput::new("Ask anything, or type / for commands", cx));
         let submit = cx.subscribe_in(&input, window, |b: &mut Browser, input, event, window, cx| match event {
             TextInputEvent::Submit => {
                 let typed = input.read(cx).text().to_owned();
@@ -918,48 +918,50 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
         Some(_) if b.assistant.chats => "Chats".to_owned(),
         Some(session) => chat_title(b, session),
     };
-    let (provider, model) = b.chosen_model();
-    let model_name = match provider {
-        Choice::ClaudeApi => CLAUDE_MODELS[model].1,
-        Choice::Ollama => "Ollama",
-    };
-    let models = b.assistant.models;
-    let chip = tab_stop(
-        div()
-            .id("assistant-model")
-            .flex_none()
-            .h(px(24.))
-            .pl_2p5()
-            .pr_1p5()
-            .flex()
-            .items_center()
-            .gap_1()
-            .rounded_full()
-            .border_1()
-            .border_color(Theme::hairline())
-            .bg(if models { Theme::selected() } else { Theme::control() })
-            .text_size(px(TEXT_SMALL))
-            .cursor_pointer()
-            .hover(|s| s.bg(Theme::hover()))
-            .active(|s| s.bg(Theme::pressed()))
-            .child(model_name)
-            .child(icon(if models { Icon::ChevronUp } else { Icon::ChevronDown }, 10., Theme::muted())),
-    )
-    .tooltip(tooltip("Choose the provider and model", None))
-    .on_click(cx.listener(|b, _, _, cx| {
-        b.assistant.models = !b.assistant.models;
-        cx.notify();
-    }));
+    let margin = crate::sidebar::SIDEBAR_MARGIN;
+    let header = div()
+        .h(px(crate::sidebar::HEADER_HEIGHT))
+        .flex_none()
+        .pl_4()
+        .pr_1p5()
+        .flex()
+        .items_center()
+        .gap_0p5()
+        .child(div().flex_1().min_w_0().pr_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).one_line(title))
+        .when(saved, |d| {
+            d.child(
+                tab_stop(icon_button("assistant-chats", Icon::History, true))
+                    .when(b.assistant.chats, |d| d.bg(Theme::selected()))
+                    .tooltip(tooltip(if b.assistant.chats { "Back to the Chat" } else { "Saved Chats" }, None))
+                    .on_click(cx.listener(|b, _, _, cx| {
+                        b.assistant.chats = !b.assistant.chats;
+                        b.assistant.renaming = None;
+                        cx.notify();
+                    })),
+            )
+            .child(
+                tab_stop(icon_button("assistant-new", Icon::SquarePen, true))
+                    .tooltip(tooltip("New Chat", None))
+                    .on_click(cx.listener(|b, _, w, cx| b.new_chat(w, cx))),
+            )
+        })
+        .child(
+            tab_stop(icon_button("assistant-close", Icon::Close, true))
+                .tooltip(tooltip("Close Assistant", Some("⇧Esc".into())))
+                .on_click(cx.listener(|b, _, w, cx| b.toggle_assistant(false, w, cx))),
+        );
+    // A card beside the page, drawn like the sidebar so both follow the theme, its tint and Glass.
     let column = div()
         .id("assistant")
-        .flex_none()
-        .h_full()
-        .w(px(WIDTH))
+        .size_full()
         .flex()
         .flex_col()
-        .bg(Theme::panel())
-        .border_l_1()
-        .border_color(Theme::separator())
+        .overflow_hidden()
+        .rounded(px(Theme::radius_tile()))
+        .border_1()
+        .border_color(Theme::sidebar_edge())
+        .bg(crate::sidebar::background(b, false))
+        .shadow(ui::theme::Elevation::Page.shadow())
         // The window's Tab stops at text fields, which would trap the keyboard in the question field.
         .on_key_down(cx.listener(|b, e: &gpui::KeyDownEvent, w, cx| {
             let m = e.keystroke.modifiers;
@@ -973,46 +975,49 @@ pub(crate) fn render(b: &mut Browser, window: &mut Window, cx: &mut Context<Brow
                 cx.stop_propagation();
             }
         }))
-        .child(
-            div()
-                .h(px(ui::theme::TOOLBAR_HEIGHT))
-                .flex_none()
-                .pl_4()
-                .pr_2()
-                .flex()
-                .items_center()
-                .gap_1()
-                .border_b_1()
-                .border_color(Theme::separator())
-                .child(div().flex_1().min_w_0().pr_1().text_size(px(TEXT)).font_weight(FontWeight::SEMIBOLD).one_line(title))
-                .when(saved, |d| {
-                    d.child(chip)
-                        .child(
-                            tab_stop(icon_button("assistant-chats", Icon::History, true))
-                                .when(b.assistant.chats, |d| d.bg(Theme::selected()))
-                                .tooltip(tooltip(if b.assistant.chats { "Back to the Chat" } else { "Saved Chats" }, None))
-                                .on_click(cx.listener(|b, _, _, cx| {
-                                    b.assistant.chats = !b.assistant.chats;
-                                    b.assistant.renaming = None;
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            tab_stop(icon_button("assistant-new", Icon::Plus, true))
-                                .tooltip(tooltip("New Chat", None))
-                                .on_click(cx.listener(|b, _, w, cx| b.new_chat(w, cx))),
-                        )
-                })
-                .child(
-                    tab_stop(icon_button("assistant-close", Icon::Close, true))
-                        .tooltip(tooltip("Close Assistant", Some("⇧Esc".into())))
-                        .on_click(cx.listener(|b, _, w, cx| b.toggle_assistant(false, w, cx))),
-                ),
-        )
-        .when(saved && models, |d| d.child(model_picker(provider, model, cx)))
+        .child(header)
         .child(body);
-    let outer = div().flex_none().h_full().overflow_hidden();
-    Some(if reduce { outer.w(px(WIDTH)).opacity(shown).child(column).into_any_element() } else { outer.w(px(WIDTH * shown)).child(column).into_any_element() })
+    let full = WIDTH + margin;
+    // Clipped only while it slides, so the card keeps its shadow once open.
+    let outer =
+        div().flex_none().h_full().when(shown < 1., |d| d.overflow_hidden()).py(px(margin)).pr(px(margin)).child(div().w(px(WIDTH)).h_full().child(column));
+    Some(if reduce { outer.w(px(full)).opacity(shown).into_any_element() } else { outer.w(px(full * shown)).into_any_element() })
+}
+
+/// The provider and model in use, opening the picker above the question field.
+fn model_chip(b: &Browser, cx: &mut Context<Browser>) -> gpui::Stateful<gpui::Div> {
+    let (provider, model) = b.chosen_model();
+    let name = match provider {
+        Choice::ClaudeApi => CLAUDE_MODELS[model].1,
+        Choice::Ollama => "Ollama",
+    };
+    let open = b.assistant.models;
+    tab_stop(
+        div()
+            .id("assistant-model")
+            .flex_none()
+            .h(px(26.))
+            .pl_2()
+            .pr_1p5()
+            .flex()
+            .items_center()
+            .gap_1()
+            .rounded_full()
+            .when(open, |d| d.bg(Theme::selected()))
+            .text_size(px(TEXT_SMALL))
+            .text_color(Theme::muted())
+            .cursor_pointer()
+            .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
+            .active(|s| s.bg(Theme::pressed()))
+            .child(name)
+            .child(icon(if open { Icon::ChevronDown } else { Icon::ChevronUp }, 10., Theme::faint())),
+    )
+    .tooltip(tooltip("Choose the provider and model", None))
+    .on_click(cx.listener(|b, _, _, cx| {
+        b.assistant.models = !b.assistant.models;
+        b.assistant.picking = false;
+        cx.notify();
+    }))
 }
 
 /// The saved chat's title, read again only when the chat changes or is renamed; "New Chat" until
@@ -1080,15 +1085,15 @@ fn model_picker(provider: Choice, model: usize, cx: &mut Context<Browser>) -> An
     });
     div()
         .flex_none()
-        .px_4()
-        .py_3()
+        .p_3()
         .flex()
         .flex_col()
         .gap_2()
         .text_size(px(TEXT_SMALL))
-        .bg(Theme::panel_row())
-        .border_b_1()
-        .border_color(Theme::separator())
+        .rounded(px(Theme::radius_tile()))
+        .bg(Theme::raised())
+        .border_1()
+        .border_color(Theme::hairline())
         .child(caption("Provider"))
         .child(providers)
         .when_some(models, |d, models| d.child(caption("Model")).child(models))
@@ -1186,7 +1191,7 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                 Role::You => turn
                     .items_end()
                     .gap_1()
-                    .child(div().max_w(px(WIDTH * 0.82)).px_3().py_2().rounded(px(Theme::radius_group())).bg(Theme::accent_soft()).child(row.text.clone()))
+                    .child(div().max_w(px(WIDTH * 0.82)).px_3p5().py_2().rounded(px(Theme::radius_tile())).bg(Theme::accent_soft()).child(row.text.clone()))
                     .children(actions)
                     .into_any_element(),
                 Role::Assistant => {
@@ -1208,12 +1213,12 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
         })
         .collect::<Vec<_>>();
     let typed = b.assistant.input.read(cx).text().to_owned();
+    let enter = if cfg!(windows) { "Enter" } else { "Return" };
     let commands = if b.assistant.slash { b.chat_commands() } else { Vec::new() };
     let menu = commands::slash_menu(&typed, &commands);
     let selected = b.assistant.slash_ix.min(menu.len().saturating_sub(1));
     b.assistant.menu_scroll.scroll_to_item(selected);
     let menu = (!menu.is_empty()).then(|| {
-        let enter = if cfg!(windows) { "Enter" } else { "Return" };
         popover_card()
             .absolute()
             .bottom_full()
@@ -1309,25 +1314,44 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
         format!("Send carries your question and {}: {} in all.", parts.join(", "), crate::downloads::bytes(view.will_send_bytes as u64))
     };
     let focused = b.assistant.input.focus_handle(cx).is_focused(window);
+    let ready = view.can_cancel || (view.can_send && !b.assistant.connect && !typed.trim().is_empty());
+    let round = |id: &'static str, glyph: Icon, size: f32| {
+        let fill = if ready { Theme::accent() } else { Theme::control() };
+        tab_stop(
+            div()
+                .id(id)
+                .size(px(28.))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(fill)
+                .when(ready, |d| d.cursor_pointer().hover(|s| s.opacity(0.88)).active(|s| s.opacity(0.76)))
+                .child(icon(glyph, size, if ready { Theme::on_fill(fill) } else { Theme::faint() })),
+        )
+    };
     let send = if view.can_cancel {
-        tab_stop(button("assistant-cancel", "Stop", true)).on_click(cx.listener(|b, _, _, cx| b.cancel_answer(cx)))
+        round("assistant-cancel", Icon::Square, 11.).tooltip(tooltip("Stop", None)).on_click(cx.listener(|b, _, _, cx| b.cancel_answer(cx)))
     } else {
-        tab_stop(button("assistant-send", "Send", true)).on_click(cx.listener(|b, _, _, cx| b.send_question(cx)))
+        round("assistant-send", Icon::ArrowUp, 15.).tooltip(tooltip("Send", Some(enter.into()))).on_click(cx.listener(|b, _, _, cx| b.send_question(cx)))
     };
     let composer = field(focused)
-        .px_2()
-        .pt_2()
+        .pl_3()
+        .pr_1p5()
+        .pt_2p5()
         .pb_1p5()
         .flex()
         .flex_col()
-        .gap_1p5()
-        .rounded(px(Theme::radius_group()))
-        .child(div().px_1().child(b.assistant.input.clone()))
+        .gap_2()
+        .rounded(px(Theme::radius_tile()))
+        .child(div().pr_1p5().child(b.assistant.input.clone()))
         .child(
             div()
                 .flex()
                 .items_center()
                 .gap_0p5()
+                .ml(px(-6.))
                 .child(
                     tab_stop(icon_button("assistant-add-page", Icon::File, true))
                         .tooltip(tooltip("Add This Page", None))
@@ -1339,12 +1363,18 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                         .tooltip(tooltip("Add Tab…", None))
                         .on_click(cx.listener(|b, _, _, cx| {
                             b.assistant.picking = !b.assistant.picking;
+                            b.assistant.models = false;
                             cx.notify();
                         })),
                 )
                 .child(div().flex_1())
+                .child(model_chip(b, cx))
                 .child(send),
         );
+    let picker_card = b.assistant.models.then(|| {
+        let (provider, model) = b.chosen_model();
+        model_picker(provider, model, cx)
+    });
     div()
         .flex_1()
         .min_h_0()
@@ -1387,9 +1417,10 @@ fn chat(view: &ChatView, b: &Browser, window: &mut Window, cx: &mut Context<Brow
                         .child(open_settings_button("assistant-connect", cx))
                 })
                 .children(picker)
+                .children(picker_card)
                 .when(!chips.is_empty(), |d| d.child(div().flex().flex_wrap().gap_1().children(chips)))
                 .child(composer)
-                .child(note(will_send).pt_0().px_1())
+                .child(div().px_2().text_center().text_size(px(ui::theme::TEXT_TINY)).text_color(Theme::faint()).child(will_send))
                 .children(menu),
         )
         .into_any_element()

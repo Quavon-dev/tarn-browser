@@ -10,6 +10,11 @@ use crate::sidebar::SIDEBAR_WIDTH;
 pub enum Pref {
     CompactToolbar,
     SidebarToolbar,
+    SidebarChats,
+    SmallTiles,
+    SidebarCards,
+    DimSleeping,
+    UnreadDots,
     AutoHideSidebar,
     Gestures,
     ReduceMotion,
@@ -42,9 +47,14 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 31] = [
+    pub const ALL: [Pref; 36] = [
         Pref::CompactToolbar,
         Pref::SidebarToolbar,
+        Pref::SidebarChats,
+        Pref::SmallTiles,
+        Pref::SidebarCards,
+        Pref::DimSleeping,
+        Pref::UnreadDots,
         Pref::AutoHideSidebar,
         Pref::Gestures,
         Pref::ReduceMotion,
@@ -80,6 +90,11 @@ impl Pref {
         match self {
             Pref::CompactToolbar => "compact_toolbar",
             Pref::SidebarToolbar => "sidebar_toolbar",
+            Pref::SidebarChats => "sidebar_chats",
+            Pref::SmallTiles => "sidebar_small_tiles",
+            Pref::SidebarCards => "sidebar_cards",
+            Pref::DimSleeping => "sidebar_dim_sleeping",
+            Pref::UnreadDots => "sidebar_unread_dots",
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
@@ -118,6 +133,9 @@ impl Pref {
             self,
             Pref::Gestures
                 | Pref::SidebarToolbar
+                | Pref::SidebarChats
+                | Pref::SidebarCards
+                | Pref::UnreadDots
                 | Pref::Suggestions
                 | Pref::TearOffTemporary
                 | Pref::BlockAds
@@ -213,7 +231,7 @@ pub fn apply_accent(store: &Store) {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub struct Prefs(u32);
+pub struct Prefs(u64);
 
 impl Prefs {
     pub fn load(store: &Store) -> Self {
@@ -230,11 +248,11 @@ impl Prefs {
     }
 
     pub fn get(self, pref: Pref) -> bool {
-        self.0 & (1 << pref as u32) != 0
+        self.0 & (1 << pref as u64) != 0
     }
 
     fn with(self, pref: Pref, on: bool) -> Self {
-        if on { Prefs(self.0 | 1 << pref as u32) } else { Prefs(self.0 & !(1 << pref as u32)) }
+        if on { Prefs(self.0 | 1 << pref as u64) } else { Prefs(self.0 & !(1 << pref as u64)) }
     }
 }
 
@@ -423,6 +441,14 @@ impl Browser {
             }
         }
         cx.refresh_windows();
+    }
+}
+
+#[test]
+fn every_pref_has_its_own_bit() {
+    for pref in Pref::ALL {
+        let on = Prefs::default().with(pref, true);
+        assert!(on.get(pref) && Pref::ALL.iter().filter(|p| on.get(**p)).count() == 1, "{pref:?}");
     }
 }
 

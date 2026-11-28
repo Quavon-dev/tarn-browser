@@ -41,6 +41,7 @@ pub enum Cmd {
     SidebarToolbar(bool),
     Library,
     SwitchSpace(usize),
+    SidebarChats(bool),
     Settings,
     Rename(RenameTarget),
     ChangeIcon(RenameTarget),
@@ -249,6 +250,15 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
+    pub fn chats_menu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let items = vec![
+            Item::action("Hide Chats in Sidebar", Cmd::SidebarChats(false)),
+            Item::Separator,
+            Item::action("Customize in Settings…", Cmd::Settings).key(crate::shortcuts::keys(&crate::Settings, cx)),
+        ];
+        self.show_menu(items, window, cx);
+    }
+
     pub fn profile_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
         let items = vec![
             Item::action("Settings…", Cmd::Settings).key(crate::shortcuts::keys(&crate::Settings, cx)),
@@ -441,6 +451,7 @@ impl Browser {
             Cmd::SidebarToolbar(on) => self.set_pref(Pref::SidebarToolbar, on, cx),
             Cmd::Library => self.toggle_library(window, cx),
             Cmd::SwitchSpace(ix) => self.switch_space(ix, window, cx),
+            Cmd::SidebarChats(on) => self.set_pref(Pref::SidebarChats, on, cx),
             Cmd::Settings => self.open_settings_pane(SettingsPane::Appearance, window, cx),
             Cmd::Rename(target) => self.begin_rename(target, window, cx),
             Cmd::ChangeIcon(target) => self.begin_icon(target, window, cx),

@@ -205,10 +205,13 @@ pub(crate) fn tab_icon(b: &Browser, url: &str, size: f32, asleep: bool) -> AnyEl
 }
 
 /// Columns of the tile grid for `count` tiles in a sidebar `sidebar` points wide, and the tiles' height.
-fn tile_grid(sidebar: f32, count: usize) -> (u16, f32) {
+/// `small` is the compact row of pinned sites, more tiles to a row.
+fn tile_grid(sidebar: f32, count: usize, small: bool) -> (u16, f32) {
+    use browser_core::tabs::{SMALL_TILE_MIN_WIDTH, TILE_MIN_WIDTH, tile_row_sized};
     let width = sidebar - 2. - 2. * TILE_GAP;
-    let columns = browser_core::tabs::tile_row(width, TILE_GAP, count).0;
-    (u16::try_from(columns).unwrap_or(u16::MAX), browser_core::tabs::tile_grid(width, TILE_GAP).1)
+    let min = if small { SMALL_TILE_MIN_WIDTH } else { TILE_MIN_WIDTH };
+    let columns = tile_row_sized(width, TILE_GAP, count, min).0;
+    (u16::try_from(columns).unwrap_or(u16::MAX), tile_row_sized(width, TILE_GAP, usize::MAX, min).1)
 }
 
 fn space_tint(s: &SpaceRef) -> Option<Rgba> {
@@ -223,7 +226,7 @@ fn mix(from: Option<Rgba>, to: Option<Rgba>, t: f32) -> Option<Rgba> {
     Some(Rgba { r: lerp(a.r, b.r), g: lerp(a.g, b.g), b: lerp(a.b, b.b), a: lerp(a.a, b.a) })
 }
 
-fn background(b: &Browser, card: bool) -> Background {
+pub(crate) fn background(b: &Browser, card: bool) -> Background {
     let tint = |ix: usize| b.model.spaces.get(ix).and_then(space_tint);
     let (other, shown) = b.slide_other().map_or((None, 0.), |(ix, _, shown)| (tint(ix), shown));
     mix(tint(b.model.space_ix), other, shown)
@@ -612,7 +615,7 @@ fn list(b: &Browser, cx: &mut Context<Browser>) -> Stateful<Div> {
         .px(px(TILE_GAP))
         .pb_2()
         .child(tiles(b, cx))
-        .when(b.sidebar_chrome(), |d| d.children(chats(b, cx)))
+        .when(b.sidebar_chrome() && b.pref(Pref::SidebarChats), |d| d.children(chats(b, cx)))
         .child(pinned(b, cx))
         .map(|d| if b.sidebar_chrome() { d.child(tidy(b, cx)) } else { d.child(div().mx_2().my_1p5().h(px(1.)).bg(Theme::hairline())) })
         .child(ephemeral(b, cx))
@@ -646,32 +649,29 @@ impl Browser {
 fn chats(b: &Browser, cx: &mut Context<Browser>) -> Option<Div> {
     let rows = b.sidebar_chats()?;
     let open_chat = b.shown_chat();
-    let header = div()
+    let header = keyboard_row(div().id("chats-header"), |b, w, cx| b.chats_menu(w, cx), cx)
+        .rounded(px(Theme::radius_row()))
+        .cursor_pointer()
+        .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
+        .on_click(cx.listener(|b, _, _, cx| {
+            b.chats_open = !b.chats_open;
+            cx.notify();
+        }))
         .h(px(Theme::tab_row()))
         .pl(px(10.))
         .flex()
         .items_center()
         .gap_1()
         .text_color(Theme::muted())
-        .child(
-            tab_stop(div().id("chats-fold"))
-                .flex()
-                .items_center()
-                .gap_1()
-                .px_1()
-                .ml(px(-4.))
-                .rounded(px(Theme::radius_row()))
-                .cursor_pointer()
-                .hover(|s| s.bg(Theme::hover()).text_color(Theme::text()))
-                .child("Chats")
-                .child(icon(if b.chats_open { Icon::ChevronDown } else { Icon::ChevronRight }, ICON_SMALL, Theme::faint()))
-                .on_click(cx.listener(|b, _, _, cx| {
-                    b.chats_open = !b.chats_open;
-                    cx.notify();
-                })),
-        )
+        .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.chats_menu(w, cx)))
+        .child(div().flex().items_center().gap_1().child("Chats").child(icon(
+            if b.chats_open { Icon::ChevronDown } else { Icon::ChevronRight },
+            ICON_SMALL,
+            Theme::faint(),
+        )))
         .child(div().flex_1())
         .child(icon_button("new-chat", Icon::SquarePen, true).tooltip(tooltip("New Chat", None)).on_click(cx.listener(|b, _, window, cx| {
+            cx.stop_propagation();
             b.toggle_assistant(true, window, cx);
             b.new_chat(window, cx);
         })));
@@ -848,7 +848,14 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let tiles: Vec<&Tab> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Tile).collect();
     let reduce = b.pref(Pref::ReduceMotion);
     let chrome = b.sidebar_chrome();
-    let (columns, side) = tile_grid(b.sidebar_width, tiles.len());
+    let small = chrome && b.pref(Pref::SmallTiles);
+    let dim = !chrome || b.pref(Pref::DimSleeping);
+    let (columns, side) = tile_grid(b.sidebar_width, tiles.len(), small);
+    let (height, glyph) = match (chrome, small) {
+        (true, true) => (34., 16.),
+        (true, false) => ((side * 0.72).round(), 20.),
+        (false, _) => (side, 22.),
+    };
     div()
         .id("tiles")
         .grid()
@@ -865,11 +872,11 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
             let title: SharedString = label(t).into();
             let tile = keyboard_row(div().id(("tile", t.id as u64)), move |b, w, cx| b.tab_menu(key, w, cx), cx)
                 .w_full()
-                .h(px(if chrome { (side * 0.82).round() } else { side }))
+                .h(px(height))
                 .flex()
                 .items_center()
                 .justify_center()
-                .rounded(px(Theme::radius_tile()))
+                .rounded(px(if small { Theme::radius_row() } else { Theme::radius_tile() }))
                 .bg(if active { Theme::selected() } else { Theme::raised() })
                 .border_1()
                 .border_color(match (active, b.in_split(key), b.splits.contains(key)) {
@@ -883,7 +890,7 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                 .cursor_pointer()
                 .child(match (b.loading(key), b.still()) {
                     (true, false) => spinner(18., Theme::space_label()).into_any_element(),
-                    _ => tab_icon(b, &t.url, if b.sidebar_chrome() { 24. } else { 22. }, b.sleeping(key) && !b.sidebar_chrome()),
+                    _ => tab_icon(b, &t.url, glyph, b.sleeping(key) && dim),
                 })
                 .on_click(cx.listener(move |b, _, window, cx| b.switch_to(key, window, cx)))
                 .on_hover(cx.listener(move |b, hovered: &bool, window, cx| b.hover_tab(key, *hovered, window, cx)))
@@ -904,6 +911,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     let loading = b.loading(key);
     let asleep = b.sleeping(key);
     let chrome = b.sidebar_chrome();
+    let dim = !chrome || b.pref(Pref::DimSleeping);
     let drift = b.pinned_drift(key).and_then(|u| u.host_str().map(str::to_owned));
     let drifted = drift.is_some();
     let renaming = b.rename_input(RenameTarget::Tab(t.id)).is_some();
@@ -965,8 +973,8 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .child({
             let glyph = div().flex_none().size(px(16.)).flex().items_center().justify_center().child(match (loading, b.still()) {
                 (true, false) => spinner(14., Theme::space_label()).into_any_element(),
-                (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep && !chrome)).into_any_element(),
-                _ => tab_icon(b, &t.url, 16., asleep && !chrome),
+                (true, true) => div().opacity(0.5).child(tab_icon(b, &t.url, 16., asleep && dim)).into_any_element(),
+                _ => tab_icon(b, &t.url, 16., asleep && dim),
             });
             let flipped = b.motion.load_flips.iter().any(|(k, _)| *k == key);
             animate_linear(glyph, ("tab-icon", t.id as u64 * 2 + u64::from(loading)), TAB_IN, !flipped, |el, p| {
@@ -994,7 +1002,7 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .when(engine != b.core.default_web_engine.get() && !renaming, |d| {
             d.child(div().flex_none().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(crate::tabs::web_engine_name(engine)))
         })
-        .when(chrome && b.model.unread(key) && !renaming, |d| {
+        .when(chrome && b.pref(Pref::UnreadDots) && b.model.unread(key) && !renaming, |d| {
             d.child(
                 div()
                     .id(("unread", t.id as u64))
@@ -1027,9 +1035,10 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
         .children(
             state_glyph(
                 t,
-                asleep && !chrome,
+                asleep && dim,
                 active && closable || drifted || renaming || closable && b.motion.grown(key) > 0.,
                 if chrome && !asleep { b.sound(key) } else { None },
+                !(chrome && b.pref(Pref::SidebarCards)),
             )
             .map(|glyph| {
                 let shown = div().flex_none().w(px(CLOSE_WIDTH)).flex().justify_center().child(glyph);
@@ -1118,13 +1127,13 @@ fn tab_row(b: &Browser, t: &Tab, indent: f32, cx: &mut Context<Browser>) -> AnyE
     })
 }
 
-fn state_glyph(t: &Tab, asleep: bool, busy: bool, sound: Option<bool>) -> Option<impl IntoElement> {
+fn state_glyph(t: &Tab, asleep: bool, busy: bool, sound: Option<bool>, pin: bool) -> Option<impl IntoElement> {
     let glyph = match (asleep, sound, t.kind) {
         _ if busy => return None,
         (true, ..) => Icon::Moon,
         (false, Some(true), _) => Icon::VolumeX,
         (false, Some(false), _) => Icon::Volume,
-        (false, None, TabKind::Pinned) => Icon::Pin,
+        (false, None, TabKind::Pinned) if pin => Icon::Pin,
         _ => return None,
     };
     Some(icon(glyph, 13., Theme::faint()))
@@ -1229,9 +1238,19 @@ fn pinned(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
 /// A folder row with its tabs and subfolders, each level indented one step further.
 fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> AnyElement {
     let id = f.id;
-    let indent = 16. * depth as f32;
+    let chrome = b.sidebar_chrome() && b.pref(Pref::SidebarCards);
+    // In a card the top folder's tabs sit flush, so each subfolder steps in one level less.
+    let indent = 16. * if chrome { depth.saturating_sub(1) } else { depth } as f32;
     let open = b.model.expanded.contains(&id);
-    let glyph = chosen_icon(&f.icon, ICON, Theme::space_label()).unwrap_or_else(|| icon(Icon::Folder, ICON, Theme::space_label()).into_any_element());
+    let tree = (!open).then(|| folder_tree(&b.model.folders, id));
+    // Inside a card, rows line up with a group card's.
+    let inner = if chrome && depth == 0 { 0. } else { indent + 16. };
+    let (plain, tint) = match (chrome, open) {
+        (true, true) => (Icon::FolderOpen, Theme::muted()),
+        (true, false) => (Icon::Folder, Theme::muted()),
+        (false, _) => (Icon::Folder, Theme::space_label()),
+    };
+    let glyph = chosen_icon(&f.icon, ICON, tint).unwrap_or_else(|| icon(plain, ICON, tint).into_any_element());
     let header = keyboard_row(div().id(("folder", id as u64)), move |b, w, cx| b.folder_menu(id, w, cx), cx)
         .h(px(Theme::tab_row()))
         .pl(px(10. + indent))
@@ -1251,26 +1270,56 @@ fn folder(b: &Browser, f: &Folder, depth: usize, cx: &mut Context<Browser>) -> A
         .on_drop(cx.listener(move |b, dragged: &DraggedFolder, _, cx| b.move_folder(dragged.id, Some(id), cx)))
         .on_drag(DraggedFolder { id, name: bounded_title(&f.name).into() }, |d, _, _, cx| cx.new(|_| d.clone()))
         .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
-            1 => b.toggle_folder(id, cx),
+            // Synthetic clicks from assistive tools report a count of 0.
+            0 | 1 => b.toggle_folder(id, cx),
             2 => b.begin_rename(RenameTarget::Folder(id), window, cx),
             _ => {}
         }))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.folder_menu(id, w, cx)))
-        .child(div().flex_none().size(px(16.)).flex().items_center().justify_center().child(glyph))
+        .when(chrome && depth == 0, |d| d.h(px(Theme::tab_row() - 2.)).pl_1p5().pr_1p5().gap_2().font_weight(FontWeight::MEDIUM))
+        .child(div().flex_none().size(px(if chrome && depth == 0 { 18. } else { 16. })).flex().items_center().justify_center().child(glyph))
         .child(name(b, RenameTarget::Folder(id), &f.name, cx))
-        .child(chevron(b, id, open));
+        .child(chevron(b, id, open))
+        .when_some(tree.as_ref().filter(|_| chrome), |d, tree| {
+            d.child(div().flex_1()).child(summary_row(b, browser_core::sidebar::folder_summary(&b.model, tree)))
+        });
     let col = div().flex().flex_col().gap(px(Theme::row_gap())).child(header).children(icon_picker(b, RenameTarget::Folder(id), &f.icon, cx));
-    if !open {
+    let card = |col: Div| {
+        if depth > 0 {
+            col
+        } else if chrome {
+            col.my_0p5().p(px(INNER_PAD)).rounded(px(Theme::radius_tile())).bg(Theme::group()).border_1().border_color(Theme::hairline())
+        } else {
+            col.my_1().p(px(INNER_PAD)).rounded(px(Theme::radius_tile())).bg(Theme::group())
+        }
+    };
+    if let Some(tree) = tree {
         // A closed folder still shows its active tab, so the selection never disappears.
-        let tree = folder_tree(&b.model.folders, id);
         let active = b.model.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f)) && b.model.active == Some(b.model.key(t)));
-        return col.children(active.map(|t| tab_row(b, t, indent + 16., cx)).collect::<Vec<_>>()).into_any_element();
+        let col = col.children(active.map(|t| tab_row(b, t, inner, cx)).collect::<Vec<_>>());
+        return if chrome { card(col) } else { col }.into_any_element();
     }
     let tabs: Vec<(&Tab, bool)> = b.model.tabs.iter().filter(|t| t.kind == TabKind::Pinned && t.folder_id == Some(id)).map(|t| (t, false)).collect();
-    let tabs = tab_rows(b, &tabs, indent + 16., cx);
+    let tabs = tab_rows(b, &tabs, inner, cx);
     let subfolders: Vec<AnyElement> = b.model.folders.iter().filter(|c| c.parent_id == Some(id)).map(|c| folder(b, c, depth + 1, cx)).collect();
-    let col = col.children(tabs).children(subfolders);
-    if depth == 0 { col.my_1().p(px(INNER_PAD)).rounded(px(Theme::radius_tile())).bg(Theme::group()) } else { col }.into_any_element()
+    let empty = tabs.is_empty() && subfolders.is_empty();
+    let col = col.children(tabs).children(subfolders).when(chrome && empty, |d| {
+        d.child(
+            div()
+                .id(("folder-empty", id as u64))
+                .h(px(Theme::tab_row()))
+                .pl(px(10. + inner))
+                .flex()
+                .items_center()
+                .rounded(px(Theme::radius_row()))
+                .text_size(px(TEXT_SMALL))
+                .text_color(Theme::faint())
+                .drag_over::<DraggedTab>(|s, _, _, _| s.bg(Theme::accent_soft()))
+                .on_drop(cx.listener(tab_drop(TabKind::Pinned, Some(id), None, None)))
+                .child("Drag tabs here"),
+        )
+    });
+    card(col).into_any_element()
 }
 
 fn ephemeral(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
@@ -1399,6 +1448,16 @@ fn avatar(color: Rgba, size: f32, mark: impl IntoElement) -> impl IntoElement {
         .child(mark)
 }
 
+/// A closed folder's or group's first site icons and how many tabs it holds.
+fn summary_row(b: &Browser, (urls, count): (Vec<String>, usize)) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .gap_1()
+        .children(urls.iter().map(|u| site_icon(b, u, 14.)))
+        .when(count > 0, |d| d.child(div().pl_1().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(count.to_string())))
+}
+
 fn group_avatar(g: &Group, size: f32) -> impl IntoElement {
     let color = group_color(g);
     let initial = || SharedString::from(g.name.trim().chars().next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default()).into_any_element();
@@ -1412,7 +1471,7 @@ fn inner_height(rows: usize) -> f32 {
 
 fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> AnyElement {
     let id = g.id;
-    let chrome = b.sidebar_chrome();
+    let chrome = b.sidebar_chrome() && b.pref(Pref::SidebarCards);
     let name_text: SharedString = bounded_title(&g.name).into();
     let header = keyboard_row(div().id(("group", id as u64)), move |b, w, cx| b.group_menu(id, w, cx), cx)
         .group("group-head")
@@ -1429,7 +1488,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .hover(|s| s.bg(Theme::hover()))
         .on_mouse_down(MouseButton::Right, cx.listener(move |b, _, w, cx| b.group_menu(id, w, cx)))
         .on_click(cx.listener(move |b, event: &ClickEvent, window, cx| match event.click_count() {
-            1 => b.toggle_group(id, cx),
+            0 | 1 => b.toggle_group(id, cx),
             2 => b.begin_rename(RenameTarget::Group(id), window, cx),
             _ => {}
         }))
@@ -1447,17 +1506,7 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .child(chevron(b, id, !g.collapsed))
         .child(div().flex_1())
         .map(|d| match (chrome, g.collapsed) {
-            (true, true) => {
-                let (urls, count) = browser_core::sidebar::group_summary(&b.model, id);
-                d.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_1()
-                        .children(urls.iter().map(|u| site_icon(b, u, 14.)))
-                        .child(div().pl_1().pr_1p5().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).child(count.to_string())),
-                )
-            }
+            (true, true) => d.child(summary_row(b, browser_core::sidebar::group_summary(&b.model, id))),
             _ => d.child(
                 icon_button(("close-group", id as u64), Icon::Close, true)
                     .map(|button| if chrome { ui::controls::shown_on_hover(button, "group-head") } else { button })
@@ -1651,9 +1700,10 @@ mod tests {
 
     #[test]
     fn tiles_are_four_squares_a_row_at_the_default_width() {
-        assert_eq!(tile_grid(SIDEBAR_WIDTH, 9), (4, 53.));
-        assert_eq!(tile_grid(420., 9).0, 7, "a wider sidebar fits more in a row");
-        assert_eq!(tile_grid(SIDEBAR_WIDTH, 2), (2, 53.), "two tiles share the row and keep their height");
+        assert_eq!(tile_grid(SIDEBAR_WIDTH, 9, false), (4, 53.));
+        assert_eq!(tile_grid(420., 9, false).0, 7, "a wider sidebar fits more in a row");
+        assert_eq!(tile_grid(SIDEBAR_WIDTH, 9, true).0, 6, "the compact row fits more");
+        assert_eq!(tile_grid(SIDEBAR_WIDTH, 2, false), (2, 53.), "two tiles share the row and keep their height");
     }
 
     #[test]

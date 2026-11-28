@@ -144,6 +144,7 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::AutoHideSidebar
         | C::CompactToolbar
         | C::SidebarToolbar
+        | C::SidebarChats
         | C::ShowLibrary
         | C::ReloadInChromium
         | C::ReloadInWebKit
