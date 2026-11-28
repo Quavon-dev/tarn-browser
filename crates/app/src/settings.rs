@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot window solid toolbar",
     ),
     (
         SettingsPane::Tabs,
@@ -1008,7 +1008,7 @@ impl SettingsWindow {
                 .tooltip(ui::controls::tooltip(if ix == 0 { "The theme's own accent" } else { name }, None))
                 .on_click(cx.listener(move |this, _, _, cx| this.with_browser(cx, |b, _, cx| b.set_choice(Choice::Accent, ix, cx))))
         }));
-        let compact = s.prefs.get(Pref::CompactToolbar) as usize;
+        let toolbar = if s.prefs.get(Pref::SidebarToolbar) { 0 } else { 1 + s.prefs.get(Pref::CompactToolbar) as usize };
         let top = self.browser.upgrade().is_some_and(|b| b.read(cx).tab_placement == browser_core::layout::TabPlacement::Top) as usize;
         let motion = "Pop-ups, cards, tabs and the sidebar appear without animation, and the search bar effect holds still.";
         let reduce_motion = if s.reduce && !s.prefs.get(Pref::ReduceMotion) {
@@ -1026,16 +1026,24 @@ impl SettingsWindow {
             .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
             .child(self.theme_sections(window, cx))
             .child(section("Design"))
-            .child(group().children(self.design_rows(cx)))
-            .child(section("Motion"))
-            .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
-            .child(section("Tips"))
-            .child(group().child(self.pref_row(true, Pref::FeatureHints, "Shortcut tips", browser_core::hints::NOTE, s.prefs.get(Pref::FeatureHints), cx)))
-            .child(section("Layout"))
             .child(
                 group()
                     .child(self.choice_row(
                         true,
+                        "Design",
+                        "Where Back, Forward and the address field sit: at the top of the sidebar, in a bar above the page, or in a slimmer bar. The sidebar below looks the same in all three; with tabs on top, or the sidebar hidden, Sidebar shows as Compact.",
+                        &["Sidebar", "Classic", "Compact"],
+                        toolbar,
+                        |b, ix, cx| {
+                            b.set_pref(Pref::SidebarToolbar, ix == 0, cx);
+                            if ix > 0 {
+                                b.set_pref(Pref::CompactToolbar, ix == 2, cx);
+                            }
+                        },
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
                         "Tabs",
                         format!(
                             "In the sidebar, or in a strip across the top with the sidebar hidden ({}).",
@@ -1051,13 +1059,60 @@ impl SettingsWindow {
                         },
                         cx,
                     ))
+                    .children(self.design_rows(cx))
                     .child(self.choice_row(
                         false,
-                        "Toolbar",
-                        "Compact puts the address field into a slimmer bar.",
-                        &["Classic", "Compact"],
-                        compact,
-                        |b, ix, cx| b.set_pref(Pref::CompactToolbar, ix == 1, cx),
+                        "Pinned sites",
+                        "The tiles at the top of the sidebar: large, or a compact row that fits more.",
+                        &["Large", "Compact"],
+                        s.prefs.get(Pref::SmallTiles) as usize,
+                        |b, ix, cx| b.set_pref(Pref::SmallTiles, ix == 1, cx),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "Groups and folders",
+                        "Cards show a folder icon and, when closed, the first sites and how many tabs; Classic keeps the coloured badges.",
+                        &["Cards", "Classic"],
+                        !s.prefs.get(Pref::SidebarCards) as usize,
+                        |b, ix, cx| b.set_pref(Pref::SidebarCards, ix == 0, cx),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::SidebarChats,
+                        "Chats",
+                        "Your latest assistant chats under the pinned sites, while the profile's AI is on.",
+                        s.prefs.get(Pref::SidebarChats),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::UnreadDots,
+                        "Mark changed tabs",
+                        "A dot on a tab whose page changed its title while you looked elsewhere, such as a new message count.",
+                        s.prefs.get(Pref::UnreadDots),
+                        cx,
+                    ))
+                    .child(self.pref_row(
+                        false,
+                        Pref::DimSleeping,
+                        "Dim sleeping tabs",
+                        "Grey out the icons of tabs that sleep to save memory, with a moon beside them.",
+                        s.prefs.get(Pref::DimSleeping),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "Tab previews",
+                        "While the pointer rests on a tab: a snapshot of its page with its title, the title alone, or nothing. Snapshots stay on this computer and are dropped when the pointer leaves.",
+                        &["Page", "Title", "Off"],
+                        if !s.prefs.get(Pref::HoverCards) { 2 } else if s.prefs.get(Pref::PagePreviews) { 0 } else { 1 },
+                        |b, ix, cx| {
+                            b.set_pref(Pref::HoverCards, ix < 2, cx);
+                            b.set_pref(Pref::PagePreviews, ix == 0, cx);
+                            b.hide_hover_card(cx);
+                        },
                         cx,
                     ))
                     .child(self.pref_row(
@@ -1080,6 +1135,10 @@ impl SettingsWindow {
                         cx,
                     )),
             )
+            .child(section("Motion"))
+            .child(group().child(reduce_motion).child(self.search_effect_row(false, cx)))
+            .child(section("Tips"))
+            .child(group().child(self.pref_row(true, Pref::FeatureHints, "Shortcut tips", browser_core::hints::NOTE, s.prefs.get(Pref::FeatureHints), cx)))
             .into_any_element()
     }
 

@@ -98,6 +98,8 @@ pub struct Ui {
     pub popovers: mac::popovers::Anchors,
     pub switcher: Signal<Option<browser_core::switcher::Switcher>>,
     pub chat: tarn_nsh_shared::assistant::Chat,
+    /// The pane the Mac layout's Settings window shows.
+    pub settings_pane: Signal<tarn_nsh_shared::panes::Pane>,
     pub root: Owner,
 }
 
@@ -325,6 +327,7 @@ fn apply(f: impl FnOnce(&mut AppShell) -> Vec<Effect>) -> Vec<Effect> {
         let shell = shell.as_mut().expect("the shell opens with the app");
         let before = shell.model.active;
         let mut effects = f(shell);
+        shell.model.seen();
         effects.extend(shell.settle_media(before));
         effects.extend(shell.take_effects());
         effects
@@ -632,6 +635,7 @@ pub fn App() -> impl IntoElement {
         popovers: mac::popovers::Anchors::default(),
         switcher: signal(None),
         chat: tarn_nsh_shared::assistant::Chat::new(),
+        settings_pane: signal(tarn_nsh_shared::panes::Pane::Profile),
     };
     let extensions_open = std::cell::Cell::new(false);
     effect(move || {
@@ -668,6 +672,15 @@ pub fn App() -> impl IntoElement {
             }
             tarn_nsh_shared::controls::set_density(if mac { Density::Desktop } else { Density::Touch });
             ui.mac.set(mac);
+        }
+    });
+    effect(move || {
+        let loose_first = ui.mac.get() && !ui.read_data(|s| s.tabs_on_top());
+        if ui.read_data(|s| s.model.loose_first) != loose_first {
+            ui.act_on_screen(|s| {
+                s.model.loose_first = loose_first;
+                Vec::new()
+            });
         }
     });
     on_back_press(move || untracked(|| back(ui)));

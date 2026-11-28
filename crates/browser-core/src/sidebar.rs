@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::time::{Duration, Instant};
 
 use shield::ShieldLevel;
-use store::{Folder, Id, Tab, TabKind};
+use store::{Folder, Id, Store, Tab, TabKind};
 
 use crate::closed::ClosedGroup;
 use crate::split::Splits;
@@ -467,39 +467,131 @@ pub fn neighbour_space(model: &Model, step: Step, allowed: impl Fn(&SpaceRef) ->
     }
 }
 
-pub const SPACE_DOT: f32 = 14.;
+/// How many of a profile's latest chats the sidebar lists.
+pub const CHATS_SHOWN: usize = 4;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpaceBar {
-    pub width: f32,
-    pub icon: f32,
-    pub gap: f32,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatRow {
+    pub id: Id,
+    pub title: String,
+    /// The time it last changed today, else its date.
+    pub when: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SpaceStrip {
-    pub compact: bool,
-    pub scroll: Option<f32>,
+/// The profile's latest chats, newest first.
+pub fn chat_rows(store: &Store, profile: Id, now: i64) -> Vec<ChatRow> {
+    let today = store.local_date(now).unwrap_or_default();
+    let mut chats = store.chat_titles(profile).unwrap_or_default();
+    chats.truncate(CHATS_SHOWN);
+    chats
+        .into_iter()
+        .map(|c| {
+            let date = store.local_date(c.updated).unwrap_or_default();
+            let when = if date == today { store.local_clock(c.updated).unwrap_or_default() } else { short_date(&date) };
+            ChatRow { id: c.id, title: c.title, when }
+        })
+        .collect()
 }
 
-impl SpaceBar {
-    pub fn strip(&self, count: usize, current: usize) -> SpaceStrip {
-        let gaps = count.saturating_sub(1) as f32 * self.gap;
-        let compact = count as f32 * self.icon + gaps > self.width;
-        if !compact {
-            return SpaceStrip { compact, scroll: None };
+/// The sidebar's chats, read again only when the profile, its chats, its settings or the minute
+/// change, so a time from yesterday turns into its date soon after midnight.
+#[derive(Default)]
+pub struct ChatList {
+    key: Option<((bool, Id), u64, u64, i64)>,
+    rows: Option<Vec<ChatRow>>,
+}
+
+/// The profile whose chats the sidebar lists: the current one, while its AI is on and it is not
+/// private. Listing titles sends nothing, so the profile's Shield level decides, not the page's.
+pub fn chat_profile<D: WebsiteData>(model: &Model, core: &Core<D>) -> Option<Id> {
+    let origin = model.assistant_origin(core, None).filter(|o| crate::assistant::allowed(*o))?;
+    core.disk.profile(origin.profile).is_ok_and(|p| p.ai_enabled).then_some(origin.profile)
+}
+
+impl ChatList {
+    /// `chat_profile`'s latest chats.
+    pub fn rows<D: WebsiteData>(&mut self, model: &Model, core: &Core<D>, now: i64) -> Option<&[ChatRow]> {
+        // Private profiles count their ids apart, so the store they live in is part of the key.
+        let key = (model.profile()?, core.disk.chat_changes(), core.disk.settings_changes(), now / 60_000);
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.rows = chat_profile(model, core).map(|p| chat_rows(&core.disk, p, now));
         }
-        let content = self.icon + count.saturating_sub(1) as f32 * SPACE_DOT + gaps;
-        let scroll = (content > self.width).then(|| {
-            let middle = current.min(count.saturating_sub(1)) as f32 * (SPACE_DOT + self.gap) + self.icon / 2.;
-            (middle - self.width / 2.).clamp(0., content - self.width)
-        });
-        SpaceStrip { compact, scroll }
+        self.rows.as_deref()
     }
+}
+
+/// `YYYY-MM-DD` as `Mon D`, or as given when it is not such a date.
+pub fn short_date(date: &str) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let mut parts = date.split('-').skip(1).map(|p| p.parse::<usize>().ok());
+    match (parts.next().flatten(), parts.next().flatten()) {
+        (Some(m @ 1..=12), Some(d)) => format!("{} {d}", MONTHS[m - 1]),
+        _ => date.to_owned(),
+    }
+}
+
+/// A collapsed group's first few page addresses and how many tabs it holds.
+pub fn group_summary(model: &Model, group: Id) -> (Vec<String>, usize) {
+    summary(model.tabs.iter().filter(|t| t.kind == TabKind::Ephemeral && t.group_id == Some(group)))
+}
+
+/// The same for a closed folder, whose `tree` (`tabs::folder_tree`) counts its subfolders' tabs too.
+pub fn folder_summary(model: &Model, tree: &HashSet<Id>) -> (Vec<String>, usize) {
+    summary(model.tabs.iter().filter(|t| t.folder_id.is_some_and(|f| tree.contains(&f))))
+}
+
+fn summary<'a>(tabs: impl Iterator<Item = &'a Tab>) -> (Vec<String>, usize) {
+    let tabs: Vec<&Tab> = tabs.collect();
+    (tabs.iter().take(3).map(|t| t.url.clone()).collect(), tabs.len())
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_closed_folder_sums_up_its_subfolders_too() {
+        use super::folder_summary;
+        let folder = |id, parent_id| store::Folder { id, space_id: 1, parent_id, name: String::new(), position: 0, icon: String::new() };
+        let tab = |id, folder_id: Option<store::Id>| store::Tab {
+            id,
+            space_id: 1,
+            folder_id,
+            kind: store::TabKind::Pinned,
+            url: format!("https://{id}.test/"),
+            title: String::new(),
+            position: 0,
+            last_active: 0,
+            group_id: None,
+            pinned_url: None,
+            custom_title: String::new(),
+            web_engine: None,
+        };
+        let mut model = crate::tabs::Model::new(4);
+        model.folders = vec![folder(1, None), folder(2, Some(1)), folder(3, None)];
+        model.tabs = vec![tab(10, Some(1)), tab(11, Some(2)), tab(12, Some(2)), tab(13, Some(2)), tab(14, Some(3)), tab(15, None)];
+        let (urls, count) = folder_summary(&model, &crate::tabs::folder_tree(&model.folders, 1));
+        assert_eq!((urls.len(), count), (3, 4), "three icons, and every tab of the folder and its subfolder");
+        assert_eq!(folder_summary(&model, &crate::tabs::folder_tree(&model.folders, 3)).1, 1);
+    }
+
+    #[test]
+    fn chats_show_their_time_today_and_their_date_before() {
+        use super::{CHATS_SHOWN, chat_rows, short_date};
+        let store = store::Store::open_in_memory().unwrap();
+        let profile = store.create_profile("P", "u", false).unwrap().id;
+        assert!(chat_rows(&store, profile, crate::now()).is_empty());
+        let turns = [store::ChatTurn { you: true, text: "hi".into(), by: None, interrupted: false, command: false }];
+        for n in 0..CHATS_SHOWN + 1 {
+            store.save_chat(profile, None, Some(&format!("Chat {n}")), &turns, &[]).unwrap();
+        }
+        let rows = chat_rows(&store, profile, crate::now());
+        assert_eq!(rows.len(), CHATS_SHOWN);
+        assert!(rows.iter().all(|r| r.when.len() == 5 && r.when.as_bytes()[2] == b':'), "{rows:?}");
+        assert!(chat_rows(&store, profile, crate::now() + 3 * 86_400_000).iter().all(|r| r.when.contains(' ')), "older chats show a date");
+        assert_eq!(short_date("2026-11-07"), "Nov 7");
+        assert_eq!(short_date("garbage"), "garbage");
+    }
+
     #[test]
     fn organize_offers_clean_up_only_with_tabs_to_sort_and_the_assistant_only_when_allowed() {
         use super::{Organize, organize};
@@ -911,19 +1003,5 @@ mod tests {
         let not_work = |s: &SpaceRef| s.space.name != "Work";
         assert_eq!(neighbour_space(&model, Step::Next, not_work), Some(2), "a space the process may not show is stepped over");
         assert_eq!(neighbour_space(&model, Step::Next, |_| false), None);
-    }
-
-    #[test]
-    fn the_space_bar_shrinks_to_dots_and_then_scrolls() {
-        let bar = SpaceBar { width: 150., icon: 28., gap: 2. };
-        let plain = SpaceStrip { compact: false, scroll: None };
-        assert_eq!(bar.strip(0, 0), plain);
-        assert_eq!(bar.strip(5, 0), plain, "five icons with their gaps fill it exactly");
-        assert_eq!(bar.strip(6, 0), SpaceStrip { compact: true, scroll: None });
-        assert_eq!(bar.strip(8, 0), SpaceStrip { compact: true, scroll: None }, "one icon and seven dots with gaps fit");
-        assert_eq!(bar.strip(9, 0), SpaceStrip { compact: true, scroll: Some(0.) }, "the dots' gaps count");
-        assert_eq!(bar.strip(20, 10), SpaceStrip { compact: true, scroll: Some(99.) }, "a middle space is centred");
-        assert_eq!(bar.strip(20, 19), SpaceStrip { compact: true, scroll: Some(182.) }, "the last space ends the strip");
-        assert_eq!(bar.strip(20, 25), bar.strip(20, 19), "an index past the end is the last space");
     }
 }

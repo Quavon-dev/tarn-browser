@@ -500,27 +500,28 @@ impl SettingsWindow {
         let (reached, safe) = (core.themes.borrow().reached, core.themes.borrow().safe);
         let mut rows = vec![
             wide_row(
-                true,
+                false,
                 text_block(
-                    "Design",
+                    "Window",
                     if cfg!(target_os = "macos") {
                         "Glass makes the window translucent over your desktop, with rounder, softer panels."
                     } else {
                         "Glass gives rounder, softer panels."
                     },
                 ),
-                Self::picks("design", on, [("Classic", false), ("Glass", true)], library::set_glass_on, cx),
+                Self::picks("design", on, [("Solid", false), ("Glass", true)], library::set_glass_on, cx),
             )
             .into_any_element(),
         ];
-        if !on {
-            return rows;
-        }
+        let picked = if on { glass.corners } else { library::classic_corners(&core.disk) };
         let corners = browser_core::theme::Corners::ALL.map(|c| (c.label(), c));
-        let corners =
-            wide_row(false, text_block("Corners", "How round panels and cards are."), Self::picks("corners", glass.corners, corners, library::set_corners, cx))
-                .into_any_element();
-        if !cfg!(target_os = "macos") {
+        let corners = wide_row(
+            false,
+            text_block("Corners", "How round panels, cards and tiles are. Theme keeps the theme's own."),
+            Self::picks("corners", picked, corners, if on { library::set_corners } else { library::set_classic_corners }, cx),
+        )
+        .into_any_element();
+        if !on || !cfg!(target_os = "macos") {
             rows.push(corners);
             return rows;
         }

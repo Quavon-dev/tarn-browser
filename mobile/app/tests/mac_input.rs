@@ -105,10 +105,13 @@ fn the_mac_layout_answers_the_macos_keys() {
     app.press_key("mod+,").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
-    app.press_key("mod+d").unwrap();
-    app.wait_for("label:Pinned").unwrap();
-    app.press_key("mod+d").unwrap();
-    app.wait_for_gone("label:Pinned", WAIT).unwrap();
+    for entry in ["label:Unpin Tab", "label:Pin Tab"] {
+        app.press_key("mod+d").unwrap();
+        app.long_press("id:tab").unwrap();
+        app.wait_for(entry).unwrap();
+        app.press_key("escape").unwrap();
+        app.wait_for_gone(entry, WAIT).unwrap();
+    }
 
     app.long_press("label:New Tab >> nth=1").unwrap();
     app.press("label:New Group").unwrap();

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use nsh_core::prelude::*;
 use store::{Id, Store};
-use tarn_nsh_shared::appearance::{Host, appearance};
+use tarn_nsh_shared::appearance::{Host, Layout, appearance};
 
 use super::{SHELL, Ui};
 
@@ -48,6 +48,10 @@ impl Host for Looks {
     }
     fn desktop(self) -> bool {
         false
+    }
+    fn layout(self) -> Option<Layout> {
+        let wrap = |rows: Vec<AnyElement>| rows.into_iter().map(|row| view().child(row)).collect();
+        Some(Layout { lead: wrap(super::panels::layout_rows(self.0)), sidebar: wrap(super::panels::sidebar_rows(self.0)), tail: Vec::new() })
     }
 }
 

@@ -19,14 +19,42 @@ pub const AUTO_PICTURE_IN_PICTURE: Switch = Switch { key: "auto_picture_in_pictu
 pub const FEATURE_HINTS: Switch = Switch { key: "feature_hints", default: true };
 /// Settings' Appearance switch for compact density: tighter sidebar and tab strip rows on every client.
 pub const COMPACT: Switch = Switch { key: "compact_density", default: false };
+/// A card with the tab's title while the pointer rests on a tab, on every client.
+pub const HOVER_CARDS: Switch = Switch { key: "tab_hover_cards", default: true };
+/// The card also shows a snapshot of an awake tab's page, kept in memory while the pointer rests.
+pub const PAGE_PREVIEWS: Switch = Switch { key: "tab_page_previews", default: true };
 pub const COMPACT_NOTE: &str = "Shorter rows and gaps in the sidebar and the tab strip.";
 
+/// The address field in a slimmer bar, for the Classic and Compact toolbar choice.
+pub const COMPACT_TOOLBAR: Switch = Switch { key: "compact_toolbar", default: false };
+/// Back, Forward, Reload and the address field at the top of the sidebar.
+pub const SIDEBAR_TOOLBAR: Switch = Switch { key: "sidebar_toolbar", default: true };
+/// The profile's latest assistant chats under the pinned sites.
+pub const SIDEBAR_CHATS: Switch = Switch { key: "sidebar_chats", default: true };
+/// The compact row of pinned sites in place of large tiles.
+pub const SMALL_TILES: Switch = Switch { key: "sidebar_small_tiles", default: false };
+/// Groups and folders as cards; off keeps the classic coloured badges.
+pub const SIDEBAR_CARDS: Switch = Switch { key: "sidebar_cards", default: true };
+/// Sleeping tabs greyed out with a moon.
+pub const DIM_SLEEPING: Switch = Switch { key: "sidebar_dim_sleeping", default: false };
+/// A dot on a tab that retitled itself in the background.
+pub const UNREAD_DOTS: Switch = Switch { key: "sidebar_unread_dots", default: true };
+
+/// What a switch reads with nothing stored. The sidebar is the same with every toolbar, so only
+/// the toolbar choice carries over: someone who picked the Classic or Compact toolbar before the
+/// sidebar toolbar existed keeps it; every other switch starts at its default.
+pub fn stored_default(store: &Store, switch: Switch) -> bool {
+    let stored = |s: Switch| store.setting(s.key).ok().flatten().is_some();
+    if switch == SIDEBAR_TOOLBAR && stored(COMPACT_TOOLBAR) { false } else { switch.default }
+}
+
 impl Switch {
+    /// With nothing stored, `stored_default`.
     pub fn on(self, store: &Store) -> bool {
         match store.setting(self.key).ok().flatten().as_deref() {
             Some("on") => true,
             Some("off") => false,
-            _ => self.default,
+            _ => stored_default(store, self),
         }
     }
 
@@ -80,6 +108,16 @@ pub fn accented(tokens: Tokens, store: &Store) -> Tokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_an_earlier_toolbar_choice_carries_over() {
+        let store = Store::open_in_memory().unwrap();
+        assert!(SIDEBAR_TOOLBAR.on(&store) && SIDEBAR_CARDS.on(&store), "a new install gets the toolbar in the sidebar");
+        store.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
+        assert!(!SIDEBAR_TOOLBAR.on(&store), "someone who picked a toolbar before keeps it");
+        assert!(SIDEBAR_CARDS.on(&store) && SIDEBAR_CHATS.on(&store), "the sidebar is the same with every toolbar");
+        assert_eq!(stored_default(&store, GESTURES), GESTURES.default);
+    }
 
     #[test]
     fn switches_read_their_default_until_set() {

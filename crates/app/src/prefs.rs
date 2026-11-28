@@ -9,6 +9,14 @@ use crate::sidebar::SIDEBAR_WIDTH;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Pref {
     CompactToolbar,
+    SidebarToolbar,
+    SidebarChats,
+    SmallTiles,
+    SidebarCards,
+    DimSleeping,
+    UnreadDots,
+    HoverCards,
+    PagePreviews,
     AutoHideSidebar,
     Gestures,
     ReduceMotion,
@@ -41,8 +49,16 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 30] = [
+    pub const ALL: [Pref; 38] = [
         Pref::CompactToolbar,
+        Pref::SidebarToolbar,
+        Pref::SidebarChats,
+        Pref::SmallTiles,
+        Pref::SidebarCards,
+        Pref::DimSleeping,
+        Pref::UnreadDots,
+        Pref::HoverCards,
+        Pref::PagePreviews,
         Pref::AutoHideSidebar,
         Pref::Gestures,
         Pref::ReduceMotion,
@@ -76,7 +92,15 @@ impl Pref {
 
     pub(crate) fn key(self) -> &'static str {
         match self {
-            Pref::CompactToolbar => "compact_toolbar",
+            Pref::CompactToolbar => browser_core::prefs::COMPACT_TOOLBAR.key,
+            Pref::SidebarToolbar => browser_core::prefs::SIDEBAR_TOOLBAR.key,
+            Pref::SidebarChats => browser_core::prefs::SIDEBAR_CHATS.key,
+            Pref::SmallTiles => browser_core::prefs::SMALL_TILES.key,
+            Pref::SidebarCards => browser_core::prefs::SIDEBAR_CARDS.key,
+            Pref::DimSleeping => browser_core::prefs::DIM_SLEEPING.key,
+            Pref::UnreadDots => browser_core::prefs::UNREAD_DOTS.key,
+            Pref::HoverCards => browser_core::prefs::HOVER_CARDS.key,
+            Pref::PagePreviews => browser_core::prefs::PAGE_PREVIEWS.key,
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
@@ -114,6 +138,12 @@ impl Pref {
         matches!(
             self,
             Pref::Gestures
+                | Pref::SidebarToolbar
+                | Pref::SidebarChats
+                | Pref::SidebarCards
+                | Pref::UnreadDots
+                | Pref::HoverCards
+                | Pref::PagePreviews
                 | Pref::Suggestions
                 | Pref::TearOffTemporary
                 | Pref::BlockAds
@@ -209,7 +239,7 @@ pub fn apply_accent(store: &Store) {
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
-pub struct Prefs(u32);
+pub struct Prefs(u64);
 
 impl Prefs {
     pub fn load(store: &Store) -> Self {
@@ -217,6 +247,7 @@ impl Prefs {
             let on = match store.setting(pref.key()).ok().flatten().as_deref() {
                 Some("on") => true,
                 Some("off") => false,
+                _ if pref == Pref::SidebarToolbar => browser_core::prefs::SIDEBAR_TOOLBAR.on(store),
                 _ => pref.default(),
             };
             prefs.with(pref, on)
@@ -224,11 +255,11 @@ impl Prefs {
     }
 
     pub fn get(self, pref: Pref) -> bool {
-        self.0 & (1 << pref as u32) != 0
+        self.0 & (1 << pref as u64) != 0
     }
 
     fn with(self, pref: Pref, on: bool) -> Self {
-        if on { Prefs(self.0 | 1 << pref as u32) } else { Prefs(self.0 & !(1 << pref as u32)) }
+        if on { Prefs(self.0 | 1 << pref as u64) } else { Prefs(self.0 & !(1 << pref as u64)) }
     }
 }
 
@@ -421,10 +452,18 @@ impl Browser {
 }
 
 #[test]
+fn every_pref_has_its_own_bit() {
+    for pref in Pref::ALL {
+        let on = Prefs::default().with(pref, true);
+        assert!(on.get(pref) && Pref::ALL.iter().filter(|p| on.get(**p)).count() == 1, "{pref:?}");
+    }
+}
+
+#[test]
 fn prefs_default_and_roundtrip() {
     let store = Store::open_in_memory().unwrap();
     let prefs = Prefs::load(&store);
-    assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar));
+    assert!(prefs.get(Pref::Gestures) && !prefs.get(Pref::CompactToolbar) && prefs.get(Pref::SidebarToolbar));
     assert!(prefs.get(Pref::BlockAds) && prefs.get(Pref::BlockMalware) && prefs.get(Pref::YouTubeAds) && !prefs.get(Pref::BlockAdult));
     assert!(prefs.get(Pref::UpdateChecks) && !prefs.get(Pref::HistoryText) && !prefs.get(Pref::SortDownloads));
     assert!(!prefs.get(Pref::ExtensionsBitwarden) && !prefs.get(Pref::SearchShortcuts));
@@ -434,6 +473,7 @@ fn prefs_default_and_roundtrip() {
     store.set_setting(Pref::Gestures.key(), "off").unwrap();
     store.set_setting(Pref::CompactToolbar.key(), "on").unwrap();
     let prefs = Prefs::load(&store);
+    assert!(!prefs.get(Pref::SidebarToolbar), "an earlier toolbar choice stays");
     assert!(!prefs.get(Pref::Gestures) && prefs.get(Pref::CompactToolbar));
 }
 
@@ -518,6 +558,15 @@ mod tests {
             (Pref::FeatureHints, prefs::FEATURE_HINTS),
             (Pref::CompactDensity, prefs::COMPACT),
             (Pref::AutoPictureInPicture, prefs::AUTO_PICTURE_IN_PICTURE),
+            (Pref::HoverCards, prefs::HOVER_CARDS),
+            (Pref::CompactToolbar, prefs::COMPACT_TOOLBAR),
+            (Pref::SidebarToolbar, prefs::SIDEBAR_TOOLBAR),
+            (Pref::SidebarChats, prefs::SIDEBAR_CHATS),
+            (Pref::SmallTiles, prefs::SMALL_TILES),
+            (Pref::SidebarCards, prefs::SIDEBAR_CARDS),
+            (Pref::DimSleeping, prefs::DIM_SLEEPING),
+            (Pref::UnreadDots, prefs::UNREAD_DOTS),
+            (Pref::PagePreviews, prefs::PAGE_PREVIEWS),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

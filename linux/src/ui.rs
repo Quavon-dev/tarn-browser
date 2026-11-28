@@ -4,6 +4,7 @@ mod appearance;
 mod assistant;
 mod blocking;
 mod capture;
+mod chrome;
 mod devtools;
 mod extensions;
 mod groups;
@@ -44,7 +45,7 @@ use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme
 use browser_core::command::{ENGINES, Input, Section, classify_input, search_engine};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
-use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
+use tarn_nsh_shared::controls::{secure_button, secure_surface};
 
 use crate::data::Data;
 
@@ -56,8 +57,6 @@ const COMPACT_TITLE: f32 = 360.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
-/// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
-const SPACE_BUTTON: f32 = 28.;
 const FIELD: f32 = 30.;
 const CHIP_INSET: f32 = 3.;
 const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
@@ -133,6 +132,9 @@ pub enum Panel {
     Organize,
     Card(Option<store::Id>),
     SpaceMenu(crate::browser::profiles::SpaceKey),
+    Chats,
+    /// The footer's profile menu; `None` for a private space's profile.
+    Profile(Option<store::Id>),
 }
 
 #[derive(Clone, Copy)]
@@ -229,6 +231,8 @@ pub struct Ui {
     card_name: Signal<String>,
     card_space: Signal<String>,
     import: Signal<import::State>,
+    /// The sidebar's Chats section is unfolded.
+    chats_open: Signal<bool>,
     root: Owner,
 }
 
@@ -253,6 +257,8 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         b.elsewhere = elsewhere;
         let before = b.model.active;
         f(b);
+        b.model.seen();
+        b.model.loose_first = !b.tabs_on_top();
         b.settle_media(before);
         b.keep_page_fullscreen(overlay, address, find);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
@@ -671,17 +677,19 @@ pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
         .child(dynamic(move || tarn_nsh_shared::controls::site_tile(ui.icons.with(|i| i.find(&host)).map(|icon| icon.to_string()), &host, size).into_element()))
 }
 
-fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {
-    Theme::profile_color(color).map(|c| Rgba { a: alpha, ..c })
-}
-
 pub(crate) fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
 fn tiles(ui: Ui) -> View {
     let side = browser_core::tabs::tile_grid(LIST_WIDTH, TILE_GAP).1;
-    let width = move || px(browser_core::tabs::tile_row(LIST_WIDTH, TILE_GAP, ui.snap.with(|s| s.tiles.len())).1);
+    let look = computed(move || ui.snap.with(|s| (s.tiles.len(), s.small_tiles, s.dim)));
+    let width = move || {
+        let (count, small, _) = look.get();
+        let min = if small { browser_core::tabs::SMALL_TILE_MIN_WIDTH } else { browser_core::tabs::TILE_MIN_WIDTH };
+        px(browser_core::tabs::tile_row_sized(LIST_WIDTH, TILE_GAP, count, min).1)
+    };
+    let height = move || if look.get().1 { 34. } else { (side * 0.72).round() };
     view().flex_row().flex_wrap().gap(px(TILE_GAP)).mb_1().child(each(
         move || ui.snap.with(|s| s.tiles.clone()),
         |r| r.id(),
@@ -689,14 +697,15 @@ fn tiles(ui: Ui) -> View {
             let RowKind::Tab(key) = item.with_untracked(|r| r.kind.clone()) else { return view().into_element() };
             let active = move || item.with(|r| r.active);
             let tile = row(move || Some(SharedString::from(item.with(|r| r.label.clone()))), move || act(ui, |b| b.activate(key)))
-                .h(px(side - 2.))
+                .h(move || px(height()))
                 .px_0()
                 .justify_center()
                 .rounded(px(Theme::radius_tile()))
                 .bg(move || if active() { Theme::selected() } else { Theme::raised() })
                 .child(dynamic(move || {
                     let host = item.with(|r| r.host.clone());
-                    site_tile(ui, &host, 20.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. }).into_element()
+                    let glyph = if look.get().1 { 16. } else { 20. };
+                    site_tile(ui, &host, glyph).opacity(move || if item.with(|r| r.asleep) && look.get().2 { 0.4_f32 } else { 1. }).into_element()
                 }));
             let tile = keyboard_row(ui, item.with_untracked(snapshot::Row::id), tile);
             view()
@@ -704,6 +713,8 @@ fn tiles(ui: Ui) -> View {
                 .rounded(px(Theme::radius_tile()))
                 .border_1()
                 .border_color(move || if active() { Theme::sidebar_edge() } else { Theme::hairline() })
+                .on_mouse_enter(move |e: &MouseEvent| peek::hover_row(ui, key, true, e.page_position.y.0))
+                .on_mouse_leave(move |_: &MouseEvent| peek::hover_row(ui, key, false, 0.))
                 .on_context_menu(move |_: &ContextMenuEvent| tab_menu(ui, key))
                 .child(tile)
                 .into_element()
@@ -724,9 +735,13 @@ fn keyboard_order(s: &Snapshot) -> Vec<String> {
         r.panes.iter().for_each(|p| push(p, out));
     }
     let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
-    for pinned in [true, false] {
-        s.rows.iter().filter(|r| in_pinned_section(r) == pinned).for_each(|r| push(r, &mut out));
+    if let Some(chats) = &s.chats {
+        out.push("chats".to_owned());
+        out.extend(chats.iter().map(|c| format!("chat-{}", c.id)));
     }
+    s.rows.iter().filter(|r| in_pinned_section(r)).for_each(|r| push(r, &mut out));
+    out.push("tidy".to_owned());
+    s.rows.iter().filter(|r| !in_pinned_section(r)).for_each(|r| push(r, &mut out));
     out
 }
 
@@ -758,8 +773,10 @@ fn move_row_focus(ui: Ui, down: bool) {
     let Some(current) = ROW_FOCUS.with_borrow(|f| f.get(&ui.window).cloned()) else { return };
     let order = ui.snap.with_untracked(keyboard_order);
     let Some(ix) = order.iter().position(|id| *id == current) else { return };
-    let next = if down { order.get(ix + 1) } else { ix.checked_sub(1).and_then(|ix| order.get(ix)) };
-    if let Some((_, r)) = next.and_then(|id| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned())) {
+    // Rows not drawn, such as folded chats, are passed over.
+    let drawn = |id: &String| ROW_REFS.with_borrow(|refs| refs.get(&(ui.window, id.clone())).cloned());
+    let next = if down { order[ix + 1..].iter().find_map(drawn) } else { order[..ix].iter().rev().find_map(drawn) };
+    if let Some((_, r)) = next {
         r.focus();
     }
 }
@@ -774,8 +791,7 @@ fn sidebar_rows(ui: Ui, pinned: bool) -> AnyElement {
 
 fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement {
     let kind = item.with_untracked(|r| r.kind.clone());
-    let depth = item.with_untracked(|r| r.depth) as f32;
-    let name = move || item.with(|r| r.label.clone());
+    let top = item.with_untracked(|r| r.depth) == 0;
     match kind {
         RowKind::Tab(key) => tab_row(ui, pinned, key, item),
         RowKind::Group(id) => groups::group_card(ui, id, item),
@@ -791,16 +807,20 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
                 },
             ))
             .into_element(),
-        RowKind::Folder(id) => view()
-            .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
-            .child(
-                keyboard_row(
-                    ui,
-                    item.with_untracked(snapshot::Row::id),
-                    row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))),
-                )
+        RowKind::Folder(id) if top => dynamic(move || if ui.snap.with(|s| s.cards) { groups::folder_card(ui, id, item) } else { folder_row(ui, id, item) }),
+        RowKind::Folder(id) => folder_row(ui, id, item),
+    }
+}
+
+fn folder_row(ui: Ui, id: store::Id, item: ReadSignal<snapshot::Row>) -> AnyElement {
+    let depth = indent(ui, item);
+    let name = move || item.with(|r| r.label.clone());
+    view()
+        .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
+        .child(
+            keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))))
                 .h(move || px(Theme::tab_row()))
-                .pl(px(8. + depth * 16.))
+                .pl(move || px(8. + depth() * 16.))
                 .child(
                     view()
                         .text_color(Theme::muted())
@@ -808,9 +828,8 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
                 )
                 .child(view().text_color(Theme::space_label()).child(dynamic(move || folder_icon(&item.with(|r| r.icon.clone())))))
                 .child(label(name).font_weight(FontWeight::SEMIBOLD).flex_1().truncate()),
-            )
-            .into_element(),
-    }
+        )
+        .into_element()
 }
 
 fn folder_icon(stored: &str) -> AnyElement {
@@ -821,8 +840,12 @@ fn folder_icon(stored: &str) -> AnyElement {
     }
 }
 
+fn indent(ui: Ui, item: ReadSignal<snapshot::Row>) -> impl Fn() -> f32 + Copy {
+    move || item.with(|r| r.depth).saturating_sub(ui.snap.with(|s| s.cards) as usize) as f32
+}
+
 fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
-    let depth = item.with_untracked(|r| r.depth) as f32;
+    let depth = indent(ui, item);
     let name = move || item.with(|r| r.label.clone());
     let active = move || item.with(|r| r.active);
     let hovered = signal(false);
@@ -859,7 +882,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .on_press_down(move || ui.dragging.set(Some(key)))
         .h(move || px(Theme::tab_row()))
         .relative()
-        .pl(px(10. + depth * 16.))
+        .pl(move || px(10. + depth() * 16.))
         .pr_1()
         .gap(px(CLOSE_GAP))
         .bg(move || match (dropping().is_some(), active()) {
@@ -886,7 +909,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 (false, host) => {
                     let host = host.unwrap_or_default();
                     tarn_nsh_shared::motion::popping(
-                        view().child(site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) { 0.4_f32 } else { 1. })),
+                        view().child(site_tile(ui, &host, 16.).opacity(move || if item.with(|r| r.asleep) && ui.snap.with(|s| s.dim) { 0.4_f32 } else { 1. })),
                     )
                     .into_element()
                 }
@@ -904,6 +927,12 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 .truncate(),
         )
         .child(dynamic(move || {
+            item.with(|r| r.unread).then(|| {
+                let name = "Changed since you last looked";
+                view().w(px(6.)).h(px(6.)).rounded_full().bg(Theme::muted()).accessible(true).label(name).tooltip(controls::tip(name, Placement::Top))
+            })
+        }))
+        .child(dynamic(move || {
             let (burner, heavy) = item.with(|r| (r.burner, r.heavy));
             let mark = if burner {
                 Some((icons::FLAME, Theme::warning(), "Burner tab: nothing is kept after it closes"))
@@ -917,7 +946,9 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
             })
         }))
         .child(dynamic(move || {
-            let (playing, asleep, muted) = item.with(|r| (r.playing, r.asleep, r.muted));
+            let (playing, muted) = item.with(|r| (r.playing, r.muted));
+            let (dim, cards) = ui.snap.with(|s| (s.dim, s.cards));
+            let asleep = dim && item.with(|r| r.asleep);
             let state = if closing() || dropping().is_some() {
                 None
             } else if muted {
@@ -926,7 +957,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
                 Some((icons::VOLUME_2, Theme::space_label(), "Playing audio"))
             } else if asleep {
                 Some((icons::MOON, Theme::faint(), "Asleep"))
-            } else if pinned {
+            } else if pinned && !cards {
                 Some((icons::PIN, Theme::faint(), "Pinned"))
             } else {
                 None
@@ -968,74 +999,6 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .into_element()
 }
 
-const SPACE_BAR: browser_core::sidebar::SpaceBar =
-    browser_core::sidebar::SpaceBar { width: SIDEBAR_WIDTH - 18. - 2. * SPACE_BUTTON, icon: SPACE_BUTTON, gap: 2. };
-
-fn space_bar(ui: Ui) -> View {
-    let listed = move || ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).cloned().collect::<Vec<_>>());
-    let strip = computed(move || {
-        let listed = listed();
-        SPACE_BAR.strip(listed.len(), listed.iter().position(|x| x.current).unwrap_or(0))
-    });
-    let spaces = each(
-        listed,
-        |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
-        move |space, _| {
-            let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
-            let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
-            let current = move || space.with(|s| s.current);
-            let dot = move || strip.get().compact && !current();
-            let tint = move || match (current(), private) {
-                (true, true) => Theme::warning(),
-                (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
-                (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
-            };
-            let glyph_tint = tint.clone();
-            let button = controls::row(name, move || {
-                space_switch();
-                act(ui, |b| b.switch_space_by_user(ix));
-            })
-            .w(move || px(if dot() { browser_core::sidebar::SPACE_DOT } else { SPACE_BUTTON }))
-            .h(px(SPACE_BUTTON))
-            .flex_none()
-            .px_0()
-            .justify_center()
-            .rounded(px(Theme::radius_row()))
-            .bg(move || if current() { Theme::selected() } else { Theme::clear() })
-            .text_color(glyph_tint)
-            .child(dynamic(move || {
-                if dot() { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(tint()).into_element() } else { icons::icon(source, icon_size()).into_element() }
-            }));
-            view()
-                .on_context_menu(move |_: &ContextMenuEvent| {
-                    if let Some(Some(key)) = read(ui, |b| b.model.spaces.get(ix).map(|s| (s.private, s.space.id))) {
-                        show(ui, Panel::SpaceMenu(key));
-                    }
-                })
-                .child(button)
-        },
-    );
-    let strip_ref = element_ref();
-    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).position(|x| x.current))));
-    let reveal = move |animated| {
-        if let Some(x) = shown.get().0.scroll {
-            strip_ref.scroll_to(nsh_core::Point::new(Points(x), Points(0.)), animated);
-        }
-    };
-    effect(move || reveal(true));
-    view()
-        .flex_row()
-        .items_center()
-        .min_h(px(40.))
-        .py(px(6.))
-        .px_1()
-        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library)))
-        .child(scroll().horizontal().element_ref(&strip_ref).flex_1().min_w(px(0.)).child(
-            view().flex_row().flex_grow(1.).items_center().justify_center().gap(px(2.)).on_layout(move |_: &Bounds<Points>| reveal(false)).child(spaces),
-        ))
-        .child(icon_button(icons::PLUS, "New Space", move || show(ui, Panel::NewSpace)).text_color(Theme::faint()))
-}
-
 fn downloads_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let progress = ui.snap.with(|s| s.downloading);
@@ -1053,33 +1016,6 @@ fn downloads_button(ui: Ui) -> AnyElement {
     })
 }
 
-fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
-    let tint = move || ui.snap.with(|s| if s.private { Theme::warning() } else { Theme::profile_color(&s.profile_color).unwrap_or(Theme::space_label()) });
-    let glyph = move || ui.snap.with(|s| s.spaces.iter().find(|x| x.current && !x.private).and_then(|x| space_tint(&x.color, 1.))).unwrap_or_else(tint);
-    let name = move || ui.snap.with(|s| s.space_name.clone());
-    row(move || Some(SharedString::from(format!("Space {}", name()))), move || show(ui, Panel::Space))
-        .flex_1()
-        .min_w(px(0.))
-        .px_1()
-        .gap(px(6.))
-        .child(
-            view()
-                .w(px(SPACE_BUTTON))
-                .h(px(SPACE_BUTTON))
-                .flex_none()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::selected())
-                .items_center()
-                .justify_center()
-                .text_color(glyph)
-                .child(dynamic(move || {
-                    let icon = ui.snap.with(|s| s.space_icon.clone());
-                    icons::icon(icons::space_icon(&icon), icon_size())
-                })),
-        )
-        .child(text(name).text_size(px(14.)).font_weight(FontWeight::BOLD).text_color(Theme::text()).truncate())
-}
-
 fn new_tab_row(ui: Ui) -> View {
     let new = controls::pressable("New Tab", move || new_tab(ui))
         .flex_row()
@@ -1089,33 +1025,24 @@ fn new_tab_row(ui: Ui) -> View {
         .h(move || px(Theme::tab_row()))
         .pl(px(10.))
         .rounded(px(Theme::radius_row()))
-        .child(
-            view()
-                .w(px(16.))
-                .h(px(16.))
-                .rounded(px(Theme::radius_small()))
-                .bg(Theme::accent())
-                .items_center()
-                .justify_center()
-                .text_color(Theme::on_fill(Theme::accent()))
-                .child(icons::icon(icons::PLUS, 11.)),
-        )
-        .child(body("New Tab").text_color(Theme::muted()));
-    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::ELLIPSIS, browser_core::sidebar::ORGANIZE, move || show(ui, Panel::Organize)))
+        .text_color(Theme::muted())
+        .child(view().w(px(16.)).items_center().child(icons::icon(icons::PLUS, 14.)))
+        .child(body("New tab").text_color(Theme::muted()));
+    view().flex_row().items_center().mb_1().child(new)
 }
 
 fn sidebar(ui: Ui, card: bool) -> View {
-    let settings = icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings));
-    let header =
-        view().flex_row().items_center().gap_1().h(px(TOOLBAR_HEIGHT - 8.)).pl_1().child(space_switcher(ui)).child(downloads_button(ui)).child(settings);
+    let chrome = computed(move || ui.snap.with(|s| s.chrome));
+    let header = dynamic(move || if chrome.get() { chrome::header(ui).into_element() } else { view().h(px(4.)).into_element() });
     let list = view()
         .flex_col()
         .gap(px(2.))
         .px_1()
         .pb_2()
         .child(when(move || ui.snap.with(|s| !s.tiles.is_empty()), move || tiles(ui)))
+        .child(chrome::chats(ui))
         .child(sidebar_rows(ui, true))
-        .child(view().h(px(1.)).mx_2().my_2().bg(Theme::hairline()))
+        .child(chrome::tidy(ui))
         .child(new_tab_row(ui))
         .child(sidebar_rows(ui, false));
     view()
@@ -1145,7 +1072,8 @@ fn sidebar(ui: Ui, card: bool) -> View {
                 .child(scroll().flex_1().child(list)),
         )
         .child(mini_player(ui))
-        .child(space_bar(ui))
+        .child(chrome::pills(ui))
+        .child(chrome::footer(ui))
 }
 
 fn mini_player(ui: Ui) -> View {
@@ -1509,23 +1437,27 @@ fn address(ui: Ui) -> View {
             }
         }))
         .child(view().flex_row().flex_1().min_w(px(0.)).h_full().on_context_menu(move |_: &ContextMenuEvent| address_menu(ui)).child(shown))
-        .child(themed(move || {
-            when(
-                move || ui.snap.with(|s| s.article),
-                move || {
-                    dynamic(move || {
-                        Some(
-                            icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
-                                .h(px(CHIP))
-                                .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
-                                .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
-                        )
-                    })
-                },
-            )
-        }))
+        .child(reader_chip(ui))
         .child(share_chip(ui, hovered));
     view().flex_row().flex_1().justify_center().child(capsule)
+}
+
+fn reader_chip(ui: Ui) -> AnyElement {
+    themed(move || {
+        when(
+            move || ui.snap.with(|s| s.article),
+            move || {
+                dynamic(move || {
+                    Some(
+                        icon_button(icons::BOOK_OPEN, reader_label(ui), move || act(ui, |b| b.toggle_reader()))
+                            .h(px(CHIP))
+                            .rounded(px(Theme::radius_row() - 1. - CHIP_INSET))
+                            .text_color(move || if ui.snap.with(|s| s.reader.is_some()) { Theme::accent_text() } else { Theme::muted() }),
+                    )
+                })
+            },
+        )
+    })
 }
 
 pub(super) fn shortcut_of(ui: Ui, action: Action) -> Option<String> {
@@ -1541,17 +1473,7 @@ fn toolbar(ui: Ui) -> View {
             .items_center()
             .gap(px(2.))
             .child(button(icons::SIDEBAR, "Toggle sidebar", toggle_sidebar))
-            .child(
-                button(icons::BACK, "Back", |ui| act(ui, |b| b.back()))
-                    .disabled(move || !ui.snap.with(|s| s.can_back))
-                    .disabled_style(|s| s.text_color(Theme::faint())),
-            )
-            .child(
-                button(icons::FORWARD, "Forward", |ui| act(ui, |b| b.forward()))
-                    .disabled(move || !ui.snap.with(|s| s.can_forward))
-                    .disabled_style(|s| s.text_color(Theme::faint())),
-            )
-            .child(reload_button(ui))
+            .child(chrome::history(ui, Placement::Right))
             .child(private_mark(ui))
     };
     let split_shown = computed(move || ui.snap.with(|s| s.split.is_some()));
@@ -1633,6 +1555,19 @@ fn compact_address(ui: Ui) -> View {
             )
         }))
         .child(share_chip(ui, hovered))
+}
+
+/// Sets an app-wide switch and redraws every window with it.
+pub(super) fn set_pref(switch: browser_core::prefs::Switch, on: bool) {
+    act_everywhere(move |b| b.set_pref(switch, on));
+}
+
+/// Runs `f` once, on a window's browser, for a change every window shows, and redraws them all.
+pub(super) fn act_everywhere(f: impl FnOnce(&mut Browser)) {
+    let mut f = Some(f);
+    for ui in WINDOWS.with_borrow(Vec::clone) {
+        act(ui, |b| f.take().into_iter().for_each(|f| f(b)));
+    }
 }
 
 /// Puts every window's tabs in the sidebar or on top, as Settings picks.
@@ -3089,6 +3024,7 @@ fn ui_for(window: u64, mut browser: Browser) -> Ui {
         card_name: signal(String::new()),
         card_space: signal(String::new()),
         import: signal(import::State::default()),
+        chats_open: signal(true),
         root: Owner::current(),
     };
     let editing = std::cell::Cell::new(false);
@@ -3210,6 +3146,8 @@ fn browser_window(ui: Ui) -> AnyElement {
         untracked(|| apply_color_scheme(ui, light));
     });
     let full = computed(move || ui.snap.with(|s| s.fullscreen));
+    let folded = computed(move || ui.sidebar.get() && ui.snap.with(|s| s.chrome));
+    let folded = move || folded.get();
     tarn_nsh_shared::motion::watching(view())
         .flex_row()
         .size_full()
@@ -3230,7 +3168,8 @@ fn browser_window(ui: Ui) -> AnyElement {
             view()
                 .flex_col()
                 .flex_1()
-                .child(when(move || !full.get(), move || toolbar(ui)))
+                .child(when(move || !full.get() && !folded(), move || toolbar(ui)))
+                .child(when(move || !full.get() && folded(), move || chrome::folded_toolbar(ui)))
                 .child(when(move || !full.get() && ui.snap.with(|s| s.tabs_top), move || themed(move || tab_strip(ui))))
                 .child(themed(move || extensions::popup_panel(ui)))
                 .child(agent::bar(ui))
@@ -3371,6 +3310,8 @@ mod tests {
         let snap = crate::snapshot::snapshot(&b, true);
         let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
         let order = super::keyboard_order(&snap);
-        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), id(super::RowKind::Tab(first))]);
+        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), "tidy".to_owned(), id(super::RowKind::Tab(first))]);
+        b.set_pref(browser_core::prefs::SIDEBAR_TOOLBAR, false);
+        assert_eq!(super::keyboard_order(&crate::snapshot::snapshot(&b, true)), order, "the Classic toolbar keeps the same sidebar, Tidy included");
     }
 }

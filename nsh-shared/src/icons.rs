@@ -97,6 +97,10 @@ pub const PENCIL: &str = include_str!("../../crates/ui/icons/pencil.svg");
 pub const UNDO_2: &str = include_str!("../../crates/ui/icons/undo-2.svg");
 pub const PAUSE: &str = include_str!("../../crates/ui/icons/pause.svg");
 pub const STAR_FILL: &str = include_str!("../../crates/ui/icons/star-fill.svg");
+pub const ARROW_UP: &str = include_str!("../../crates/ui/icons/arrow-up.svg");
+pub const SQUARE: &str = include_str!("../../crates/ui/icons/square.svg");
+pub const MESSAGE_CIRCLE: &str = include_str!("../../crates/ui/icons/message-circle.svg");
+pub const SQUARE_PEN: &str = include_str!("../../crates/ui/icons/square-pen.svg");
 pub const MARK: &str = include_str!("../../crates/ui/brand/mark.svg");
 
 pub const NAMED: &[(&str, &str)] = &[
@@ -196,6 +200,10 @@ pub const NAMED: &[(&str, &str)] = &[
     ("undo-2", UNDO_2),
     ("pause", PAUSE),
     ("star-fill", STAR_FILL),
+    ("arrow-up", ARROW_UP),
+    ("square", SQUARE),
+    ("message-circle", MESSAGE_CIRCLE),
+    ("square-pen", SQUARE_PEN),
 ];
 
 pub fn named(name: &str) -> Option<&'static str> {

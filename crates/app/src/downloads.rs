@@ -205,9 +205,8 @@ impl Browser {
         }
     }
 
-    /// Opens the popover under the sidebar header's download button, its caret on the button, or
-    /// under the toolbar while the sidebar is hidden, with room for the downloads saving now to
-    /// finish into rows.
+    /// Opens the popover above the sidebar footer's download button, or under the toolbar while the
+    /// sidebar is hidden, with room for the downloads saving now to finish into rows.
     fn show_downloads(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(main) = window.window_handle().downcast::<Browser>().or(self.peek.main) else { return };
         let top = match (self.peek.is_window(window), self.sidebar_open) {
@@ -215,8 +214,13 @@ impl Browser {
             (false, true) => SIDEBAR_MARGIN + HEADER_HEIGHT - 4.,
             (false, false) => ui::theme::TOOLBAR_HEIGHT,
         };
-        // Under the toolbar there is no button for the caret to point at.
-        let caret = self.peek.is_window(window) || self.sidebar_open;
+        // Under the toolbar there is no button for the caret to point at; over the sidebar's
+        // bottom edge the popover opens upwards, where the upward caret cannot point.
+        let painted = self.downloads_popover.button.get();
+        // The painted button counts only where it is on screen in this window.
+        let shown = self.sidebar_open || self.peek.is_window(window);
+        let above = shown && painted.size.width > px(0.) && painted.center().y > window.viewport_size().height / 2.;
+        let caret = !above && shown;
         self.peek.owns[1] = self.peek.is_window(window);
         if !self.peek.owns[1] {
             self.close_peek(cx);
@@ -224,7 +228,6 @@ impl Browser {
         let anchor = window.bounds();
         let saving = self.transfers().len();
         let rows = (self.downloads().len() + saving).min(MAX_ROWS) + saving.min(MAX_ROWS);
-        let painted = self.downloads_popover.button.get();
         let button = if painted.size.width > px(0.) && !self.peek.is_window(window) {
             f32::from(painted.center().x)
         } else {
@@ -232,10 +235,9 @@ impl Browser {
         };
         let left = (button - CARET_AT - POPOVER_INSET).clamp(0., (f32::from(anchor.size.width) - WIDTH - 2. * POPOVER_INSET).max(0.));
         let caret = caret.then(|| (button - left - POPOVER_INSET).clamp(2. * CARET, WIDTH - 2. * CARET));
-        let bounds = Bounds::new(
-            point(anchor.origin.x + px(left), anchor.origin.y + px(top)),
-            size(px(WIDTH + 2. * POPOVER_INSET), px(CARET + card_height(rows) + POPOVER_INSET)),
-        );
+        let height = CARET + card_height(rows) + POPOVER_INSET;
+        let top = if above { (f32::from(painted.origin.y) - height).max(0.) } else { top };
+        let bounds = Bounds::new(point(anchor.origin.x + px(left), anchor.origin.y + px(top)), size(px(WIDTH + 2. * POPOVER_INSET), px(height)));
         let display = window.display(cx).map(|d| d.id());
         let browser = cx.entity().downgrade();
         // The new window renders from the browser at once, so it must open after this update ends.
@@ -255,7 +257,7 @@ impl Browser {
     }
 }
 
-/// The header button; while a download of this profile is saving, a ring shows how much is saved,
+/// The sidebar footer's button; while a download of this profile is saving, a ring shows how much is saved,
 /// or a dot when no size is known.
 pub fn header_button(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let share = saved_share(b.transfers().iter().map(|(_, t)| t));

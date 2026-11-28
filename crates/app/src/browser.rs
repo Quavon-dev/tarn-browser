@@ -432,8 +432,9 @@ pub struct Browser {
     pub shortcuts_open: bool,
     pub(crate) tab_switcher: Option<crate::switcher::Open>,
     pub(crate) shortcuts_scroll: gpui::ScrollHandle,
-    pub(crate) space_strip_scroll: gpui::ScrollHandle,
-    pub(crate) space_strip_shown: std::cell::Cell<Option<(usize, usize, i32)>>,
+    /// The sidebar's chats, read again once the store or the profile changes.
+    pub(crate) chat_rows: std::cell::RefCell<browser_core::sidebar::ChatList>,
+    pub(crate) chats_open: bool,
     pub reader: Option<crate::reader::Reader>,
     pub reader_layout: crate::reader::Layout,
     /// This window's row; its engine is the window engine.
@@ -654,8 +655,8 @@ impl Browser {
             shortcuts_open: false,
             tab_switcher: None,
             shortcuts_scroll: gpui::ScrollHandle::new(),
-            space_strip_scroll: gpui::ScrollHandle::new(),
-            space_strip_shown: Default::default(),
+            chat_rows: Default::default(),
+            chats_open: true,
             reader: None,
             reader_layout: Default::default(),
             saved,

@@ -273,7 +273,10 @@ fn content(ui: Ui, pane: Signal<Pane>) -> impl IntoElement {
 }
 
 pub(super) fn window(ui: Ui) -> impl IntoElement {
-    let pane = signal(if ui.screen.get_untracked() == Screen::Settings { Pane::Appearance } else { Pane::Profile });
+    let pane = ui.settings_pane;
+    if ui.screen.get_untracked() == Screen::Settings {
+        pane.set(Pane::Appearance);
+    }
     when(
         move || owns(ui.screen.get()),
         move || {

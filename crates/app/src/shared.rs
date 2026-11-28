@@ -27,6 +27,8 @@ pub(crate) struct AppCore {
     pub downloads: mpsc::UnboundedSender<(bool, Id, Event)>,
     /// `None` when this build names no update feed.
     pub updater: Option<platform::updater::Updater>,
+    /// The version an installed update waits to start on Restart, as the updater last reported.
+    pub update_ready: RefCell<Option<String>>,
     /// A browser-data import is reading or writing; only one runs at a time.
     pub importing: Cell<bool>,
     pub themes: RefCell<crate::themes::State>,
@@ -161,6 +163,7 @@ pub(crate) fn start(cx: &mut App) -> bool {
         extensions: RefCell::default(),
         tarn: RefCell::default(),
         downloads,
+        update_ready: RefCell::new(updater.as_ref().and_then(platform::updater::Updater::ready_version)),
         updater,
         importing: Cell::new(false),
         themes: RefCell::default(),
@@ -351,6 +354,7 @@ pub(crate) fn restart_to_update(cx: &mut App) {
     if core(cx).updater.as_ref().is_some_and(platform::updater::Updater::install_on_quit) {
         cx.quit();
     } else {
+        core(cx).update_ready.take();
         toast_front(browser_core::toast::Tone::Warning, "The update is no longer ready; check for updates again", None, cx);
         cx.refresh_windows();
     }
@@ -363,6 +367,7 @@ fn updater_reported(report: platform::updater::Report, cx: &mut App) {
         Report::FeedVerified => core.feed_verified(browser_core::now()),
         Report::CriticalFound => core.critical_found(browser_core::now()),
         Report::UpdateReady(version) => {
+            core.update_ready.replace(Some(version.clone()));
             toast_front(browser_core::toast::Tone::Info, format!("Tarn {version} is ready to install"), Some(crate::toast::Action::RestartToUpdate), cx)
         }
         Report::UpToDate => toast_front(browser_core::toast::Tone::Success, "Tarn is up to date", None, cx),

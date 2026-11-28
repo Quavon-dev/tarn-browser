@@ -51,6 +51,9 @@ impl<D: Platform> Shell<D> {
             }
             "title" => {
                 let title = text(data, "title").unwrap_or_default();
+                if let Some(page) = self.pages.get(&key) {
+                    self.model.note_title(key, &page.title, &title, page.loading);
+                }
                 let committed = self.pages.get_mut(&key).and_then(|page| {
                     page.title = title.clone();
                     page.committed.clone().filter(|_| !page.awaiting_commit)

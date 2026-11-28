@@ -13,6 +13,7 @@ mod media;
 pub mod pages;
 pub mod profile_data;
 pub mod profiles;
+mod sidebar;
 mod site;
 mod snippets;
 pub mod spaces;
@@ -45,7 +46,7 @@ use crate::input;
 use crate::webview::policy::DEFAULT_LEVEL_KEY;
 
 pub const START_URL: &str = "about:blank";
-pub const COMPACT_TOOLBAR: &str = "compact_toolbar";
+pub const COMPACT_TOOLBAR: &str = browser_core::prefs::COMPACT_TOOLBAR.key;
 pub const AUTO_HIDE_SIDEBAR: &str = "auto_hide_sidebar";
 pub const ZOOM_STEPS: [f64; 9] = [0.5, 0.67, 0.8, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0];
 
@@ -199,6 +200,7 @@ pub struct Browser {
     /// lets everything through), and its bar.
     pub agent_sites: Option<Vec<String>>,
     pub agent_banner: Option<browser_core::agent::control::Banner>,
+    chat_rows: std::cell::RefCell<browser_core::sidebar::ChatList>,
     window: SavedWindow,
     seq: u64,
     toast_serial: u64,
@@ -312,6 +314,7 @@ impl Browser {
             burner_return: None,
             agent_sites: None,
             agent_banner: None,
+            chat_rows: Default::default(),
             window,
             seq: 0,
             toast_serial: 0,
@@ -1052,7 +1055,9 @@ impl Browser {
             browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
-                    page.title = text("title");
+                    let title = text("title");
+                    self.model.note_title(key, &page.title, &title, page.loading);
+                    page.title = title;
                     self.core.store(key.private).set_tab_title(key.id, &page.title).ok();
                 }
             }

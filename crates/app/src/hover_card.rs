@@ -21,16 +21,22 @@ use crate::prefs::Pref;
 use crate::sidebar::SIDEBAR_MARGIN;
 
 const WIDTH: f32 = 300.;
-/// Segoe UI, the Windows font, sets lines taller than macOS's.
-const HEIGHT: f32 = if cfg!(windows) { 108. } else { 96. };
+/// Line heights are set, so the card's height does not hang on the font's own.
+const TITLE_LINE: f32 = 20.;
+const SMALL_LINE: f32 = 17.;
+/// The border, the padding, the title, the gap and the host line.
+const HEIGHT: f32 = 2. + 20. + TITLE_LINE + 4. + SMALL_LINE;
 const GAP: f32 = 8.;
-/// The state line ("Sleeping · Muted") and its gap; a card without one is that much shorter.
-const STATE_LINE: f32 = 16.;
-/// The larger card shown while ⌥ is held, with a snapshot of the page above the lines.
-const PEEK_WIDTH: f32 = 400.;
+/// The state line ("Sleeping · Muted") and its gap, added when there is one.
+const STATE_LINE: f32 = 4. + SMALL_LINE;
+/// Below the snapshot: its margin and the gap to the title.
+const SHOT_GAP: f32 = 6. + 4.;
+/// The card with a snapshot of the page above the lines: for an awake tab when page previews are
+/// on (outside private spaces), or while ⌥ is held, unless tab previews are off.
+const PEEK_WIDTH: f32 = 340.;
 const SHOT_WIDTH: f32 = PEEK_WIDTH - 24.;
 const SHOT_HEIGHT: f32 = SHOT_WIDTH * 10. / 16.;
-/// How often a resting pointer checks ⌥, and how old a snapshot gets before it is taken again.
+/// How often a resting pointer checks ⌥, and how old a snapshot gets before ⌥ takes it again.
 const POLL: Duration = Duration::from_millis(150);
 const REFRESH: Duration = Duration::from_secs(1);
 /// Above the pointer, so the card's first line sits level with the hovered row.
@@ -39,11 +45,11 @@ const LIFT: f32 = 20.;
 #[derive(Default)]
 pub struct HoverCard {
     rest: Rest,
-    /// Where the card opens, its display, and the bottom edge of the window it must stay above.
-    anchor: Option<(Bounds<gpui::Pixels>, Option<gpui::DisplayId>, gpui::Pixels)>,
+    /// Where the card opens, its display, and the window it stays within.
+    anchor: Option<(Bounds<gpui::Pixels>, Option<gpui::DisplayId>, Bounds<gpui::Pixels>)>,
     pub(crate) window: Option<WindowHandle<CardWindow>>,
     timer: Option<Task<()>>,
-    /// Whether the open card is the ⌥ peek.
+    /// Whether the open card shows the page's snapshot.
     live: bool,
     /// The last snapshot, of one tab only, and when the last one was asked for.
     shot: Option<(TabKey, Arc<RenderImage>)>,
@@ -91,14 +97,13 @@ impl Browser {
             }
             return;
         }
-        if self.menu_open || self.renaming.is_some() || cx.has_active_drag() {
+        if self.menu_open || self.renaming.is_some() || cx.has_active_drag() || !self.pref(Pref::HoverCards) {
             return;
         }
         let origin = window.bounds().origin;
         let x = origin.x + px(SIDEBAR_MARGIN + self.sidebar_width + GAP);
         let y = origin.y + window.mouse_position().y - px(LIFT);
-        let bottom = window.bounds().bottom();
-        self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id()), bottom));
+        self.hover_card.anchor = Some((Bounds::new(point(x, y), size(px(WIDTH), px(HEIGHT))), window.display(cx).map(|d| d.id()), window.bounds()));
         if self.hover_card.rest.enter(key, Instant::now())
             && let Some(handle) = self.hover_card.window.take()
         {
@@ -110,8 +115,8 @@ impl Browser {
         self.schedule_hover_card(window, cx);
     }
 
-    /// Runs while the pointer rests on a row: opens the card once it is due, at once and as the
-    /// larger peek while ⌥ is held, and swaps between the two as ⌥ goes down or up. ⌥ is read
+    /// Runs while the pointer rests on a row: opens the card once it is due, at once and with the
+    /// page's snapshot while ⌥ is held, and swaps between the two as that changes. ⌥ is read
     /// globally, so the card closes when another app is in front.
     fn schedule_hover_card(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.shell_active(window) {
@@ -120,7 +125,9 @@ impl Browser {
         }
         let Some((key, wait)) = self.hover_card.rest.due(Instant::now()) else { return };
         let held = engine::option_held();
-        let live = held && self.views.get(&key).is_some_and(|v| !v.is_chromium());
+        // A private tab's page shows only on purpose, so it is not on screen during a share by accident.
+        let page = held || self.pref(Pref::PagePreviews) && !key.private;
+        let live = page && self.views.get(&key).is_some_and(|v| !v.is_chromium());
         let next = if held || wait.is_zero() { POLL } else { wait.min(POLL) };
         self.hover_card.timer = Some(cx.spawn_in(window, async move |this, cx| {
             cx.background_executor().timer(next).await;
@@ -135,19 +142,19 @@ impl Browser {
             return;
         }
         if live {
-            self.request_shot(key, cx);
+            self.request_shot(key, held, cx);
         }
         if self.hover_card.window.is_some() {
             return;
         }
-        let (Some((mut bounds, display, bottom)), Some(lines)) = (self.hover_card.anchor, lines(self, key)) else { return };
+        let (Some((mut bounds, display, frame)), Some(lines)) = (self.hover_card.anchor, lines(self, key)) else { return };
         if live {
-            bounds.size = size(px(PEEK_WIDTH), px(HEIGHT + SHOT_HEIGHT + 8.));
+            bounds.size = size(px(PEEK_WIDTH), px(HEIGHT + SHOT_HEIGHT + SHOT_GAP));
         }
-        if lines.2.is_empty() {
-            bounds.size.height -= px(STATE_LINE);
+        if !lines.2.is_empty() {
+            bounds.size.height += px(STATE_LINE);
         }
-        bounds.origin.y = bounds.origin.y.min(bottom - bounds.size.height - px(GAP));
+        bounds.origin.y = bounds.origin.y.min(frame.bottom() - bounds.size.height - px(GAP)).max(frame.top() + px(GAP));
         let bounds = bounds.dilate(px(POPOVER_INSET));
         let shot = self.hover_card.shot.as_ref().filter(|(k, _)| *k == key).map(|(_, image)| image.clone());
         self.hover_card.live = live;
@@ -174,10 +181,13 @@ impl Browser {
         });
     }
 
-    /// A fresh, scaled-down snapshot of an awake tab, at most one per `REFRESH` and one at a time;
-    /// it is kept only while the pointer rests on the tab.
-    fn request_shot(&mut self, key: TabKey, cx: &mut Context<Self>) {
-        if self.hover_card.waiting || self.hover_card.asked.is_some_and(|(k, at)| k == key && at.elapsed() < REFRESH) {
+    /// A scaled-down snapshot of an awake tab: one per rest, taken again each `REFRESH` while ⌥
+    /// is held, and tried again after `REFRESH` when one failed. It is kept only while the
+    /// pointer rests on the tab.
+    fn request_shot(&mut self, key: TabKey, held: bool, cx: &mut Context<Self>) {
+        let have = self.hover_card.shot.as_ref().is_some_and(|(k, _)| *k == key);
+        let recent = self.hover_card.asked.is_some_and(|(k, at)| k == key && at.elapsed() < REFRESH);
+        if self.hover_card.waiting || recent || have && !held {
             return;
         }
         let Some(view) = self.views.get(&key) else { return };
@@ -269,9 +279,11 @@ impl Render for CardWindow {
             })
             .text_size(px(TEXT))
             .text_color(Theme::text())
-            .child(div().flex_none().font_weight(FontWeight::MEDIUM).line_clamp(2).child(SharedString::from(title)))
-            .child(div().text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(place)))
-            .when(!state.is_empty(), |d| d.child(div().text_size(px(TEXT_SMALL)).text_color(Theme::faint()).child(SharedString::from(state))));
+            .child(div().flex_none().line_height(px(TITLE_LINE)).font_weight(FontWeight::MEDIUM).one_line(SharedString::from(title)))
+            .child(div().line_height(px(SMALL_LINE)).text_size(px(TEXT_SMALL)).text_color(Theme::muted()).one_line(SharedString::from(place)))
+            .when(!state.is_empty(), |d| {
+                d.child(div().line_height(px(SMALL_LINE)).text_size(px(TEXT_SMALL)).text_color(Theme::faint()).one_line(SharedString::from(state)))
+            });
         rise_in(div().size_full().child(card), "hover-card", 4., self.reduce)
     }
 }

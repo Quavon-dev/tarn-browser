@@ -6,7 +6,8 @@ use tarn_nsh_shared::assistant::{self, Platform};
 use url::Url;
 
 use super::{Screen, Ui};
-use crate::theme::Theme;
+use crate::theme::{Paint, Theme, themed};
+use tarn_nsh_shared::sidebar::MARGIN;
 
 const COLUMN: f32 = 340.;
 
@@ -87,12 +88,20 @@ pub fn attach(ui: Ui, pages: Vec<(Origin, Pill, Option<String>)>) {
     }
 }
 
-pub fn panel(ui: Ui) -> AnyElement {
-    assistant::panel(Host(ui), ui.chat, move || ui.show(Screen::Browse))
-}
-
+/// The chat as a card beside the page, drawn like the sidebar.
 pub fn column(ui: Ui) -> View {
-    view().w(px(COLUMN)).flex_none().border_l_1().border_color(Theme::surface_edge()).child(panel(ui))
+    let radius = move || px(Theme::radius_tile());
+    view()
+        .w(px(COLUMN))
+        .flex_none()
+        .m(px(MARGIN))
+        .ml(px(0.))
+        .rounded(radius)
+        .border_1()
+        .border_color(Theme::sidebar_edge)
+        .shadow(Theme::elevation(6., 24.))
+        .child(themed(move || view().absolute().inset_0().rounded(radius()).paint(Theme::sidebar())))
+        .child(assistant::card(Host(ui), ui.chat, move || ui.show(Screen::Browse)))
 }
 
 /// Clean Up's Group with Assistant: sends the loose tabs' ids, sites and titles and files them as

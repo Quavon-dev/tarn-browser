@@ -141,6 +141,10 @@ icons! {
     Pause => "pause",
     Play => "play",
     Ellipsis => "ellipsis",
+    MessageCircle => "message-circle",
+    SquarePen => "square-pen",
+    ArrowUp => "arrow-up",
+    Square => "square",
 }
 
 /// Icons a space can show, stored by Lucide name in `spaces.icon`; the first is the default.

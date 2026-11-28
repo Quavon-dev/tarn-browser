@@ -63,11 +63,11 @@ fn the_mac_layout_offers_assistant_tabs_on_top_density_and_capture() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("id:palette-field", WAIT).unwrap();
 
-    app.wait_for("label:Organize Tabs").unwrap();
+    app.wait_for("label:Tidy").unwrap();
     run(&mut app, "Tabs on Top");
-    app.wait_for_gone("label:Organize Tabs", WAIT).expect("Tabs on Top replaces the sidebar with a strip");
+    app.wait_for_gone("label:Tidy", WAIT).expect("Tabs on Top replaces the sidebar with a strip");
     run(&mut app, "Tabs on Top");
-    app.wait_for("label:Organize Tabs").expect("Tabs on Top again brings the sidebar back");
+    app.wait_for("label:Tidy").expect("Tabs on Top again brings the sidebar back");
 
     let row = |app: &Headless| {
         let id = app.screen().press_target("label:example.com").unwrap().unwrap();
@@ -84,6 +84,10 @@ fn the_mac_layout_offers_assistant_tabs_on_top_density_and_capture() {
     settings_pane(&mut app, "Appearance");
     app.press("label:Compact density: On").unwrap();
     app.wait_for("label:Compact density: Off").unwrap();
+    for row in ["Tabs", "Window", "Pinned sites", "Groups and folders", "label:Dim sleeping tabs: Off"] {
+        app.wait_for(row).unwrap();
+    }
+    assert!(!app.screen().matches("label:Modern").unwrap(), "no Style preset: the sidebar has one layout");
 
     app.press("label:AI").unwrap();
     app.wait_for("label:Use the assistant in this profile: Off").unwrap();
@@ -92,6 +96,11 @@ fn the_mac_layout_offers_assistant_tabs_on_top_density_and_capture() {
     assert!(app.screen().matches("label:API key").unwrap());
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
+    app.wait_for("label:Chats").expect("the sidebar lists chats once the profile's AI is on");
+    run(&mut app, "Chats in Sidebar");
+    app.wait_for_gone("label:Chats", WAIT).expect("the command bar hides them");
+    run(&mut app, "Chats in Sidebar");
+    app.wait_for("label:Chats").unwrap();
 
     run(&mut app, "Ask Assistant");
     app.wait_for("label:Attach Page").unwrap();

@@ -151,6 +151,8 @@ impl Browser {
                 if unchanged {
                     return;
                 }
+                let old = self.model.tab(key).map(|t| t.title.clone()).unwrap_or_default();
+                self.model.note_title(key, &old, &title, self.loading(key));
                 if self.private_matches(key)
                     && let Some(t) = self.model.tabs.iter_mut().find(|t| t.id == key.id)
                 {

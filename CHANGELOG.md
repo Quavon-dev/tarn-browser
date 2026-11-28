@@ -6,6 +6,59 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+### Added
+
+- The toolbar can sit in the sidebar, and does by default: Back, Forward, Reload and the address
+  field move above the tabs, and the page gets the window's full height. Under the tiles, Chats
+  lists the profile's four latest assistant chats with their time (shown only while the profile's
+  AI is on, never in a private space); the pen starts a new one, and Settings › Appearance ›
+  Design › Chats, View › Chats in Sidebar, the command bar or right-clicking Chats hides them. A
+  rule with Tidy sorts loose tabs into groups (right-click for the other ways to organise). Loose
+  tabs come before the groups, which show as cards; a closed group takes its colour and shows its
+  first sites and how many tabs it holds. Pinned folders show as the same cards, closed ones with
+  their sites and count, an empty one with a place to drop tabs; as cards, pinned tabs leave out
+  the pin. A tab of the space you are in that retitled itself while you looked elsewhere, such as
+  an inbox count, shows a dot until you open it; this is kept in memory only. The tab whose media
+  the mini-player follows shows a speaker, a muted tab a crossed-out one, and sleeping tabs keep
+  their colour. At the bottom, a card says when an agent controls the window or needs you, and on
+  Windows when an update waits for Restart; downloads, the space switcher (which lists your
+  spaces) and your profile's menu (Settings, Library, profiles) sit along the bottom edge, and
+  their menus open upwards. With tabs on top or the sidebar hidden the toolbar comes back as
+  Compact. Settings › Appearance › Design › Design, View › Toolbar in Sidebar or the command bar switch
+  back to Classic or Compact. On macOS, Windows and Linux (Linux has no View menu). The Mac layout
+  on iPad and Android tablets gets the same sidebar (Chats, Tidy, cards, the dot, the speaker,
+  sleeping tabs in colour, and downloads, the space switcher and the profile menu along the bottom
+  edge), while Back, Forward, Reload and the address field stay in the toolbar above the page; the
+  command bar's Chats in Sidebar hides Chats there too.
+
+### Changed
+
+- Resting the pointer on a tab shows a snapshot of its page above its title when the tab is awake,
+  without holding ⌥; the title takes one line and the card no longer cuts off the lines under it.
+  Settings › Appearance › Design › Tab previews picks Page, Title or Off. Snapshots stay on the
+  computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
+  only while ⌥ (Alt on Linux) is held. Chromium tabs on macOS show the title card. On macOS,
+  Windows and Linux.
+- Settings › Appearance › Design gathers every layout option in one place. Its first choice, also
+  called Design, puts Back, Forward and the address field at the top of the sidebar (Sidebar), in
+  a bar above the page (Classic) or in a slimmer bar (Compact); the sidebar itself looks the same
+  with all three. Beside it: tabs in the sidebar or on top, the window Solid or Glass, Corners
+  (Square, Theme, Round, Rounder, now in Solid too, where Theme keeps the theme's own until you pick
+  others), large pinned-site tiles or a compact row, groups and folders as cards or with the classic
+  coloured badges, Chats, the dot on changed tabs, dimmed sleeping tabs, tab previews, compact
+  density and hiding the sidebar automatically. On macOS, Windows and Linux, and the sidebar
+  options in the Mac layout on iPad and Android tablets.
+- The assistant opens as a card beside the page, drawn like the sidebar in every theme and in
+  Glass: a slimmer header with Saved Chats, New Chat and Close, a rounder question field that holds
+  the model picker and a round Send (Stop while it answers) button, and a quieter note on what Send
+  carries. On macOS, Windows and Linux, and beside the page in the Mac layout on iPad and Android
+  tablets; the question field with the model picker and the round Send also in the assistant sheet
+  on iPhone and Android phones.
+
+### Fixed
+
+- Tarn no longer quits on start on macOS and Windows when a sidebar tab group was left closed.
+
 ## [0.1.8] - 2026-11-27
 
 ### Added

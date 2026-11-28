@@ -22,8 +22,8 @@ use store::{Id, Store};
 use url::Url;
 
 use crate::controls::{
-    accent_pill, add_button, confirm, described, editor, editor_actions, empty, field, group, hint, icon_pill, label, list_row, open_row, pill, pressable,
-    row_action, section_with, segmented, signal_field, switch_row,
+    accent_pill, add_button, confirm, described, editor, editor_actions, empty, field, group, hint, label, list_row, open_row, pill, pressable, row_action,
+    section_with, segmented, signal_field, switch_row,
 };
 use crate::icons;
 use crate::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -379,7 +379,7 @@ impl Chat {
     }
 
     /// The saved chat this conversation continues.
-    fn saved(self) -> Option<Id> {
+    pub fn saved(self) -> Option<Id> {
         self.session.with(|s| s.as_ref().and_then(|(_, s)| s.chat()))
     }
 
@@ -925,6 +925,11 @@ pub fn panel<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) ->
     view().flex_col().p_3().h_full().min_h(px(0.)).bg(Theme::panel()).child(chat_body(host, chat, Some(close))).into_element()
 }
 
+/// The panel on a card that paints its own background, as the desktop draws it beside the page.
+pub fn card<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) -> AnyElement {
+    view().flex_col().p_3().h_full().min_h(px(0.)).child(chat_body(host, chat, Some(close))).into_element()
+}
+
 fn all_commands<H: Host>(host: H) -> Vec<(String, String)> {
     let custom = host.origin().map(|o| host.with_store(|s| s.ai_commands(o.profile).unwrap_or_default())).unwrap_or_default();
     commands::all(&custom)
@@ -1091,23 +1096,23 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                     .items_center()
                     .gap_1()
                     .self_start()
-                    .max_w(relative(1.))
+                    .min_w(px(0.))
+                    .flex_shrink(1.)
+                    .h(px(26.))
                     .px_2()
-                    .py(px(2.))
                     .rounded_full()
                     .text_color(Theme::muted)
-                    .child(icons::icon(icons::SPARKLES, 12.))
                     .child(text(name).text_size(px(TEXT_SMALL)).text_color(Theme::muted).number_of_lines(1_u32).flex_shrink(1.).min_w(px(0.)))
-                    .child(icons::icon(icons::CHEVRON_DOWN, 10.)),
+                    .child(icons::icon(if model_open.get() { icons::CHEVRON_DOWN } else { icons::CHEVRON_UP }, 10.)),
             )
         });
         let top = view()
             .flex_row()
             .items_center()
             .gap_1()
-            .child(view().flex_1().min_w(px(0.)).child(label(title).font_weight(FontWeight::SEMIBOLD).number_of_lines(1_u32).px_1()).child(model_chip))
-            .child(row_action(icons::HISTORY, "Chats", move || chats_open.update(|o| *o = !*o)).selected(move || chats_open.get()))
-            .child(row_action(icons::PLUS, "New Chat", move || {
+            .child(view().flex_1().min_w(px(0.)).child(label(title).font_weight(FontWeight::SEMIBOLD).number_of_lines(1_u32).px_1()))
+            .child(row_action(icons::HISTORY, "Saved Chats", move || chats_open.update(|o| *o = !*o)).selected(move || chats_open.get()))
+            .child(row_action(icons::SQUARE_PEN, "New Chat", move || {
                 chats_open.set(false);
                 chat.finish(host);
                 chat.close();
@@ -1173,7 +1178,9 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
         };
         let chips: Vec<AnyElement> = chat_view.chips.iter().enumerate().map(|(ix, name)| chip(host, chat, ix, name.clone())).collect();
         let has_chips = !chips.is_empty();
-        let will_send = (!chat_view.will_send.is_empty()).then(|| hint(will_send_line(&chat_view.will_send, chat_view.will_send_bytes)));
+        // Under the question field and quiet, as the desktop shows it.
+        let will_send =
+            (!chat_view.will_send.is_empty()).then(|| hint(will_send_line(&chat_view.will_send, chat_view.will_send_bytes)).text_color(Theme::faint).px_2());
         let submit = move |_: &str| chat.submit(host);
         let slash = dynamic(move || {
             let typed = chat.question.get();
@@ -1190,17 +1197,39 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 open_row(row, format!("/{name}"), template, format!("Use {name}"), move || chat.question.set(format!("/{name} "))).into_element()
             })))
         });
-        let send = if can_cancel {
-            icon_pill(icons::PAUSE, "Stop", move || chat.apply(host, Event::Cancel)).into_element()
-        } else if can_send {
-            accent_pill("Send", move || chat.submit(host)).into_element()
-        } else {
-            view().into_element()
-        };
+        let ready = move || can_cancel || can_send && !chat.question.with(|q| q.trim().is_empty());
+        let fill = move || if ready() { Theme::accent() } else { Theme::control() };
+        let (glyph, name) = if can_cancel { (icons::SQUARE, "Stop") } else { (icons::ARROW_UP, "Send") };
+        let send = pressable(name, move || {
+            if can_cancel {
+                chat.apply(host, Event::Cancel)
+            } else if ready() {
+                chat.submit(host)
+            }
+        })
+        // Assistive tools hear that there is nothing to send yet.
+        .disabled(move || !ready())
+        // A finger's 44-point target around the 28-point circle.
+        .w(px(44.))
+        .h(px(44.))
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .child(
+            view()
+                .w(px(28.))
+                .h(px(28.))
+                .rounded_full()
+                .items_center()
+                .justify_center()
+                .bg(fill)
+                .text_color(move || if ready() { Theme::on_fill(fill()) } else { Theme::faint() })
+                .child(icons::icon(glyph, if can_cancel { 11. } else { 15. })),
+        );
         let composer = view()
             .gap_1()
             .p_1()
-            .rounded(px(Theme::radius_group()))
+            .rounded(px(Theme::radius_tile()))
             .bg(Theme::raised())
             .border_1()
             .border_color(Theme::hairline())
@@ -1222,6 +1251,7 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                     .child(row_action(icons::APP_WINDOW, "Attach Tab", move || tabs_open.update(|o| *o = !*o)).selected(move || tabs_open.get()))
                     .child(row_action(icons::PENCIL, "Attach Note", move || notes_open.update(|o| *o = !*o)).selected(move || notes_open.get()))
                     .child(view().flex_1())
+                    .child(model_chip)
                     .child(send),
             );
         Some(
@@ -1230,15 +1260,15 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 .flex_1()
                 .min_h(px(0.))
                 .child(top)
-                .child(dynamic(move || model_open.get().then(|| model_picker(host, model_rev))))
                 .child(dynamic(move || chats_open.get().then(|| chat_list(host, chat, chats_open))))
                 .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(conversation.py_2()))
                 .children(chat_view.notice.clone().map(|n| hint(n).text_color(Theme::accent_text)))
                 .child(dynamic(move || tabs_open.get().then(|| tab_picker(host, tabs_open))))
                 .child(dynamic(move || notes_open.get().then(|| notes(host, chat, notes_open))))
                 .child(slash)
-                .children(will_send)
-                .child(composer),
+                .child(dynamic(move || model_open.get().then(|| model_picker(host, model_rev))))
+                .child(composer)
+                .children(will_send),
         )
     })
     .into_element()

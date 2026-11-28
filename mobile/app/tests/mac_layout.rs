@@ -39,7 +39,8 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.wait_for("label:Back").unwrap();
     app.wait_for("label:Search or enter address").unwrap();
     assert!(!app.screen().matches("id:address").unwrap(), "the Mac toolbar mounts no second address input");
-    app.press("label:Settings").unwrap();
+    app.press("label:/^Profile /").unwrap();
+    app.press("label:Settings…").unwrap();
     app.wait_for("label:Close Settings").unwrap();
     app.back().unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
@@ -49,7 +50,8 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
-    app.press("label:Settings").unwrap();
+    app.press("label:/^Profile /").unwrap();
+    app.press("label:Settings…").unwrap();
     app.wait_for("label:Touch").unwrap();
     app.press("label:Touch").unwrap();
     app.wait_for("label:Tabs 1").unwrap();

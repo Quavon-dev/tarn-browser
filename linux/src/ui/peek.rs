@@ -12,7 +12,7 @@ use crate::theme::{TOOLBAR_HEIGHT, Theme, themed};
 const INSET: f32 = 8.;
 const CARD_TOP: f32 = INSET + TOOLBAR_HEIGHT;
 const WIDTH: f32 = 300.;
-const HEIGHT: f32 = 96.;
+const HEIGHT: f32 = 80.;
 const STATE_LINE: f32 = 16.;
 const GAP: f32 = 8.;
 const LIFT: f32 = 20.;
@@ -151,13 +151,14 @@ pub(super) fn hover_row(ui: Ui, key: TabKey, hovered: bool, y: f32) {
         }
         return;
     }
-    if busy(ui) {
+    if busy(ui) || read(ui, |b| b.pref(browser_core::prefs::HOVER_CARDS)) != Some(true) {
         return;
     }
     ui.hover_card.update(|c| {
         c.y = y;
         if c.rest.enter(key, Instant::now()) {
             c.shown = None;
+            c.asked = None;
         }
     });
     poll(ui);
@@ -171,7 +172,9 @@ fn poll(ui: Ui) {
     });
     let Some((key, wait)) = ui.hover_card.with_untracked(|c| c.rest.due(Instant::now())) else { return };
     let held = alt_held();
-    let live = held && REFS.with_borrow(|refs| refs.contains_key(&(ui.window, key)));
+    // A page snapshot shows for an awake tab outside a private space, or for any awake one with Alt.
+    let page = !key.private && read(ui, |b| b.pref(browser_core::prefs::PAGE_PREVIEWS)) == Some(true);
+    let live = (held || page) && REFS.with_borrow(|refs| refs.contains_key(&(ui.window, key)));
     let next = if held || wait.is_zero() { POLL } else { wait.min(POLL) };
     later(ui, next, move || {
         if ui.hover_card.with_untracked(|c| c.serial) == serial {
@@ -181,7 +184,7 @@ fn poll(ui: Ui) {
     if !wait.is_zero() && !held {
         return;
     }
-    if live {
+    if live && (held || ui.hover_card.with_untracked(|c| c.asked.is_none_or(|(k, _)| k != key))) {
         request_shot(ui, key);
     }
     if ui.hover_card.with_untracked(|c| c.shown.as_ref().is_some_and(|s| s.key == key && s.live == live)) {
@@ -261,7 +264,7 @@ pub(super) fn card(ui: Ui) -> AnyElement {
                 .border_color(Theme::surface_edge())
                 .shadow(Theme::elevation(10., 30.))
                 .children(frame)
-                .child(body(shown.title).font_weight(FontWeight::MEDIUM).number_of_lines(2_u32))
+                .child(body(shown.title).font_weight(FontWeight::MEDIUM).truncate())
                 .child(small(shown.place).text_color(Theme::muted()).truncate())
                 .children((!shown.state.is_empty()).then(|| small(shown.state).text_color(Theme::faint()))),
         )

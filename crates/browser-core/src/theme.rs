@@ -1009,6 +1009,7 @@ impl Tokens {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Corners {
+    Square,
     Theme,
     #[default]
     Round,
@@ -1016,10 +1017,11 @@ pub enum Corners {
 }
 
 impl Corners {
-    pub const ALL: [Corners; 3] = [Corners::Theme, Corners::Round, Corners::Rounder];
+    pub const ALL: [Corners; 4] = [Corners::Square, Corners::Theme, Corners::Round, Corners::Rounder];
 
     pub fn label(self) -> &'static str {
         match self {
+            Corners::Square => "Square",
             Corners::Theme => "Theme",
             Corners::Round => "Round",
             Corners::Rounder => "Rounder",
@@ -1028,6 +1030,7 @@ impl Corners {
 
     pub fn name(self) -> &'static str {
         match self {
+            Corners::Square => "square",
             Corners::Theme => "theme",
             Corners::Round => "round",
             Corners::Rounder => "rounder",
@@ -1041,8 +1044,19 @@ impl Corners {
     fn radii(self) -> Option<[f32; 6]> {
         match self {
             Corners::Theme => None,
+            Corners::Square => Some([2., 3., 4., 5., 6., 8.]),
             Corners::Round => Some([8., 11., 14., 18., 20., 24.]),
             Corners::Rounder => Some([10., 13., 16., 20., 22., 24.]),
+        }
+    }
+
+    /// `radius` with these corners: Square sets its own small radii, Round and Rounder never make
+    /// a theme's corners less round, and none go past 24.
+    pub fn apply(self, radius: [f32; 6]) -> [f32; 6] {
+        match (self, self.radii()) {
+            (_, None) => radius,
+            (Corners::Square, Some(table)) => table,
+            (_, Some(table)) => std::array::from_fn(|i| radius[i].max(table[i]).min(24.)),
         }
     }
 }
@@ -1085,9 +1099,7 @@ fn soften(c: u32) -> u32 {
 /// desktop at once, when it steps down until it can.
 pub fn glass(tokens: &Tokens, glass: Glass, can: Backing) -> (Tokens, Backing, u8) {
     let mut t = *tokens;
-    if let Some(table) = glass.corners.radii() {
-        t.radius = std::array::from_fn(|i| t.radius[i].max(table[i]).min(24.));
-    }
+    t.radius = glass.corners.apply(t.radius);
     for edge in [&mut t.sidebar_edge, &mut t.surface_edge, &mut t.hairline, &mut t.separator] {
         *edge = soften(*edge);
     }
@@ -1627,6 +1639,8 @@ mod tests {
         let (t, ..) = glass(&hostile, Glass::default(), Backing::Opaque);
         assert_eq!(t.radius, [8., 24., 14., 18., 20., 24.]);
         assert_eq!(t.shadow, 1.5);
+        assert_eq!(Corners::Square.apply(hostile.radius), [2., 3., 4., 5., 6., 8.], "Square is the one choice that sharpens a theme");
+        assert_eq!(Corners::Theme.apply(hostile.radius), hostile.radius);
     }
 
     #[test]

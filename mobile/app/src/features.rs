@@ -545,6 +545,19 @@ impl<D: Platform> Shell<D> {
         self.tab_placement == browser_core::layout::TabPlacement::Top
     }
 
+    pub fn switch_on(&self, switch: browser_core::prefs::Switch) -> bool {
+        switch.on(&self.core.disk)
+    }
+
+    pub fn set_switch(&mut self, switch: browser_core::prefs::Switch, on: bool) {
+        switch.set(&self.core.disk, on);
+    }
+
+    /// The profile whose latest chats the sidebar lists: its AI is on and it is not private.
+    pub fn chat_profile(&self) -> Option<store::Id> {
+        browser_core::sidebar::chat_profile(&self.model, &self.core)
+    }
+
     /// Tabs on top hide the sidebar of the Mac layout; back at the side it shows as it was.
     pub fn toggle_tabs_on_top(&mut self) {
         self.tab_placement = self.tab_placement.toggled(&self.core.disk);
