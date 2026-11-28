@@ -6,6 +6,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-11-27
+
 ### Added
 
 - The toolbar can sit in the sidebar, and does by default: Back, Forward, Reload and the address
@@ -99,7 +101,6 @@ All notable changes to Tarn are documented in this file. The format is based on
 - The macOS window buttons are placed by AppKit's own title bar again, so they light up as soon as
   the pointer reaches them, and macOS releases are built with the macOS 26 SDK for the system's
   current window controls.
-
 - Measure: a second click on its button (or Measure in the command palette) closes it, and so does
   a click on the page; guides and the position in CSS pixels follow the pointer. On macOS, Windows
   and Linux.
@@ -130,6 +131,11 @@ All notable changes to Tarn are documented in this file. The format is based on
   rounded corners: Tarn no longer moves the page while WebKit shows it full screen. A dialog or
   switching tabs ends the video's full screen, and a page without rounded corners is no longer
   clipped, which spares the compositor an off-screen pass.
+
+### Security
+
+- Chromium 158.0.8127.89 (CEF 158.0.6) with its security fixes, in Chromium tabs on macOS and on
+  Windows.
 
 ## [0.1.7] - 2026-11-25
 
@@ -1017,7 +1023,8 @@ All notable changes to Tarn are documented in this file. The format is based on
 - One address field for URLs, search, open tabs and app actions, with configurable shortcuts.
 - Split View, link peek, tab groups, pinned tabs that remember their page and sleeping tabs.
 
-[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Quavon-dev/tarn-browser/compare/v0.1.4...v0.1.5
