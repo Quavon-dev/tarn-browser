@@ -815,14 +815,14 @@ fn list_row(ui: Ui, pinned: bool, item: ReadSignal<snapshot::Row>) -> AnyElement
 }
 
 fn folder_row(ui: Ui, id: store::Id, item: ReadSignal<snapshot::Row>) -> AnyElement {
-    let depth = item.with_untracked(|r| r.depth) as f32;
+    let depth = indent(ui, item);
     let name = move || item.with(|r| r.label.clone());
     view()
         .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
         .child(
             keyboard_row(ui, item.with_untracked(snapshot::Row::id), row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id))))
                 .h(move || px(Theme::tab_row()))
-                .pl(px(8. + depth * 16.))
+                .pl(move || px(8. + depth() * 16.))
                 .child(
                     view()
                         .text_color(Theme::muted())
@@ -842,8 +842,12 @@ fn folder_icon(stored: &str) -> AnyElement {
     }
 }
 
+fn indent(ui: Ui, item: ReadSignal<snapshot::Row>) -> impl Fn() -> f32 + Copy {
+    move || item.with(|r| r.depth).saturating_sub(ui.snap.with(|s| s.cards) as usize) as f32
+}
+
 fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -> AnyElement {
-    let depth = item.with_untracked(|r| r.depth) as f32;
+    let depth = indent(ui, item);
     let name = move || item.with(|r| r.label.clone());
     let active = move || item.with(|r| r.active);
     let hovered = signal(false);
@@ -880,7 +884,7 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .on_press_down(move || ui.dragging.set(Some(key)))
         .h(move || px(Theme::tab_row()))
         .relative()
-        .pl(px(10. + depth * 16.))
+        .pl(move || px(10. + depth() * 16.))
         .pr_1()
         .gap(px(CLOSE_GAP))
         .bg(move || match (dropping().is_some(), active()) {

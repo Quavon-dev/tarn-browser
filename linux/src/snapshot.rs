@@ -302,15 +302,13 @@ fn tab_row(b: &Browser, heavy: &HashSet<TabKey>, tab: &Tab, depth: usize, muted:
 fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: usize, rows: &mut Vec<Row>) {
     let mut folders: Vec<&Folder> = b.model.folders.iter().filter(|f| f.parent_id == parent).collect();
     folders.sort_by_key(|f| f.position);
-    // A top folder's card holds its rows, which sit flush inside it.
     let card = depth == 0 && b.chrome_pref(browser_core::prefs::SIDEBAR_CARDS);
     for folder in folders {
         let open = b.model.expanded.contains(&folder.id);
         let mut inner = Vec::new();
         if open {
-            let depth = if card { depth } else { depth + 1 };
-            folder_rows(b, heavy, Some(folder.id), depth, &mut inner);
-            tab_rows(b, heavy, Zone { folder: Some(folder.id), group: None, kind: None }, depth, &mut inner);
+            folder_rows(b, heavy, Some(folder.id), depth + 1, &mut inner);
+            tab_rows(b, heavy, Zone { folder: Some(folder.id), group: None, kind: None }, depth + 1, &mut inner);
         }
         let summary =
             (card && !open).then(|| hosts(browser_core::sidebar::folder_summary(&b.model, &browser_core::tabs::folder_tree(&b.model.folders, folder.id))));
@@ -674,11 +672,37 @@ mod tests {
         let kinds: Vec<_> = rows.iter().map(|r| r.kind.clone()).collect();
         assert_eq!(kinds, [RowKind::Folder(folder), RowKind::Tab(loose), RowKind::Tab(first), RowKind::Group(group)]);
         let card = &rows[0];
-        assert_eq!((card.panes.len(), card.panes[0].depth), (1, 0), "the folder's tab sits flush inside its card");
+        assert_eq!((card.panes.len(), card.panes[0].depth), (1, 1));
         b.toggle_folder(folder);
         assert_eq!(super::rows(&b)[0].summary, Some((vec!["in.test".to_owned()], 1)));
         b.toggle_group(group);
         assert_eq!(super::rows(&b).last().unwrap().summary, Some((vec!["g.test".to_owned()], 1)));
+    }
+
+    #[test]
+    fn in_card_mode_only_a_top_folder_is_a_card_and_its_subfolders_are_rows_one_level_deeper() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut b = Browser::open(dir.path());
+        b.new_folder(None);
+        let top = b.model.folders[0].id;
+        b.new_folder(Some(top));
+        let sub = b.model.folders.iter().find(|f| f.parent_id == Some(top)).unwrap().id;
+        b.new_folder(Some(sub));
+        let subsub = b.model.folders.iter().find(|f| f.parent_id == Some(sub)).unwrap().id;
+        let inside = b.new_tab("https://in.test/").unwrap();
+        b.move_to_folder(inside, subsub);
+        for id in [top, sub, subsub] {
+            if !b.model.expanded.contains(&id) {
+                b.toggle_folder(id);
+            }
+        }
+        let rows = rows(&b);
+        assert_eq!(rows[0].kind, RowKind::Folder(top));
+        assert!(rows.iter().skip(1).all(|r| !matches!(r.kind, RowKind::Folder(_))), "subfolders sit inside the top card");
+        let inner: Vec<_> = rows[0].panes.iter().map(|r| (r.kind.clone(), r.depth, r.panes.len(), r.summary.is_some())).collect();
+        assert_eq!(inner, [(RowKind::Folder(sub), 1, 0, false), (RowKind::Folder(subsub), 2, 0, false), (RowKind::Tab(inside), 3, 0, false)]);
+        b.toggle_folder(sub);
+        assert_eq!(super::rows(&b)[0].panes.iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), [RowKind::Folder(sub)]);
     }
 
     #[test]
