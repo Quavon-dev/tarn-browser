@@ -73,19 +73,18 @@ pub fn style(on: impl Fn(Switch) -> bool) -> Style {
     }
 }
 
-/// What a style's switch reads with nothing stored: someone who already picked the Classic or
-/// Compact toolbar keeps the Classic layout, everyone else starts Modern.
+/// What a style's switch reads with nothing stored: someone who picked the Classic or Compact
+/// toolbar before the sidebar toolbar existed keeps the Classic layout, everyone else starts
+/// Modern. A toolbar picked since then stores the sidebar switch too, so it changes only itself.
 pub fn style_default(store: &Store, switch: Switch) -> bool {
-    let upgraded = store.setting(COMPACT_TOOLBAR.key).ok().flatten().is_some();
-    match STYLE.iter().find(|(s, ..)| *s == switch) {
-        Some((_, _, classic)) if upgraded => *classic,
-        _ => switch.default,
-    }
+    let Some((_, _, classic)) = STYLE.iter().find(|(s, ..)| *s == switch) else { return switch.default };
+    let stored = |s: Switch| store.setting(s.key).ok().flatten().is_some();
+    if stored(COMPACT_TOOLBAR) && !stored(SIDEBAR_TOOLBAR) { *classic } else { switch.default }
 }
 
-/// Sets every switch of the Modern style, or of the Classic one.
+/// Sets every switch of the Modern style, or of the Classic one; false when a write failed.
 pub fn set_style(store: &Store, modern: bool) -> bool {
-    STYLE.iter().all(|(s, in_modern, in_classic)| s.set(store, if modern { *in_modern } else { *in_classic }))
+    STYLE.iter().fold(true, |ok, (s, in_modern, in_classic)| s.set(store, if modern { *in_modern } else { *in_classic }) && ok)
 }
 
 impl Switch {
@@ -160,6 +159,10 @@ mod tests {
         assert_eq!(read(&store), Style::Custom);
         assert_eq!(style_default(&store, GESTURES), GESTURES.default, "switches outside the style keep their own default");
         assert!(!style_default(&store, SIDEBAR_CARDS), "a style switch takes the Classic value after an earlier toolbar choice");
+        let fresh = Store::open_in_memory().unwrap();
+        fresh.set_setting(SIDEBAR_TOOLBAR.key, "off").unwrap();
+        fresh.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
+        assert!(style_default(&fresh, SIDEBAR_CARDS), "picking a toolbar now changes only the toolbar");
         assert!(!SIDEBAR_CARDS.on(&store), "an unset style switch reads its style default");
         assert!(set_style(&store, true));
         assert_eq!(style(|s| s.on(&store)), Style::Modern);

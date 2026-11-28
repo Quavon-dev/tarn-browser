@@ -1178,7 +1178,9 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
         };
         let chips: Vec<AnyElement> = chat_view.chips.iter().enumerate().map(|(ix, name)| chip(host, chat, ix, name.clone())).collect();
         let has_chips = !chips.is_empty();
-        let will_send = (!chat_view.will_send.is_empty()).then(|| hint(will_send_line(&chat_view.will_send, chat_view.will_send_bytes)));
+        // Under the question field and quiet, as the desktop shows it.
+        let will_send =
+            (!chat_view.will_send.is_empty()).then(|| hint(will_send_line(&chat_view.will_send, chat_view.will_send_bytes)).text_color(Theme::faint).px_2());
         let submit = move |_: &str| chat.submit(host);
         let slash = dynamic(move || {
             let typed = chat.question.get();
@@ -1205,15 +1207,23 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 chat.submit(host)
             }
         })
-        .w(px(28.))
-        .h(px(28.))
+        // A finger's 44-point target around the 28-point circle.
+        .w(px(44.))
+        .h(px(44.))
         .flex_none()
-        .rounded_full()
         .items_center()
         .justify_center()
-        .bg(fill)
-        .text_color(move || if ready() { Theme::on_fill(fill()) } else { Theme::faint() })
-        .child(icons::icon(glyph, if can_cancel { 11. } else { 15. }));
+        .child(
+            view()
+                .w(px(28.))
+                .h(px(28.))
+                .rounded_full()
+                .items_center()
+                .justify_center()
+                .bg(fill)
+                .text_color(move || if ready() { Theme::on_fill(fill()) } else { Theme::faint() })
+                .child(icons::icon(glyph, if can_cancel { 11. } else { 15. })),
+        );
         let composer = view()
             .gap_1()
             .p_1()
@@ -1248,15 +1258,15 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 .flex_1()
                 .min_h(px(0.))
                 .child(top)
-                .child(dynamic(move || model_open.get().then(|| model_picker(host, model_rev))))
                 .child(dynamic(move || chats_open.get().then(|| chat_list(host, chat, chats_open))))
                 .child(scroll().flex_1().keyboard_taps(KeyboardTaps::Handled).child(conversation.py_2()))
                 .children(chat_view.notice.clone().map(|n| hint(n).text_color(Theme::accent_text)))
                 .child(dynamic(move || tabs_open.get().then(|| tab_picker(host, tabs_open))))
                 .child(dynamic(move || notes_open.get().then(|| notes(host, chat, notes_open))))
                 .child(slash)
-                .children(will_send)
-                .child(composer),
+                .child(dynamic(move || model_open.get().then(|| model_picker(host, model_rev))))
+                .child(composer)
+                .children(will_send),
         )
     })
     .into_element()
