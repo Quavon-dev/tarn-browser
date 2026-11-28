@@ -1,4 +1,4 @@
-use browser_core::prefs::{self, Style, Switch};
+use browser_core::prefs;
 use browser_core::sidebar::ChatRow;
 use store::Id;
 
@@ -13,29 +13,10 @@ impl Browser {
         self.pref(prefs::SIDEBAR_TOOLBAR) && !self.tabs_on_top()
     }
 
-    /// A sidebar switch, which applies only while the sidebar holds the toolbar.
-    pub fn chrome_pref(&self, switch: Switch) -> bool {
-        self.sidebar_chrome() && self.pref(switch)
-    }
-
-    /// The layout the switches make up; Modern also needs the tabs at the side.
-    pub fn style(&self) -> Style {
-        match prefs::style(|s| self.pref(s)) {
-            Style::Modern if self.tabs_on_top() => Style::Custom,
-            style => style,
-        }
-    }
-
-    pub fn set_style(&mut self, modern: bool) {
-        for (switch, in_modern, in_classic) in prefs::STYLE {
-            self.set_pref(switch, if modern { in_modern } else { in_classic });
-        }
-    }
-
     /// The profile's latest chats, while its AI is on, it is not private and the sidebar shows them.
     pub fn sidebar_chats(&self) -> Option<Vec<ChatRow>> {
         // Listing titles sends nothing, so the profile's level decides, not the page's.
-        if !self.chrome_pref(prefs::SIDEBAR_CHATS) || !self.model.assistant_offered(&self.core, None) {
+        if !self.pref(prefs::SIDEBAR_CHATS) || !self.model.assistant_offered(&self.core, None) {
             return None;
         }
         let profile = self.model.assistant_origin(&self.core, None)?.profile;
@@ -51,33 +32,30 @@ impl Browser {
 
 #[cfg(test)]
 mod tests {
-    use browser_core::prefs::{self, Style};
+    use browser_core::prefs;
     use serde_json::json;
 
     use crate::browser::Browser;
 
     #[test]
-    fn a_new_window_starts_modern_and_classic_takes_the_toolbar_out_of_the_sidebar() {
+    fn a_new_window_puts_the_toolbar_in_the_sidebar_and_tabs_on_top_take_it_out() {
         let dir = tempfile::tempdir().unwrap();
         let mut b = Browser::open(dir.path());
-        assert!(b.sidebar_chrome() && b.chrome_pref(prefs::SIDEBAR_CARDS));
-        assert_eq!(b.style(), Style::Modern);
-        b.set_style(false);
-        assert_eq!(b.style(), Style::Classic);
-        assert!(!b.sidebar_chrome() && !b.chrome_pref(prefs::SIDEBAR_CARDS));
-        b.set_style(true);
+        assert!(b.sidebar_chrome() && b.pref(prefs::SIDEBAR_CARDS));
+        b.set_pref(prefs::SIDEBAR_TOOLBAR, false);
+        assert!(!b.sidebar_chrome() && b.pref(prefs::SIDEBAR_CARDS), "the sidebar keeps its cards with the toolbar above the page");
+        b.set_pref(prefs::SIDEBAR_TOOLBAR, true);
         b.toggle_tabs_on_top();
         assert!(!b.sidebar_chrome(), "tabs on top keep the toolbar above the page");
-        assert_eq!(b.style(), Style::Custom);
     }
 
     #[test]
-    fn an_earlier_compact_toolbar_choice_keeps_the_classic_layout() {
+    fn an_earlier_compact_toolbar_choice_keeps_the_toolbar_above_the_page() {
         let dir = tempfile::tempdir().unwrap();
         let b = Browser::open(dir.path());
         b.core.disk.set_setting(prefs::COMPACT_TOOLBAR.key, "on").unwrap();
         assert!(!b.sidebar_chrome());
-        assert_eq!(b.style(), Style::Custom, "Compact is on, which neither style sets");
+        assert!(b.pref(prefs::SIDEBAR_CARDS) && b.pref(prefs::SIDEBAR_CHATS), "the sidebar is the same with every toolbar");
     }
 
     #[test]

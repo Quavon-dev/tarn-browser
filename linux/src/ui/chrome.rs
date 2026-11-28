@@ -1,6 +1,6 @@
-//! The sidebar while it holds the toolbar (`Browser::sidebar_chrome`): navigation and the address
-//! pill at its top, chats and Tidy in the list, downloads, the space switcher and the profile at
-//! its bottom edge.
+//! The sidebar's own parts: navigation and the address pill at its top while it holds the toolbar
+//! (`Browser::sidebar_chrome`), chats and Tidy in the list, downloads, the space switcher and the
+//! profile at its bottom edge.
 
 use nsh_core::prelude::*;
 use store::Id;
@@ -192,7 +192,7 @@ pub(super) fn summary(ui: Ui, (hosts, count): (Vec<String>, usize)) -> View {
 /// What waits on the user outside the page: an agent at work in this window, or its question.
 pub(super) fn pills(ui: Ui) -> AnyElement {
     themed(move || {
-        let (text, asking) = ui.snap.with(|s| s.agent.as_ref().filter(|_| s.chrome).map(|a| (a.text.clone(), a.asking)))?;
+        let (text, asking) = ui.snap.with(|s| s.agent.as_ref().map(|a| (a.text.clone(), a.asking)))?;
         let tint = if asking { Theme::warning() } else { Theme::muted() };
         Some(
             view()

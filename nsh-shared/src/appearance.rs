@@ -34,6 +34,17 @@ pub trait Host: Copy + 'static {
     fn backing(self) -> Backing {
         Backing::Opaque
     }
+    fn layout(self) -> Option<Layout> {
+        None
+    }
+}
+
+/// A shell's layout rows in the Design group: `lead` before Window, `sidebar` after Corners, then
+/// Compact density, which leaves its own section, then `tail`.
+pub struct Layout {
+    pub lead: Vec<View>,
+    pub sidebar: Vec<View>,
+    pub tail: Vec<View>,
 }
 
 #[derive(Clone, Default)]
@@ -498,7 +509,7 @@ fn picks<H: Host, T: Copy + PartialEq + 'static>(pane: Pane<H>, current: T, choi
     )
 }
 
-fn design_group<H: Host>(pane: Pane<H>) -> View {
+fn design_group<H: Host>(pane: Pane<H>, lead: Vec<View>) -> View {
     let host = pane.host;
     let backing = host.backing();
     let (on, glass, reached) = host.with_store(|s| {
@@ -510,7 +521,7 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
     } else {
         "Glass makes the window translucent over your desktop, with rounder, softer panels."
     };
-    let mut rows = group().child(choice_row("Design", about, picks(pane, on, &[("Classic", false), ("Glass", true)], library::set_glass_on)));
+    let mut rows = group().children(lead).child(choice_row("Window", about, picks(pane, on, &[("Solid", false), ("Glass", true)], library::set_glass_on)));
     let corners = Corners::ALL.map(|c| (c.label(), c));
     if !on {
         let picked = host.with_store(library::classic_corners);
@@ -637,7 +648,23 @@ fn body<H: Host>(pane: Pane<H>) -> View {
         } else {
             "Choose a theme to use it."
         })));
-    page = page.child(view().pt_4().pb_2().child(caps_label("Design"))).child(design_group(pane));
+    let compact = host.with_store(|s| COMPACT.on(s));
+    let set_compact = move || {
+        let ok = host.with_store(|s| COMPACT.set(s, !compact));
+        if ok {
+            Theme::set_compact(!compact);
+        }
+        pane.quietly(saved(ok));
+    };
+    let density = switch_row("Compact density", move || compact, set_compact);
+    let (design, density) = match host.layout() {
+        Some(l) => {
+            let density = view().flex_col().pb_2().child(density).child(view().px_3().child(small(prefs::COMPACT_NOTE)));
+            (design_group(pane, l.lead).children(l.sidebar).child(density).children(l.tail), None)
+        }
+        None => (design_group(pane, Vec::new()), Some(density)),
+    };
+    page = page.child(view().pt_4().pb_2().child(caps_label("Design"))).child(design);
     if host.accent_and_motion() {
         page = page.child(view().pt_3().child(group().child(accent_row(pane))));
     }
@@ -655,18 +682,12 @@ fn body<H: Host>(pane: Pane<H>) -> View {
     }
     let motion = if host.accent_and_motion() { group().child(reduce_motion_row(pane)) } else { group() };
     page = page.child(view().pt_4().pb_2().child(caps_label("Motion"))).child(motion.child(effect_row(pane)));
-    let compact = host.with_store(|s| COMPACT.on(s));
-    let set_compact = move || {
-        let ok = host.with_store(|s| COMPACT.set(s, !compact));
-        if ok {
-            Theme::set_compact(!compact);
-        }
-        pane.quietly(saved(ok));
-    };
-    page = page
-        .child(view().pt_4().pb_2().child(caps_label("Density")))
-        .child(group().child(switch_row("Compact density", move || compact, set_compact)))
-        .child(view().px_1().pt_1().child(small(prefs::COMPACT_NOTE)));
+    if let Some(density) = density {
+        page = page
+            .child(view().pt_4().pb_2().child(caps_label("Density")))
+            .child(group().child(density))
+            .child(view().px_1().pt_1().child(small(prefs::COMPACT_NOTE)));
+    }
     let hints = host.with_store(|s| FEATURE_HINTS.on(s));
     page = page
         .child(view().pt_4().pb_2().child(caps_label("Tips")))

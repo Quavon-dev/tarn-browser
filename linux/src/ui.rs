@@ -45,7 +45,7 @@ use crate::theme::{Paint, SYSTEM_FONT, Secure, TEXT_TITLE, TOOLBAR_HEIGHT, Theme
 use browser_core::command::{ENGINES, Input, Section, classify_input, search_engine};
 use browser_core::{Core, suggest};
 use store::SavedWindow;
-use tarn_nsh_shared::controls::{icon_size, secure_button, secure_surface};
+use tarn_nsh_shared::controls::{secure_button, secure_surface};
 
 use crate::data::Data;
 
@@ -57,8 +57,6 @@ const COMPACT_TITLE: f32 = 360.;
 const CLOSE_WIDTH: f32 = 28.;
 const CLOSE_GAP: f32 = 10.;
 const TILE_GAP: f32 = 6.;
-/// A space button as big as the footer's icon buttons; more spaces than fit wrap to another row.
-const SPACE_BUTTON: f32 = 28.;
 const FIELD: f32 = 30.;
 const CHIP_INSET: f32 = 3.;
 const CHIP: f32 = FIELD - 2. - 2. * CHIP_INSET;
@@ -260,7 +258,7 @@ fn act_dyn(ui: Ui, f: &mut dyn FnMut(&mut Browser), rebuild: bool) {
         let before = b.model.active;
         f(b);
         b.model.seen();
-        b.model.loose_first = b.sidebar_chrome();
+        b.model.loose_first = !b.tabs_on_top();
         b.settle_media(before);
         b.keep_page_fullscreen(overlay, address, find);
         let moved = b.model.active.filter(|k| b.elsewhere.contains(k));
@@ -679,27 +677,19 @@ pub fn site_tile(ui: Ui, host: &str, size: f32) -> View {
         .child(dynamic(move || tarn_nsh_shared::controls::site_tile(ui.icons.with(|i| i.find(&host)).map(|icon| icon.to_string()), &host, size).into_element()))
 }
 
-fn space_tint(color: &str, alpha: f32) -> Option<Rgba> {
-    Theme::profile_color(color).map(|c| Rgba { a: alpha, ..c })
-}
-
 pub(crate) fn host_of(url: &str) -> String {
     url::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_owned)).unwrap_or_default()
 }
 
 fn tiles(ui: Ui) -> View {
     let side = browser_core::tabs::tile_grid(LIST_WIDTH, TILE_GAP).1;
-    let look = computed(move || ui.snap.with(|s| (s.tiles.len(), s.chrome, s.small_tiles, s.dim)));
+    let look = computed(move || ui.snap.with(|s| (s.tiles.len(), s.small_tiles, s.dim)));
     let width = move || {
-        let (count, _, small, _) = look.get();
+        let (count, small, _) = look.get();
         let min = if small { browser_core::tabs::SMALL_TILE_MIN_WIDTH } else { browser_core::tabs::TILE_MIN_WIDTH };
         px(browser_core::tabs::tile_row_sized(LIST_WIDTH, TILE_GAP, count, min).1)
     };
-    let height = move || match look.get() {
-        (_, true, true, _) => 34.,
-        (_, true, false, _) => (side * 0.72).round(),
-        _ => side - 2.,
-    };
+    let height = move || if look.get().1 { 34. } else { (side * 0.72).round() };
     view().flex_row().flex_wrap().gap(px(TILE_GAP)).mb_1().child(each(
         move || ui.snap.with(|s| s.tiles.clone()),
         |r| r.id(),
@@ -714,8 +704,8 @@ fn tiles(ui: Ui) -> View {
                 .bg(move || if active() { Theme::selected() } else { Theme::raised() })
                 .child(dynamic(move || {
                     let host = item.with(|r| r.host.clone());
-                    let glyph = if look.get().2 { 16. } else { 20. };
-                    site_tile(ui, &host, glyph).opacity(move || if item.with(|r| r.asleep) && look.get().3 { 0.4_f32 } else { 1. }).into_element()
+                    let glyph = if look.get().1 { 16. } else { 20. };
+                    site_tile(ui, &host, glyph).opacity(move || if item.with(|r| r.asleep) && look.get().2 { 0.4_f32 } else { 1. }).into_element()
                 }));
             let tile = keyboard_row(ui, item.with_untracked(snapshot::Row::id), tile);
             view()
@@ -746,9 +736,7 @@ fn keyboard_order(s: &Snapshot) -> Vec<String> {
     }
     let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
     s.rows.iter().filter(|r| in_pinned_section(r)).for_each(|r| push(r, &mut out));
-    if s.chrome {
-        out.push("tidy".to_owned());
-    }
+    out.push("tidy".to_owned());
     s.rows.iter().filter(|r| !in_pinned_section(r)).for_each(|r| push(r, &mut out));
     out
 }
@@ -1005,74 +993,6 @@ fn tab_row(ui: Ui, pinned: bool, key: TabKey, item: ReadSignal<snapshot::Row>) -
         .into_element()
 }
 
-const SPACE_BAR: browser_core::sidebar::SpaceBar =
-    browser_core::sidebar::SpaceBar { width: SIDEBAR_WIDTH - 18. - 2. * SPACE_BUTTON, icon: SPACE_BUTTON, gap: 2. };
-
-fn space_bar(ui: Ui) -> View {
-    let listed = move || ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).cloned().collect::<Vec<_>>());
-    let strip = computed(move || {
-        let listed = listed();
-        SPACE_BAR.strip(listed.len(), listed.iter().position(|x| x.current).unwrap_or(0))
-    });
-    let spaces = each(
-        listed,
-        |s| (s.ix, s.icon.clone(), s.color.clone(), s.label.clone()),
-        move |space, _| {
-            let (ix, icon, name, private, color) = space.with_untracked(|s| (s.ix, s.icon.clone(), s.label.clone(), s.private, s.color.clone()));
-            let source = if private { icons::PERSON } else { icons::space_icon(&icon) };
-            let current = move || space.with(|s| s.current);
-            let dot = move || strip.get().compact && !current();
-            let tint = move || match (current(), private) {
-                (true, true) => Theme::warning(),
-                (true, false) => space_tint(&color, 1.).unwrap_or(Theme::text()),
-                (false, _) => space_tint(&color, 0.45).unwrap_or(Theme::faint()),
-            };
-            let glyph_tint = tint.clone();
-            let button = controls::row(name, move || {
-                space_switch();
-                act(ui, |b| b.switch_space_by_user(ix));
-            })
-            .w(move || px(if dot() { browser_core::sidebar::SPACE_DOT } else { SPACE_BUTTON }))
-            .h(px(SPACE_BUTTON))
-            .flex_none()
-            .px_0()
-            .justify_center()
-            .rounded(px(Theme::radius_row()))
-            .bg(move || if current() { Theme::selected() } else { Theme::clear() })
-            .text_color(glyph_tint)
-            .child(dynamic(move || {
-                if dot() { view().w(px(6.)).h(px(6.)).rounded(px(3.)).bg(tint()).into_element() } else { icons::icon(source, icon_size()).into_element() }
-            }));
-            view()
-                .on_context_menu(move |_: &ContextMenuEvent| {
-                    if let Some(Some(key)) = read(ui, |b| b.model.spaces.get(ix).map(|s| (s.private, s.space.id))) {
-                        show(ui, Panel::SpaceMenu(key));
-                    }
-                })
-                .child(button)
-        },
-    );
-    let strip_ref = element_ref();
-    let shown = computed(move || (strip.get(), ui.snap.with(|s| s.spaces.iter().filter(|x| x.shown).position(|x| x.current))));
-    let reveal = move |animated| {
-        if let Some(x) = shown.get().0.scroll {
-            strip_ref.scroll_to(nsh_core::Point::new(Points(x), Points(0.)), animated);
-        }
-    };
-    effect(move || reveal(true));
-    view()
-        .flex_row()
-        .items_center()
-        .min_h(px(40.))
-        .py(px(6.))
-        .px_1()
-        .child(icon_button(icons::LIBRARY, "Library", move || show(ui, Panel::Library)))
-        .child(scroll().horizontal().element_ref(&strip_ref).flex_1().min_w(px(0.)).child(
-            view().flex_row().flex_grow(1.).items_center().justify_center().gap(px(2.)).on_layout(move |_: &Bounds<Points>| reveal(false)).child(spaces),
-        ))
-        .child(icon_button(icons::PLUS, "New Space", move || show(ui, Panel::NewSpace)).text_color(Theme::faint()))
-}
-
 fn downloads_button(ui: Ui) -> AnyElement {
     dynamic(move || {
         let progress = ui.snap.with(|s| s.downloading);
@@ -1090,54 +1010,7 @@ fn downloads_button(ui: Ui) -> AnyElement {
     })
 }
 
-fn space_switcher(ui: Ui) -> nsh_base::ButtonElement {
-    let tint = move || ui.snap.with(|s| if s.private { Theme::warning() } else { Theme::profile_color(&s.profile_color).unwrap_or(Theme::space_label()) });
-    let glyph = move || ui.snap.with(|s| s.spaces.iter().find(|x| x.current && !x.private).and_then(|x| space_tint(&x.color, 1.))).unwrap_or_else(tint);
-    let name = move || ui.snap.with(|s| s.space_name.clone());
-    row(move || Some(SharedString::from(format!("Space {}", name()))), move || show(ui, Panel::Space))
-        .flex_1()
-        .min_w(px(0.))
-        .px_1()
-        .gap(px(6.))
-        .child(
-            view()
-                .w(px(SPACE_BUTTON))
-                .h(px(SPACE_BUTTON))
-                .flex_none()
-                .rounded(px(Theme::radius_row()))
-                .bg(Theme::selected())
-                .items_center()
-                .justify_center()
-                .text_color(glyph)
-                .child(dynamic(move || {
-                    let icon = ui.snap.with(|s| s.space_icon.clone());
-                    icons::icon(icons::space_icon(&icon), icon_size())
-                })),
-        )
-        .child(text(name).text_size(px(14.)).font_weight(FontWeight::BOLD).text_color(Theme::text()).truncate())
-}
-
-fn new_tab_row(ui: Ui) -> AnyElement {
-    dynamic(move || {
-        if !ui.snap.with(|s| s.chrome) {
-            return classic_new_tab_row(ui);
-        }
-        let new = controls::pressable("New Tab", move || new_tab(ui))
-            .flex_row()
-            .flex_1()
-            .items_center()
-            .gap(px(CLOSE_GAP))
-            .h(move || px(Theme::tab_row()))
-            .pl(px(10.))
-            .rounded(px(Theme::radius_row()))
-            .text_color(Theme::muted())
-            .child(view().w(px(16.)).items_center().child(icons::icon(icons::PLUS, 14.)))
-            .child(body("New tab").text_color(Theme::muted()));
-        view().flex_row().items_center().mb_1().child(new)
-    })
-}
-
-fn classic_new_tab_row(ui: Ui) -> View {
+fn new_tab_row(ui: Ui) -> View {
     let new = controls::pressable("New Tab", move || new_tab(ui))
         .flex_row()
         .flex_1()
@@ -1146,39 +1019,15 @@ fn classic_new_tab_row(ui: Ui) -> View {
         .h(move || px(Theme::tab_row()))
         .pl(px(10.))
         .rounded(px(Theme::radius_row()))
-        .child(
-            view()
-                .w(px(16.))
-                .h(px(16.))
-                .rounded(px(Theme::radius_small()))
-                .bg(Theme::accent())
-                .items_center()
-                .justify_center()
-                .text_color(Theme::on_fill(Theme::accent()))
-                .child(icons::icon(icons::PLUS, 11.)),
-        )
-        .child(body("New Tab").text_color(Theme::muted()));
-    view().flex_row().items_center().mb_1().child(new).child(icon_button(icons::ELLIPSIS, browser_core::sidebar::ORGANIZE, move || show(ui, Panel::Organize)))
+        .text_color(Theme::muted())
+        .child(view().w(px(16.)).items_center().child(icons::icon(icons::PLUS, 14.)))
+        .child(body("New tab").text_color(Theme::muted()));
+    view().flex_row().items_center().mb_1().child(new)
 }
 
 fn sidebar(ui: Ui, card: bool) -> View {
     let chrome = computed(move || ui.snap.with(|s| s.chrome));
-    let header = dynamic(move || {
-        if chrome.get() {
-            return chrome::header(ui).into_element();
-        }
-        let settings = icon_button(icons::GEAR, "Settings", move || show(ui, Panel::Settings));
-        view()
-            .flex_row()
-            .items_center()
-            .gap_1()
-            .h(px(TOOLBAR_HEIGHT - 8.))
-            .pl_1()
-            .child(space_switcher(ui))
-            .child(downloads_button(ui))
-            .child(settings)
-            .into_element()
-    });
+    let header = dynamic(move || if chrome.get() { chrome::header(ui).into_element() } else { view().h(px(4.)).into_element() });
     let list = view()
         .flex_col()
         .gap(px(2.))
@@ -1187,7 +1036,7 @@ fn sidebar(ui: Ui, card: bool) -> View {
         .child(when(move || ui.snap.with(|s| !s.tiles.is_empty()), move || tiles(ui)))
         .child(chrome::chats(ui))
         .child(sidebar_rows(ui, true))
-        .child(dynamic(move || if chrome.get() { chrome::tidy(ui) } else { view().h(px(1.)).mx_2().my_2().bg(Theme::hairline()) }))
+        .child(chrome::tidy(ui))
         .child(new_tab_row(ui))
         .child(sidebar_rows(ui, false));
     view()
@@ -1218,7 +1067,7 @@ fn sidebar(ui: Ui, card: bool) -> View {
         )
         .child(mini_player(ui))
         .child(chrome::pills(ui))
-        .child(dynamic(move || if chrome.get() { chrome::footer(ui) } else { space_bar(ui) }))
+        .child(chrome::footer(ui))
 }
 
 fn mini_player(ui: Ui) -> View {
@@ -3456,7 +3305,7 @@ mod tests {
         let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
         let order = super::keyboard_order(&snap);
         assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), "tidy".to_owned(), id(super::RowKind::Tab(first))]);
-        b.set_style(false);
-        assert!(!super::keyboard_order(&crate::snapshot::snapshot(&b, true)).contains(&"tidy".to_owned()), "Classic has no Tidy row");
+        b.set_pref(browser_core::prefs::SIDEBAR_TOOLBAR, false);
+        assert_eq!(super::keyboard_order(&crate::snapshot::snapshot(&b, true)), order, "the Classic toolbar keeps the same sidebar, Tidy included");
     }
 }

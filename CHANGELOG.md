@@ -71,7 +71,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - Resting the pointer on a tab shows a snapshot of its page above its title when the tab is awake,
   without holding ⌥; the title takes one line and the card no longer cuts off the lines under it.
-  Settings › Appearance › Layout › Tab previews picks Page, Title or Off. Snapshots stay on the
+  Settings › Appearance › Design › Tab previews picks Page, Title or Off. Snapshots stay on the
   computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
   only while ⌥ (Alt on Linux) is held. Chromium tabs on macOS show the title card. On macOS,
   Windows and Linux.

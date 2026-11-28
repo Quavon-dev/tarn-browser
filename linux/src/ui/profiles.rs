@@ -206,7 +206,7 @@ pub fn space_menu(ui: Ui, key: SpaceKey) -> AnyElement {
     };
     let rename = current.then(|| menu_row("Rename", None, move || show(ui, Panel::Space)));
     // The switcher at the sidebar's bottom edge lists the spaces to go to first.
-    let spaces = (current && ui.snap.with_untracked(|s| s.chrome)).then(|| super::chrome::space_rows(ui));
+    let spaces = current.then(|| super::chrome::space_rows(ui));
     popover()
         .child(heading(ui, title(format!("Space “{name}”")).truncate()))
         .children(spaces)
