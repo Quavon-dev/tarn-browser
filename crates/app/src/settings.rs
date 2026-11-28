@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot style modern classic preset",
     ),
     (
         SettingsPane::Tabs,
@@ -1025,6 +1025,33 @@ impl SettingsWindow {
             .child(section("Theme"))
             .child(group().children(self.theme_rows(cx)).child(row(false).child(text_block("Accent", "Buttons, selection and focus.")).child(accents)))
             .child(self.theme_sections(window, cx))
+            .child(section("Style"))
+            .child(group().child({
+                // Modern needs the tabs in the sidebar too.
+                let style = match s.prefs.style() {
+                    crate::prefs::Style::Modern if top == 1 => crate::prefs::Style::Custom,
+                    style => style,
+                };
+                self.choice_row(
+                    true,
+                    "Layout",
+                    match style {
+                        crate::prefs::Style::Custom => "Custom: you changed single options under Layout and Sidebar. Pick one to set them all again.",
+                        _ => "Modern puts the toolbar in the sidebar with cards for groups and folders; Classic is Tarn's earlier layout. Single options are under Layout and Sidebar.",
+                    },
+                    &["Modern", "Classic"],
+                    match style {
+                        crate::prefs::Style::Modern => 0,
+                        crate::prefs::Style::Classic => 1,
+                        crate::prefs::Style::Custom => 2,
+                    },
+                    |b, ix, cx| {
+                        b.set_style(ix == 0, cx);
+                        b.hide_hover_card(cx);
+                    },
+                    cx,
+                )
+            }))
             .child(section("Design"))
             .child(group().children(self.design_rows(cx)))
             .child(section("Motion"))

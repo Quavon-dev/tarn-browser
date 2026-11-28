@@ -43,7 +43,8 @@ an update ready; the bottom edge holds downloads, the space switcher and the pro
 Pinned folders show as the same cards as groups, closed ones with their first sites and tab count;
 the Chats section can be hidden (setting, right-click, `Command::SidebarChats`); the assistant is
 a card beside the page drawn like the sidebar, with the model picker and a round Send in its
-question field. Settings › Appearance › Sidebar picks large or compact pinned-site tiles, cards or the
+question field. Settings › Appearance › Style switches all of it between Modern and Classic
+(`crates/app/src/prefs.rs` `Style`); Settings › Appearance › Sidebar picks large or compact pinned-site tiles, cards or the
 classic group style, Chats, the changed-tab dot and dimmed sleeping tabs; Corners also applies in
 the Classic design.
 Shared API: `browser_core::sidebar::{chat_rows, ChatRow, CHATS_SHOWN, group_summary, folder_summary}`,

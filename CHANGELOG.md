@@ -70,6 +70,9 @@ All notable changes to Tarn are documented in this file. The format is based on
   Settings › Appearance › Layout › Tab previews picks Page, Title or Off. Snapshots stay on the
   computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
   only while ⌥ is held. Chromium tabs on macOS show the title card. On macOS and Windows.
+- Settings › Appearance › Style › Layout switches the whole layout at once: Modern (toolbar in the
+  sidebar, cards for groups and folders, Chats, page previews) or Classic, Tarn's earlier layout;
+  it shows neither when single options were changed. On macOS and Windows.
 - Settings › Appearance › Sidebar sets how the sidebar looks: large pinned-site tiles or a compact
   row, groups and folders as cards or in the classic style, Chats on or off, a dot on changed tabs
   on or off, and sleeping tabs dimmed or in full colour. Corners (Square, Theme, Round, Rounder)

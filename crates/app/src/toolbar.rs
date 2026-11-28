@@ -176,7 +176,8 @@ pub(crate) fn sidebar_address(b: &Browser, cx: &mut Context<Browser>) -> Div {
         .on_mouse_down(MouseButton::Right, cx.listener(|b, _, w, cx| b.address_menu(w, cx)))
         .relative()
         .child(measure(b.address.field.clone()))
-        .map(|d| if site.controls { d.child(shield_button(b, &site, cx)) } else { d.child(icon(Icon::Search, 16., Theme::muted())) })
+        // Round, to sit inside the round field.
+        .map(|d| if site.controls { d.child(shield_button(b, &site, cx).rounded_full()) } else { d.child(icon(Icon::Search, 16., Theme::muted())) })
         .child(div().flex_1().min_w_0().overflow_hidden().text_ellipsis().text_color(color).child(text))
         .children(reader_button(b, cx))
         .children(mute_button(b, cx))
@@ -268,7 +269,7 @@ fn site_count(b: &Browser, site: &Site) -> Option<i64> {
     Some(b.site_stopped(b.model.active?, site.url.as_ref()?)).filter(|n| *n > 0)
 }
 
-fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> impl IntoElement {
+fn shield_button(b: &Browser, site: &Site, cx: &mut Context<Browser>) -> Stateful<Div> {
     let level = site.url.as_ref().map(|u| b.level_for(u.as_str())).unwrap_or_default();
     let overridden = site.host.as_deref().is_some_and(|h| b.has_override(h));
     let shield_color = if level == ShieldLevel::Standard { Secure::muted() } else { Secure::shield_raised() };

@@ -238,18 +238,44 @@ pub fn apply_accent(store: &Store) {
     }
 }
 
+/// A layout that sets the toolbar and sidebar options together: Modern is the toolbar in the
+/// sidebar with cards, Classic Tarn's earlier layout; Custom when the options match neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Style {
+    Modern,
+    Classic,
+    Custom,
+}
+
+/// Each option a style sets, with its value in Modern and in Classic.
+const STYLE: [(Pref, bool, bool); 9] = [
+    (Pref::SidebarToolbar, true, false),
+    (Pref::CompactToolbar, false, false),
+    (Pref::SidebarCards, true, false),
+    (Pref::SidebarChats, true, false),
+    (Pref::UnreadDots, true, false),
+    (Pref::DimSleeping, false, true),
+    (Pref::SmallTiles, false, false),
+    (Pref::HoverCards, true, true),
+    (Pref::PagePreviews, true, false),
+];
+
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Prefs(u64);
 
 impl Prefs {
     pub fn load(store: &Store) -> Self {
+        // Someone who already picked Classic or Compact keeps the Classic layout's options.
+        let upgraded = store.setting(Pref::CompactToolbar.key()).ok().flatten().is_some();
         Pref::ALL.into_iter().fold(Prefs(0), |prefs, pref| {
+            let classic = STYLE.iter().find(|(p, ..)| *p == pref).map(|(.., classic)| *classic);
             let on = match store.setting(pref.key()).ok().flatten().as_deref() {
                 Some("on") => true,
                 Some("off") => false,
-                // Someone who already picked Classic or Compact keeps it.
-                _ if pref == Pref::SidebarToolbar => store.setting(Pref::CompactToolbar.key()).ok().flatten().is_none(),
-                _ => pref.default(),
+                _ => match classic.filter(|_| upgraded) {
+                    Some(classic) => classic,
+                    None => pref.default(),
+                },
             };
             prefs.with(pref, on)
         })
@@ -257,6 +283,16 @@ impl Prefs {
 
     pub fn get(self, pref: Pref) -> bool {
         self.0 & (1 << pref as u64) != 0
+    }
+
+    pub fn style(self) -> Style {
+        if STYLE.iter().all(|(p, modern, _)| self.get(*p) == *modern) {
+            Style::Modern
+        } else if STYLE.iter().all(|(p, _, classic)| self.get(*p) == *classic) {
+            Style::Classic
+        } else {
+            Style::Custom
+        }
     }
 
     fn with(self, pref: Pref, on: bool) -> Self {
@@ -290,6 +326,13 @@ impl crate::shared::AppCore {
 impl Browser {
     pub fn pref(&self, pref: Pref) -> bool {
         self.core.pref(pref)
+    }
+
+    /// Sets every option of the Modern style, or of the Classic one.
+    pub fn set_style(&mut self, modern: bool, cx: &mut Context<Self>) {
+        for (pref, in_modern, in_classic) in STYLE {
+            self.set_pref(pref, if modern { in_modern } else { in_classic }, cx);
+        }
     }
 
     pub fn set_pref(&mut self, pref: Pref, on: bool, cx: &mut Context<Self>) {
@@ -450,6 +493,18 @@ impl Browser {
         }
         cx.refresh_windows();
     }
+}
+
+#[test]
+fn styles_set_their_options_and_anything_else_is_custom() {
+    let store = Store::open_in_memory().unwrap();
+    assert_eq!(Prefs::load(&store).style(), Style::Modern, "a new install starts Modern");
+    let classic = STYLE.iter().fold(Prefs::load(&store), |p, (pref, _, classic)| p.with(*pref, *classic));
+    assert_eq!(classic.style(), Style::Classic);
+    assert_eq!(classic.with(Pref::SidebarChats, true).style(), Style::Custom);
+    assert_eq!(classic.with(Pref::Gestures, false).style(), Style::Classic, "options outside the style do not count");
+    store.set_setting(Pref::CompactToolbar.key(), "off").unwrap();
+    assert_eq!(Prefs::load(&store).style(), Style::Classic, "an earlier Classic toolbar keeps the Classic layout");
 }
 
 #[test]
