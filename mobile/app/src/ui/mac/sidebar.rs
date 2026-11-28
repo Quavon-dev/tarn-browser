@@ -1360,12 +1360,12 @@ fn chrome_footer(bar: Bar) -> View {
                 let p = s.core.store(c.private).profile(c.space.profile_id).ok()?;
                 Some((p.name, p.color))
             })
-            .unwrap_or_else(|| ("Profile".to_owned(), String::new()));
+            .unwrap_or_default();
         let fill = Theme::profile_color(&color).unwrap_or(Theme::faint());
         let initial = name.trim().chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
         Some(
             button()
-                .accessibility_label(format!("Profile {name}"))
+                .accessibility_label(if name.is_empty() { "Profile".to_owned() } else { format!("Profile {name}") })
                 .on_press(move || open_menu(bar, Target::Profile, Point::new(Points(BUTTON), Points(0.))))
                 .w(px(BUTTON))
                 .h(px(BUTTON))
