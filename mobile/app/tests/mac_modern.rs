@@ -1,4 +1,4 @@
-use nsh_core::geometry::{Bounds, Points, Size};
+use nsh_core::geometry::{Bounds, Points, Size, point};
 use nsh_core::platform::{Idiom, Os};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
@@ -55,6 +55,7 @@ fn the_modern_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_men
     app.wait_for("No downloads yet").unwrap();
     let (button, card) = (bounds_of(&app, "label:Downloads"), bounds(&app, "popover"));
     assert!(card.origin.y.0 + card.size.height.0 <= button.origin.y.0, "the footer's pop-overs open upwards: {button:?} {card:?}");
+    assert!((card.origin.x.0 - button.origin.x.0).abs() < 0.5 || card.origin.x.0 <= 8.5, "Downloads hangs from its footer button: {button:?} {card:?}");
     app.press_key("escape").unwrap();
     app.wait_for_gone("No downloads yet", WAIT).unwrap();
 
@@ -73,6 +74,19 @@ fn the_modern_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_men
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
+    for window in [Size::new(Points(1133.), Points(744.)), Size::new(Points(744.), Points(1133.)), Size::new(Points(1376.), Points(1032.))] {
+        app.set_viewport(window).unwrap();
+        app.press_key("mod+shift+s").unwrap();
+        app.wait_for("label:Create Space").unwrap();
+        let (space, card, create) = (bounds_of(&app, "label:/^Space /"), bounds(&app, "popover"), bounds_of(&app, "label:Create Space"));
+        let inside = |b: Bounds<Points>| b.origin.y.0 >= 0. && b.origin.y.0 + b.size.height.0 <= window.height.0;
+        assert!(inside(card), "the card stays in the window {window:?}: {card:?}");
+        assert!(card.origin.y.0 + card.size.height.0 <= space.origin.y.0 + 0.5, "the card sits above the footer's Space button: {space:?} {card:?}");
+        assert!(inside(create) && create.origin.y.0 >= card.origin.y.0, "Create stays visible in the card: {create:?} {card:?}");
+        app.press_key("escape").unwrap();
+        app.wait_for_gone("label:Create Space", WAIT).unwrap();
+    }
+
     open(&mut app, "https://example.com/");
     open(&mut app, "https://gitlab.com/b");
     open(&mut app, "https://github.com/a");
@@ -80,6 +94,13 @@ fn the_modern_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_men
     app.wait_for("Sorted 2 tabs into groups").unwrap();
     app.wait_for("label:Development").unwrap();
     assert!(bounds_of(&app, "label:example.com").origin.y.0 < bounds_of(&app, "label:Development").origin.y.0, "loose tabs come before the group cards");
+    let active = |host: &'static str| move |s: &nsh_testing::Screen| s.texts().iter().filter(|t| **t == host).count() == 2;
+    app.press_key("mod+1").unwrap();
+    app.wait_until("mod+1 picks the loose tab at the top", WAIT, active("example.com")).unwrap();
+    app.press_key("ctrl+pagedown").unwrap();
+    app.wait_until("the next tab is the group's first, below the loose tabs", WAIT, |s| !active("example.com")(s)).unwrap();
+    app.press_key("ctrl+pageup").unwrap();
+    app.wait_until("and back up to the loose tab", WAIT, active("example.com")).unwrap();
     app.press("label:Development").unwrap();
     app.wait_until("a closed group shows how many tabs it holds", WAIT, |s| s.shows("2")).unwrap();
     assert!(!app.screen().matches("label:Close Group and Its Tabs").unwrap(), "a closed card shows its summary in place of Close");
@@ -98,6 +119,10 @@ fn the_modern_sidebar_has_tidy_cards_and_a_footer_with_the_space_and_profile_men
         app.press("label:Folder 1").unwrap();
     }
     app.wait_for("Drag tabs here").expect("an open, empty folder card offers itself as a drop target");
+    let (row, folder) = (bounds_of(&app, "label:example.com"), bounds_of(&app, "label:Folder 1"));
+    app.drag("label:example.com", point(Points(folder.origin.x.0 - row.origin.x.0), Points(folder.origin.y.0 - row.origin.y.0))).unwrap();
+    app.wait_for_gone("Drag tabs here", WAIT).expect("a loose tab above the cards files into the folder");
+    assert!(bounds_of(&app, "label:example.com").origin.y.0 > bounds_of(&app, "label:Folder 1").origin.y.0, "the tab moved into the folder card");
     app.set_environment("touch", |e| (e.os, e.idiom) = touch.unwrap()).unwrap();
 
     app.press_key("mod+shift+n").unwrap();
