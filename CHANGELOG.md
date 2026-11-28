@@ -65,6 +65,11 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 ### Changed
 
+- Resting the pointer on a tab shows a snapshot of its page above its title when the tab is awake,
+  without holding ⌥; the title takes one line and the card no longer cuts off the lines under it.
+  Settings › Appearance › Layout › Tab previews picks Page, Title or Off. Snapshots stay on the
+  computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
+  only while ⌥ is held. Chromium tabs on macOS show the title card. On macOS and Windows.
 - Settings › Appearance › Sidebar sets how the sidebar looks: large pinned-site tiles or a compact
   row, groups and folders as cards or in the classic style, Chats on or off, a dot on changed tabs
   on or off, and sleeping tabs dimmed or in full colour. Corners (Square, Theme, Round, Rounder)

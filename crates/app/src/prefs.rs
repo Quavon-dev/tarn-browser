@@ -15,6 +15,8 @@ pub enum Pref {
     SidebarCards,
     DimSleeping,
     UnreadDots,
+    HoverCards,
+    PagePreviews,
     AutoHideSidebar,
     Gestures,
     ReduceMotion,
@@ -47,7 +49,7 @@ pub enum Pref {
 }
 
 impl Pref {
-    pub const ALL: [Pref; 36] = [
+    pub const ALL: [Pref; 38] = [
         Pref::CompactToolbar,
         Pref::SidebarToolbar,
         Pref::SidebarChats,
@@ -55,6 +57,8 @@ impl Pref {
         Pref::SidebarCards,
         Pref::DimSleeping,
         Pref::UnreadDots,
+        Pref::HoverCards,
+        Pref::PagePreviews,
         Pref::AutoHideSidebar,
         Pref::Gestures,
         Pref::ReduceMotion,
@@ -95,6 +99,8 @@ impl Pref {
             Pref::SidebarCards => "sidebar_cards",
             Pref::DimSleeping => "sidebar_dim_sleeping",
             Pref::UnreadDots => "sidebar_unread_dots",
+            Pref::HoverCards => browser_core::prefs::HOVER_CARDS.key,
+            Pref::PagePreviews => browser_core::prefs::PAGE_PREVIEWS.key,
             Pref::AutoHideSidebar => "auto_hide_sidebar",
             Pref::Gestures => "gestures",
             Pref::ReduceMotion => "reduce_motion",
@@ -136,6 +142,8 @@ impl Pref {
                 | Pref::SidebarChats
                 | Pref::SidebarCards
                 | Pref::UnreadDots
+                | Pref::HoverCards
+                | Pref::PagePreviews
                 | Pref::Suggestions
                 | Pref::TearOffTemporary
                 | Pref::BlockAds
@@ -551,6 +559,8 @@ mod tests {
             (Pref::FeatureHints, prefs::FEATURE_HINTS),
             (Pref::CompactDensity, prefs::COMPACT),
             (Pref::AutoPictureInPicture, prefs::AUTO_PICTURE_IN_PICTURE),
+            (Pref::HoverCards, prefs::HOVER_CARDS),
+            (Pref::PagePreviews, prefs::PAGE_PREVIEWS),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
         }

@@ -19,6 +19,10 @@ pub const AUTO_PICTURE_IN_PICTURE: Switch = Switch { key: "auto_picture_in_pictu
 pub const FEATURE_HINTS: Switch = Switch { key: "feature_hints", default: true };
 /// Settings' Appearance switch for compact density: tighter sidebar and tab strip rows on every client.
 pub const COMPACT: Switch = Switch { key: "compact_density", default: false };
+/// A card with the tab's title while the pointer rests on a tab, on every client.
+pub const HOVER_CARDS: Switch = Switch { key: "tab_hover_cards", default: true };
+/// The card also shows a snapshot of an awake tab's page, kept in memory while the pointer rests.
+pub const PAGE_PREVIEWS: Switch = Switch { key: "tab_page_previews", default: true };
 pub const COMPACT_NOTE: &str = "Shorter rows and gaps in the sidebar and the tab strip.";
 
 impl Switch {

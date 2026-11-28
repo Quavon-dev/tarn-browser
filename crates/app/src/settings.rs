@@ -80,7 +80,7 @@ const PANES: [(SettingsPane, Icon, &str, &str, &str); 14] = [
         Icon::Palette,
         "Appearance",
         "Theme, accent colour, motion and layout.",
-        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim",
+        "theme dark light match system accent colour color motion reduce toolbar compact density sidebar search bar effect tips design glass liquid transparency translucent blur corners round square pinned sites tiles favorites groups folders cards rows chats assistant changed unread dots sleeping dim hover preview snapshot",
     ),
     (
         SettingsPane::Tabs,
@@ -1082,6 +1082,19 @@ impl SettingsWindow {
                             crate::shortcuts::shown(&crate::ToggleSidebar, cx)
                         ),
                         s.prefs.get(Pref::AutoHideSidebar),
+                        cx,
+                    ))
+                    .child(self.choice_row(
+                        false,
+                        "Tab previews",
+                        "While the pointer rests on a tab: a snapshot of its page with its title, the title alone, or nothing. Snapshots stay on this computer and are dropped when the pointer leaves.",
+                        &["Page", "Title", "Off"],
+                        if !s.prefs.get(Pref::HoverCards) { 2 } else if s.prefs.get(Pref::PagePreviews) { 0 } else { 1 },
+                        |b, ix, cx| {
+                            b.set_pref(Pref::HoverCards, ix < 2, cx);
+                            b.set_pref(Pref::PagePreviews, ix == 0, cx);
+                            b.hide_hover_card(cx);
+                        },
                         cx,
                     )),
             )

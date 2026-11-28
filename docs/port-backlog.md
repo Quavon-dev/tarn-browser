@@ -21,6 +21,18 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 
 ## Open
 
+### Tab previews setting (2026-11-28)
+
+What it does: resting the pointer on a tab shows a snapshot of its page without holding Alt (not
+for private-space tabs), and Settings › Appearance › Layout › Tab previews picks Page, Title or Off.
+Shared API: `browser_core::prefs::{HOVER_CARDS, PAGE_PREVIEWS}`.
+Reference: `crates/app/src/hover_card.rs` (`schedule_hover_card`, `request_shot`), `crates/app/src/settings.rs`.
+
+- [x] Windows — same code in `crates/app`
+- [ ] Linux — `linux/src/ui/peek.rs` still needs Alt for the snapshot; read the two switches and
+  add the choice to its Appearance settings
+- iOS and Android have no hover.
+
 ### Toolbar in the sidebar (2026-11-28)
 
 What it does: Back, Forward, Reload and the address field sit at the top of the sidebar; under the
