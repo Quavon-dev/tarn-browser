@@ -29,8 +29,7 @@ Shared API: `browser_core::prefs::{HOVER_CARDS, PAGE_PREVIEWS}`.
 Reference: `crates/app/src/hover_card.rs` (`schedule_hover_card`, `request_shot`), `crates/app/src/settings.rs`.
 
 - [x] Windows — same code in `crates/app`
-- [ ] Linux — `linux/src/ui/peek.rs` still needs Alt for the snapshot; read the two switches and
-  add the choice to its Appearance settings
+- [x] Linux
 - iOS and Android have no hover.
 
 ### Toolbar in the sidebar (2026-11-28)

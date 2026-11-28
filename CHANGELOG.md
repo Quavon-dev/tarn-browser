@@ -69,7 +69,8 @@ All notable changes to Tarn are documented in this file. The format is based on
   without holding ⌥; the title takes one line and the card no longer cuts off the lines under it.
   Settings › Appearance › Layout › Tab previews picks Page, Title or Off. Snapshots stay on the
   computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
-  only while ⌥ is held. Chromium tabs on macOS show the title card. On macOS and Windows.
+  only while ⌥ (Alt on Linux) is held. Chromium tabs on macOS show the title card. On macOS,
+  Windows and Linux.
 - Settings › Appearance › Style › Layout switches the whole layout at once: Modern (toolbar in the
   sidebar, cards for groups and folders, Chats, page previews) or Classic, Tarn's earlier layout;
   it shows neither when single options were changed. On macOS and Windows.
