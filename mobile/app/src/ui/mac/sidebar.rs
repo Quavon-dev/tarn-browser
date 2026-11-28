@@ -1354,11 +1354,13 @@ fn chrome_footer(bar: Bar) -> View {
         )
         .child(view().text_color(Theme::muted).child(glyphs::icon(glyphs::CHEVRON_UP, 12.)));
     let profile = dynamic(move || {
-        let (name, color) = ui.read_data(|s| {
-            let c = s.model.current_space()?;
-            let p = s.core.store(c.private).profile(c.space.profile_id).ok()?;
-            Some((p.name, p.color))
-        })?;
+        let (name, color) = ui
+            .read_data(|s| {
+                let c = s.model.current_space()?;
+                let p = s.core.store(c.private).profile(c.space.profile_id).ok()?;
+                Some((p.name, p.color))
+            })
+            .unwrap_or_else(|| ("Profile".to_owned(), String::new()));
         let fill = Theme::profile_color(&color).unwrap_or(Theme::faint());
         let initial = name.trim().chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
         Some(
