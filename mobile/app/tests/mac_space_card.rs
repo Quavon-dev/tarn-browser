@@ -33,27 +33,26 @@ fn a_tall_space_card_fits_above_its_button_and_keeps_its_footer() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
     for window in [Size::new(Points(1133.), Points(744.)), Size::new(Points(744.), Points(1133.)), Size::new(Points(1376.), Points(1032.))] {
         app.set_viewport(window).unwrap();
-        app.wait_for("label:New Space").unwrap();
-        app.press("label:New Space").unwrap();
+        app.wait_for("label:/^Space /").unwrap();
+        app.press("label:/^Space /").unwrap();
+        app.press("label:New Space…").unwrap();
         app.wait_for("label:Create Space").unwrap();
-        let (plus, card, create) = (bounds_of(&app, "label:New Space"), bounds(&app, "popover"), bounds_of(&app, "label:Create Space"));
+        let (space, card, create) = (bounds_of(&app, "label:/^Space /"), bounds(&app, "popover"), bounds_of(&app, "label:Create Space"));
         assert!(inside(window, card), "the card stays in the window {window:?}: {card:?}");
-        assert!(card.origin.y.0 + card.size.height.0 <= plus.origin.y.0 + 0.5, "the card sits above +: {plus:?} {card:?}");
+        assert!(card.origin.y.0 + card.size.height.0 <= space.origin.y.0 + 0.5, "the card sits above the space switcher: {space:?} {card:?}");
         assert!(inside(window, create) && create.origin.y.0 >= card.origin.y.0, "Create stays visible in the card: {create:?} {card:?}");
         app.press_key("escape").unwrap();
         app.wait_for_gone("label:Create Space", WAIT).unwrap();
     }
 
     app.set_viewport(Size::new(Points(1133.), Points(744.))).unwrap();
-    app.press("label:New Space").unwrap();
+    app.press("label:/^Space /").unwrap();
+    app.press("label:New Space…").unwrap();
     app.wait_for("label:Create Space").unwrap();
     app.press("label:Create Space").unwrap();
     app.wait_for_gone("label:Create Space", WAIT).unwrap();

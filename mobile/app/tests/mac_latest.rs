@@ -40,9 +40,6 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
-    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
     app.press("label:General").unwrap();
     app.wait_for("Profiles").unwrap();
     app.wait_for("This window").unwrap();
@@ -57,10 +54,11 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press("label:Strict").unwrap();
     app.wait_for("label:Shield: Strict").unwrap();
 
-    app.press("label:New Space").unwrap();
+    app.press("label:/^Space /").unwrap();
+    app.press("label:New Space…").unwrap();
     app.wait_for("Create Space").unwrap();
-    let (plus, card) = (bounds_of(&app, "label:New Space"), bounds(&app, "popover"));
-    assert!(card.origin.y.0 + card.size.height.0 <= plus.origin.y.0, "the space card opens above +: {plus:?} {card:?}");
+    let (space, card) = (bounds_of(&app, "label:/^Space /"), bounds(&app, "popover"));
+    assert!(card.origin.y.0 + card.size.height.0 <= space.origin.y.0, "the space card opens above the space switcher: {space:?} {card:?}");
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
     app.press_key("mod+shift+s").unwrap();
@@ -68,7 +66,7 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for_gone("label:Organize Tabs", WAIT).unwrap();
+    app.wait_for_gone("label:Tidy", WAIT).unwrap();
     app.press("label:Home").unwrap();
     app.press("label:New Space…").unwrap();
     app.wait_for("Create Space").unwrap();
@@ -77,9 +75,9 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     app.press_key("escape").unwrap();
     app.wait_for_gone("Create Space", WAIT).unwrap();
     app.press_key("mod+s").unwrap();
-    app.wait_for("label:Organize Tabs").unwrap();
+    app.wait_for("label:Tidy").unwrap();
 
-    app.press("label:Organize Tabs").unwrap();
+    app.long_press("label:Tidy").unwrap();
     app.press("label:New Folder").unwrap();
     app.wait_for("label:Folder 1").unwrap();
     app.long_press("label:Folder 1").unwrap();
@@ -96,7 +94,7 @@ fn the_mac_layout_follows_the_latest_macos_sidebar_settings_and_cards() {
     open(&mut app, "https://example.com/");
     open(&mut app, "https://gitlab.com/b");
     open(&mut app, "https://github.com/a");
-    app.press("label:Organize Tabs").unwrap();
+    app.long_press("label:Tidy").unwrap();
     app.press("label:Clean Up").unwrap();
     app.wait_for("Sorted 2 tabs into groups").unwrap();
     app.wait_for("label:Development").unwrap();

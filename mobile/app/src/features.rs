@@ -553,21 +553,11 @@ impl<D: Platform> Shell<D> {
         switch.set(&self.core.disk, on);
     }
 
-    pub fn set_style(&mut self, modern: bool) {
-        browser_core::prefs::set_style(&self.core.disk, modern);
-    }
-
     /// The profile whose latest chats the sidebar lists: its AI is on and it is not private.
     pub fn chat_profile(&self) -> Option<store::Id> {
         // Listing titles sends nothing, so a site at Lockdown does not hide them; the profile's level does.
         let origin = self.model.assistant_origin(&self.core, None).filter(|o| browser_core::assistant::allowed(*o))?;
         self.core.disk.profile(origin.profile).is_ok_and(|p| p.ai_enabled).then_some(origin.profile)
-    }
-
-    /// The Modern sidebar of the Mac layout: Chats, Tidy, cards and the footer, while the tabs sit
-    /// in the sidebar. The address stays in the toolbar on touch.
-    pub fn sidebar_chrome(&self) -> bool {
-        !self.tabs_on_top() && self.switch_on(browser_core::prefs::SIDEBAR_TOOLBAR)
     }
 
     /// Tabs on top hide the sidebar of the Mac layout; back at the side it shows as it was.

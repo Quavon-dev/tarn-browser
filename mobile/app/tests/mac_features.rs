@@ -84,12 +84,10 @@ fn the_mac_layout_offers_assistant_tabs_on_top_density_and_capture() {
     settings_pane(&mut app, "Appearance");
     app.press("label:Compact density: On").unwrap();
     app.wait_for("label:Compact density: Off").unwrap();
-    app.press("label:Classic >> nth=0").unwrap();
-    app.wait_for("label:Organize Tabs").expect("the Classic style brings back the sidebar's earlier header and list");
-    assert!(!app.screen().matches("label:Tidy").unwrap() && !app.screen().matches("label:Pinned sites").unwrap());
-    app.press("label:Modern").unwrap();
-    app.wait_for("label:Tidy").expect("Modern puts Tidy back");
-    app.wait_for("label:Dim sleeping tabs: Off").unwrap();
+    for row in ["Tabs", "Window", "Pinned sites", "Groups and folders", "label:Dim sleeping tabs: Off"] {
+        app.wait_for(row).unwrap();
+    }
+    assert!(!app.screen().matches("label:Modern").unwrap(), "no Style preset: the sidebar has one layout");
 
     app.press("label:AI").unwrap();
     app.wait_for("label:Use the assistant in this profile: Off").unwrap();
