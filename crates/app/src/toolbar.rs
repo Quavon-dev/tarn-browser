@@ -27,17 +27,18 @@ pub fn shield_badge(level: ShieldLevel) -> &'static str {
 pub fn render(b: &Browser, cx: &mut Context<Browser>) -> AnyElement {
     let folded = if b.sidebar_chrome() { b.sidebar_shown() } else { 0. };
     let inset = (TRAFFIC_LIGHT_INSET - (b.sidebar_width + SIDEBAR_MARGIN) * b.sidebar_shown()).max(8.);
+    // The strip the folded toolbar leaves, which it shrinks towards so the page does not jump.
+    let strip = if b.devtools_on() {
+        TOOLBAR_HEIGHT
+    } else if cfg!(windows) {
+        CAPTION
+    } else {
+        SIDEBAR_MARGIN
+    };
     let (bar, height) = if folded >= 1. {
-        let height = if b.devtools_on() {
-            TOOLBAR_HEIGHT
-        } else if cfg!(windows) {
-            CAPTION
-        } else {
-            SIDEBAR_MARGIN
-        };
-        (div().justify_end().gap_2().when(b.devtools_on(), |d| d.child(devtools(b, cx))).children(app_menu_button(b, cx)), height)
+        (div().justify_end().gap_2().when(b.devtools_on(), |d| d.child(devtools(b, cx))).children(app_menu_button(b, cx)), strip)
     } else if b.pref(Pref::CompactToolbar) || b.pref(Pref::SidebarToolbar) {
-        (render_compact(b, cx).pl(px(inset)), TOOLBAR_HEIGHT * (1. - folded))
+        (render_compact(b, cx).pl(px(inset)), strip + (TOOLBAR_HEIGHT - strip) * (1. - folded))
     } else {
         (render_classic(b, inset, cx).pl_2(), TOOLBAR_HEIGHT)
     };

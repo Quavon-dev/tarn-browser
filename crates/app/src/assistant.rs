@@ -559,9 +559,10 @@ impl Browser {
         cx.notify();
     }
 
-    /// Continues a saved chat of the current profile, under the rules of a new one.
+    /// Continues a saved chat of the current profile, opened at the profile's level like `new_chat`;
+    /// the page's level is checked when something leaves for the provider or the page.
     pub(crate) fn open_chat(&mut self, id: store::Id, window: &mut Window, cx: &mut Context<Self>) {
-        let Some((origin, on)) = self.page_origin() else { return };
+        let Some((origin, on)) = self.assistant_origin() else { return };
         if self.assistant.session.as_ref().and_then(Session::chat) == Some(id) {
             self.assistant.chats = false;
             return cx.notify();

@@ -1882,6 +1882,7 @@ impl Store {
             tx.execute(&format!("DELETE FROM {table} WHERE {filter}"), [profile_id])?;
         }
         tx.commit()?;
+        self.chats_changed();
         self.checkpoint().ok();
         Ok(())
     }
@@ -1904,6 +1905,7 @@ impl Store {
             hidden: false,
         };
         tx.commit()?;
+        self.chats_changed();
         self.checkpoint().ok();
         Ok(space)
     }
@@ -2803,8 +2805,14 @@ mod tests {
         store.delete_chat(2, id).unwrap();
         assert_eq!(store.chat_titles(1).unwrap().len(), 1, "another profile's id deletes nothing");
         assert!(store.export_profile(1).unwrap().contains("\"chats\""));
+        let seen = store.chat_changes();
         store.reset_profile(1, "S").unwrap();
         assert!(store.chat_titles(1).unwrap().is_empty());
+        assert!(store.chat_changes() > seen, "a reset tells the sidebar its chats went");
+        store.save_chat(2, None, Some("x"), &turns, &[]).unwrap();
+        let seen = store.chat_changes();
+        store.empty_profile(2).unwrap();
+        assert!(store.chat_titles(2).unwrap().is_empty() && store.chat_changes() > seen);
         store.save_chat(2, None, Some("x"), &turns, &[]).unwrap();
         store.delete_chats(2).unwrap();
         assert!(store.chat_titles(2).unwrap().is_empty());

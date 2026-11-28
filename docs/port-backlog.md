@@ -55,6 +55,8 @@ Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `p
 
 - [x] Windows — same code in `crates/app`; a 32 px strip above the page keeps the window
   buttons. Not yet run on Windows.
+- macOS shows no update card: Sparkle downloads, announces and installs updates in its own
+  window, so `Updater::ready_version` is always `None` there.
 - [ ] Linux — `linux/src/ui.rs` `sidebar`: header with navigation and address, chats (and the
   switch to hide them), Tidy, group and folder cards with their summary, unread dot (call
   `note_title` from the title signal), footer, the assistant card; offer `Command::SidebarToolbar`

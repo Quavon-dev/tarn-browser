@@ -259,15 +259,18 @@ impl Browser {
         self.show_menu(items, window, cx);
     }
 
-    pub fn profile_menu(&mut self, id: Id, window: &mut Window, cx: &mut Context<Self>) {
-        let items = vec![
+    /// `id` is `None` for a private space's profile, which cannot be edited.
+    pub fn profile_menu(&mut self, id: Option<Id>, window: &mut Window, cx: &mut Context<Self>) {
+        let mut items = vec![
             Item::action("Settings…", Cmd::Settings).key(crate::shortcuts::keys(&crate::Settings, cx)),
             Item::action("Show Library", Cmd::Library).key(crate::shortcuts::keys(&crate::ToggleLibrary, cx)),
             Item::Separator,
-            Item::action("Edit Profile…", Cmd::EditProfile(id)),
+        ];
+        items.extend(id.map(|id| Item::action("Edit Profile…", Cmd::EditProfile(id))));
+        items.extend([
             Item::action("New Profile…", Cmd::NewProfile),
             Item::action("New Space…", Cmd::NewSpace).key(crate::shortcuts::keys(&crate::NewSpace, cx)),
-        ];
+        ]);
         self.show_menu(items, window, cx);
     }
 

@@ -557,7 +557,9 @@ fn pills(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Vec<Statefu
 
 /// Downloads, the space switcher and the profile, under the list.
 fn footer(b: &Browser, titles: Div, cx: &mut Context<Browser>) -> Div {
-    let profile = b.current_loaded().map(|rt| (rt.profile.id, rt.profile.name.clone(), rt.profile.color.clone()));
+    // A private space's profile lives in the private store, so it is not edited from here.
+    let private = b.model.current_space().is_some_and(|s| s.private);
+    let profile = b.current_loaded().map(|rt| ((!private).then_some(rt.profile.id), rt.profile.name.clone(), rt.profile.color.clone()));
     let at = std::rc::Rc::<std::cell::Cell<_>>::default();
     let avatar_button = profile.map(|(id, name, color)| {
         let color = Theme::profile_color(&color).unwrap_or(Theme::faint());
@@ -628,12 +630,10 @@ impl Browser {
         if self.tab_muted(key) { Some(true) } else { playing.then_some(false) }
     }
 
-    /// The current profile's latest chats, while its assistant may run on the page shown.
+    /// The current profile's latest chats, while the profile's AI switch is on and it is not private.
     fn sidebar_chats(&self) -> Option<Vec<browser_core::sidebar::ChatRow>> {
-        if !self.assistant_allowed() {
-            return None;
-        }
-        let (origin, _) = self.assistant_origin()?;
+        // Listing titles sends nothing, so a site at Lockdown does not hide them; the profile's switch does.
+        let (origin, _) = self.assistant_origin().filter(|(o, on)| *on && browser_core::assistant::allowed(*o))?;
         let now = browser_core::now();
         // Read again each minute, so a time from yesterday turns into its date soon after midnight.
         let key = (origin.profile, self.core.disk.chat_changes(), now / 60_000);
@@ -670,7 +670,7 @@ fn chats(b: &Browser, cx: &mut Context<Browser>) -> Option<Div> {
             Theme::faint(),
         )))
         .child(div().flex_1())
-        .child(icon_button("new-chat", Icon::SquarePen, true).tooltip(tooltip("New Chat", None)).on_click(cx.listener(|b, _, window, cx| {
+        .child(tab_stop(icon_button("new-chat", Icon::SquarePen, true)).tooltip(tooltip("New Chat", None)).on_click(cx.listener(|b, _, window, cx| {
             cx.stop_propagation();
             b.toggle_assistant(true, window, cx);
             b.new_chat(window, cx);
@@ -705,7 +705,7 @@ fn chats(b: &Browser, cx: &mut Context<Browser>) -> Option<Div> {
 fn tidy(b: &Browser, cx: &mut Context<Browser>) -> Div {
     let enabled = browser_core::sidebar::cleanable(&b.model);
     div().mx_2().my_1().h(px(24.)).flex().items_center().gap_2().child(div().flex_1().h(px(1.)).bg(Theme::hairline())).child(
-        tab_stop(div().id("tidy"))
+        keyboard_row(div().id("tidy"), |b, w, cx| b.organize_menu(w, cx), cx)
             .h(px(22.))
             .px_1p5()
             .flex()
@@ -717,7 +717,7 @@ fn tidy(b: &Browser, cx: &mut Context<Browser>) -> Div {
             .when(enabled, |d| d.cursor_pointer().hover(|s| s.bg(Theme::hover()).text_color(Theme::text())))
             .child(icon(Icon::BroomSparkles, 13., if enabled { Theme::muted() } else { Theme::faint() }))
             .child("Tidy")
-            .tooltip(tooltip("Tidy: sort loose tabs into groups — right-click for more", None))
+            .tooltip(tooltip("Tidy: sort loose tabs into groups — right-click or ⇧F10 for more", None))
             .on_click(cx.listener(move |b, _, _, cx| {
                 if enabled {
                     b.clean_up_tabs(cx);
@@ -883,7 +883,8 @@ fn tiles(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
                     (true, _, _) => Theme::sidebar_edge(),
                     (false, true, _) => Theme::accent(),
                     (false, false, true) => Theme::faint(),
-                    (false, false, false) if chrome => Rgba { a: 0., ..Theme::hairline() },
+                    // Dark themes need no edge; in light ones it keeps a white icon from vanishing into its tile.
+                    (false, false, false) if chrome && !Theme::is_light() => Rgba { a: 0., ..Theme::hairline() },
                     (false, false, false) => Theme::hairline(),
                 })
                 .when(!active, |d| d.hover(|s| s.bg(Theme::hover())))
@@ -1496,8 +1497,8 @@ fn group_card(b: &Browser, ix: usize, g: &Group, cx: &mut Context<Browser>) -> A
         .map(|d| match chrome {
             true => d.child(
                 div().size(px(18.)).flex_none().flex().items_center().justify_center().child(
-                    chosen_icon(&g.icon, ICON, Theme::muted())
-                        .unwrap_or_else(|| icon(if g.collapsed { Icon::Folder } else { Icon::FolderOpen }, ICON, Theme::muted()).into_any_element()),
+                    chosen_icon(&g.icon, ICON, group_color(g))
+                        .unwrap_or_else(|| icon(if g.collapsed { Icon::Folder } else { Icon::FolderOpen }, ICON, group_color(g)).into_any_element()),
                 ),
             ),
             false => d.child(group_avatar(g, 18.)),
