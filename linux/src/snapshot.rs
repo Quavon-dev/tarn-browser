@@ -12,6 +12,7 @@ use crate::browser::{Browser, Notice};
 pub struct SpaceItem {
     pub ix: usize,
     pub label: String,
+    pub name: String,
     pub current: bool,
     pub icon: String,
     pub color: String,
@@ -510,9 +511,11 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         spaces: (0..b.model.spaces.len())
             .map(|ix| {
                 let s = &b.model.spaces[ix];
+                let label = space_label(b, ix);
                 SpaceItem {
                     ix,
-                    label: space_label(b, ix),
+                    name: if s.private { label.clone() } else { s.space.name.clone() },
+                    label,
                     current: ix == b.model.space_ix,
                     icon: s.space.icon.clone(),
                     color: s.space.color.clone(),

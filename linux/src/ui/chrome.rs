@@ -313,7 +313,7 @@ pub(super) fn space_rows(ui: Ui) -> View {
     let spaces = ui.snap.with_untracked(|s| s.spaces.iter().filter(|x| x.shown).cloned().collect::<Vec<_>>());
     group().children(spaces.into_iter().map(|space| {
         let ix = space.ix;
-        let name = if space.private { space.label.clone() } else { space.label.rsplit(" · ").next().unwrap_or_default().to_owned() };
+        let name = space.name;
         controls::row(name.clone(), move || {
             ui.panel.set(Panel::None);
             tarn_nsh_shared::motion::space_switch();
