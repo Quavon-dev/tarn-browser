@@ -743,9 +743,11 @@ fn keyboard_order(s: &Snapshot) -> Vec<String> {
         r.panes.iter().for_each(|p| push(p, out));
     }
     let mut out: Vec<String> = s.tiles.iter().map(snapshot::Row::id).collect();
-    for pinned in [true, false] {
-        s.rows.iter().filter(|r| in_pinned_section(r) == pinned).for_each(|r| push(r, &mut out));
+    s.rows.iter().filter(|r| in_pinned_section(r)).for_each(|r| push(r, &mut out));
+    if s.chrome {
+        out.push("tidy".to_owned());
     }
+    s.rows.iter().filter(|r| !in_pinned_section(r)).for_each(|r| push(r, &mut out));
     out
 }
 
@@ -3451,6 +3453,8 @@ mod tests {
         let snap = crate::snapshot::snapshot(&b, true);
         let id = |kind: super::RowKind| snap.rows.iter().find(|r| r.kind == kind).unwrap().id();
         let order = super::keyboard_order(&snap);
-        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), id(super::RowKind::Tab(first))]);
+        assert_eq!(order, [id(super::RowKind::Tab(pinned)), id(super::RowKind::Folder(folder)), "tidy".to_owned(), id(super::RowKind::Tab(first))]);
+        b.set_style(false);
+        assert!(!super::keyboard_order(&crate::snapshot::snapshot(&b, true)).contains(&"tidy".to_owned()), "Classic has no Tidy row");
     }
 }
