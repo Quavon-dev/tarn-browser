@@ -295,7 +295,7 @@ fn tab_row(b: &Browser, heavy: &HashSet<TabKey>, tab: &Tab, depth: usize, muted:
         open: false,
         panes: Vec::new(),
         color: 0,
-        unread: b.chrome_pref(browser_core::prefs::UNREAD_DOTS) && b.model.unread(key),
+        unread: b.pref(browser_core::prefs::UNREAD_DOTS) && b.model.unread(key),
         summary: None,
     }
 }
@@ -303,7 +303,7 @@ fn tab_row(b: &Browser, heavy: &HashSet<TabKey>, tab: &Tab, depth: usize, muted:
 fn folder_rows(b: &Browser, heavy: &HashSet<TabKey>, parent: Option<Id>, depth: usize, rows: &mut Vec<Row>) {
     let mut folders: Vec<&Folder> = b.model.folders.iter().filter(|f| f.parent_id == parent).collect();
     folders.sort_by_key(|f| f.position);
-    let card = depth == 0 && b.chrome_pref(browser_core::prefs::SIDEBAR_CARDS);
+    let card = depth == 0 && b.pref(browser_core::prefs::SIDEBAR_CARDS);
     for folder in folders {
         let open = b.model.expanded.contains(&folder.id);
         let mut inner = Vec::new();
@@ -344,7 +344,7 @@ fn hosts((urls, count): (Vec<String>, usize)) -> (Vec<String>, usize) {
 }
 
 fn group_rows(b: &Browser, heavy: &HashSet<TabKey>, rows: &mut Vec<Row>) {
-    let cards = b.chrome_pref(browser_core::prefs::SIDEBAR_CARDS);
+    let cards = b.pref(browser_core::prefs::SIDEBAR_CARDS);
     let mut groups: Vec<&Group> = b.model.groups.iter().collect();
     groups.sort_by_key(|g| g.position);
     for group in groups {
@@ -388,7 +388,7 @@ fn rows_with(b: &Browser, heavy: &HashSet<TabKey>) -> Vec<Row> {
     folder_rows(b, heavy, None, 0, &mut rows);
     let mut groups = Vec::new();
     group_rows(b, heavy, &mut groups);
-    if !b.sidebar_chrome() {
+    if b.tabs_on_top() {
         rows.append(&mut groups);
     }
     tab_rows(b, heavy, Zone::of(TabKind::Ephemeral), 0, &mut rows);
@@ -586,9 +586,9 @@ pub fn snapshot_with(b: &Browser, web_shown: bool, heavy: &HashSet<TabKey>) -> S
         media: b.mini_player(),
         media_polls: b.player.polls(),
         chrome: b.sidebar_chrome(),
-        cards: b.chrome_pref(browser_core::prefs::SIDEBAR_CARDS),
-        small_tiles: b.chrome_pref(browser_core::prefs::SMALL_TILES),
-        dim: !b.sidebar_chrome() || b.pref(browser_core::prefs::DIM_SLEEPING),
+        cards: b.pref(browser_core::prefs::SIDEBAR_CARDS),
+        small_tiles: b.pref(browser_core::prefs::SMALL_TILES),
+        dim: b.pref(browser_core::prefs::DIM_SLEEPING),
         chats: b.sidebar_chats(),
         avatar: b.model.current_space().and_then(|s| {
             let profile = b.core.store(s.private).profile(s.space.profile_id).ok()?;
@@ -631,7 +631,7 @@ mod tests {
     fn rows_list_pinned_then_folders_then_tabs_and_views_follow_the_live_tabs() {
         let dir = tempfile::tempdir().unwrap();
         let mut b = Browser::open(dir.path());
-        b.set_style(false);
+        b.set_pref(browser_core::prefs::SIDEBAR_CARDS, false);
         let pinned = b.model.active.unwrap();
         b.pin_toggle(pinned);
         b.new_folder(None);
@@ -660,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn with_the_toolbar_in_the_sidebar_folders_are_cards_and_loose_tabs_come_before_groups() {
+    fn with_every_toolbar_folders_are_cards_and_loose_tabs_come_before_groups() {
         let dir = tempfile::tempdir().unwrap();
         let mut b = Browser::open(dir.path());
         let first = b.model.active.unwrap();
@@ -674,6 +674,8 @@ mod tests {
         let rows = rows(&b);
         let kinds: Vec<_> = rows.iter().map(|r| r.kind.clone()).collect();
         assert_eq!(kinds, [RowKind::Folder(folder), RowKind::Tab(loose), RowKind::Tab(first), RowKind::Group(group)]);
+        b.set_pref(browser_core::prefs::SIDEBAR_TOOLBAR, false);
+        assert_eq!(super::rows(&b).iter().map(|r| r.kind.clone()).collect::<Vec<_>>(), kinds, "the Classic toolbar keeps the same sidebar");
         let card = &rows[0];
         assert_eq!((card.panes.len(), card.panes[0].depth), (1, 1));
         b.toggle_folder(folder);

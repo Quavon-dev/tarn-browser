@@ -317,7 +317,7 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
   capture states). Sleeping rows' titles are greyed (`Theme::asleep`); their site tiles dim, with a
-  moon, in the Classic layout or with Settings › Appearance › Sidebar › Dim sleeping tabs. Gap: WebKitGTK
+  moon, with Settings › Appearance › Design › Dim sleeping tabs. Gap: WebKitGTK
   has no playback-state query like WebKit's `requestMediaPlaybackState`, so silent or muted video
   does not keep a tab awake. Once a minute the awake background tabs whose web processes together
   hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest

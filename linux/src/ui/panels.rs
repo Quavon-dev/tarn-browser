@@ -900,13 +900,12 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Shield => (SITE_WIDTH, Side::Centre),
             Panel::NewSpace => (SPACE_CARD_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
-            Panel::Sidebar | Panel::Organize | Panel::Chats | Panel::Profile(_) => (320., Side::Start),
-            Panel::SpaceMenu(_) if ui.snap.with_untracked(|s| s.chrome) => (320., Side::Start),
+            Panel::Sidebar | Panel::Organize | Panel::Chats | Panel::Profile(_) | Panel::SpaceMenu(_) => (320., Side::Start),
             Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
             _ => (PANEL_WIDTH, Side::Centre),
         };
         // Menus of the sidebar's bottom edge open upwards from it.
-        let footer = matches!(panel, Panel::Profile(_)) || matches!(panel, Panel::SpaceMenu(_)) && ui.snap.with_untracked(|s| s.chrome);
+        let footer = matches!(panel, Panel::Profile(_) | Panel::SpaceMenu(_));
         let content = match panel {
             Panel::Settings => view().flex_col().flex_1().child(body).into_element(),
             _ if footer => body,
