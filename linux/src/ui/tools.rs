@@ -68,6 +68,7 @@ pub enum Command {
     SleepOthers,
     StopLoading,
     GlassDesign,
+    Pref(browser_core::prefs::Switch),
     ToastAction,
     Ask,
     AskPage,
@@ -136,6 +137,8 @@ fn command_for(command: palette::Command) -> Option<Command> {
         C::FullScreen => Command::FullScreen,
         C::StopLoading => Command::StopLoading,
         C::GlassDesign => Command::GlassDesign,
+        C::SidebarToolbar => Command::Pref(browser_core::prefs::SIDEBAR_TOOLBAR),
+        C::SidebarChats => Command::Pref(browser_core::prefs::SIDEBAR_CHATS),
         C::ReloadFromOrigin => Command::Key(Action::ReloadFromOrigin),
         C::CloseWindow => Command::Key(Action::CloseWindow),
         C::KeyboardShortcuts => Command::Key(Action::ToggleShortcuts),
@@ -143,8 +146,6 @@ fn command_for(command: palette::Command) -> Option<Command> {
         | C::EditProfile
         | C::AutoHideSidebar
         | C::CompactToolbar
-        | C::SidebarToolbar
-        | C::SidebarChats
         | C::ShowLibrary
         | C::ReloadInChromium
         | C::ReloadInWebKit
@@ -297,6 +298,7 @@ pub fn run(ui: Ui, command: Command) {
             act(ui, Browser::toggle_glass_design);
             super::themes_changed();
         }
+        Command::Pref(switch) => super::set_pref(switch, !read(ui, |b| b.pref(switch)).unwrap_or(switch.default)),
         Command::ToastAction => take_toast_action(ui),
         Command::Ask => super::assistant::open(ui, false),
         Command::AskPage => super::assistant::open(ui, true),

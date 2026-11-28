@@ -511,8 +511,14 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
         "Glass makes the window translucent over your desktop, with rounder, softer panels."
     };
     let mut rows = group().child(choice_row("Design", about, picks(pane, on, &[("Classic", false), ("Glass", true)], library::set_glass_on)));
+    let corners = Corners::ALL.map(|c| (c.label(), c));
     if !on {
-        return rows;
+        let picked = host.with_store(library::classic_corners);
+        return rows.child(choice_row(
+            "Corners",
+            "How round panels, cards and tiles are. Theme keeps the theme's own.",
+            picks(pane, picked, &corners, library::set_classic_corners),
+        ));
     }
     if backing != Backing::Opaque {
         let labels = library::TRANSPARENCY_STEPS.map(|v| format!("{v} %"));
@@ -524,7 +530,6 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
         let blur = glass.blur;
         rows = rows.child(switch_row("Blur behind the window", move || blur, move || pane.quietly(host.with_store(|s| library::set_blur(s, !blur)))));
     }
-    let corners = Corners::ALL.map(|c| (c.label(), c));
     rows.child(choice_row("Corners", "How round panels and cards are.", picks(pane, glass.corners, &corners, library::set_corners)))
 }
 

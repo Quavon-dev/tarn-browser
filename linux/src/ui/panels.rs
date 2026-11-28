@@ -889,6 +889,8 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Organize => organize_panel(ui),
             Panel::Card(card) => super::profiles::card_panel(ui, card),
             Panel::SpaceMenu(key) => super::profiles::space_menu(ui, key),
+            Panel::Chats => super::chrome::chats_menu(ui),
+            Panel::Profile(id) => super::chrome::profile_menu(ui, id),
         };
         let panel = ui.panel.get_untracked();
         let (width, side) = match panel {
@@ -898,16 +900,24 @@ pub fn panel_view(ui: Ui) -> AnyElement {
             Panel::Shield => (SITE_WIDTH, Side::Centre),
             Panel::NewSpace => (SPACE_CARD_WIDTH, Side::Centre),
             Panel::Downloads => (380., Side::Start),
-            Panel::Sidebar | Panel::Organize => (320., Side::Start),
+            Panel::Sidebar | Panel::Organize | Panel::Chats | Panel::Profile(_) => (320., Side::Start),
+            Panel::SpaceMenu(_) if ui.snap.with_untracked(|s| s.chrome) => (320., Side::Start),
             Panel::Settings => (PANEL_WIDTH + 200., Side::Centre),
             _ => (PANEL_WIDTH, Side::Centre),
         };
-        let content =
-            if panel == Panel::Settings { view().flex_col().flex_1().child(body).into_element() } else { scroll().flex_1().child(body).into_element() };
-        let column = view().flex_col().flex_1().w(px(width)).child(content);
+        // Menus of the sidebar's bottom edge open upwards from it.
+        let footer = matches!(panel, Panel::Profile(_)) || matches!(panel, Panel::SpaceMenu(_)) && ui.snap.with_untracked(|s| s.chrome);
+        let content = match panel {
+            Panel::Settings => view().flex_col().flex_1().child(body).into_element(),
+            _ if footer => body,
+            _ => scroll().flex_1().child(body).into_element(),
+        };
+        let column = view().flex_col().w(px(width)).child(content);
+        let column = if footer { column } else { column.flex_1() };
         let outside = matches!(panel, Panel::NewSpace | Panel::Space)
             .then(|| nsh_base::button().accessibility_label("Close").on_press(move || show(ui, Panel::None)).absolute().inset_0());
         let area = view().flex_col().flex_1().relative().p_4().children(outside);
+        let area = if footer { area.justify_end() } else { area };
         let area = match side {
             Side::Start => area.items_start(),
             Side::Centre => area.items_center(),

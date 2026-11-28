@@ -58,34 +58,52 @@ fn drop_into(ui: Ui, id: Id) {
     }
 }
 
+/// A card's chosen symbol or emoji in `color`, else a folder, open or closed.
+fn card_glyph(icon: &str, open: bool, color: Rgba) -> View {
+    let inside = match browser_core::icon::parse(icon) {
+        Some(browser_core::icon::Icon::Emoji(emoji)) => text(emoji.to_owned()).text_size(px(13.)).into_element(),
+        Some(browser_core::icon::Icon::Symbol(name)) => icons::icon(icons::named(name).unwrap_or(icons::FOLDER), 15.).into_element(),
+        None => icons::icon(if open { icons::FOLDER_OPEN } else { icons::FOLDER }, 15.).into_element(),
+    };
+    view().w(px(18.)).h(px(18.)).flex_none().items_center().justify_center().text_color(color).child(inside)
+}
+
+fn chevron(item: ReadSignal<Row>) -> View {
+    view().text_color(Theme::muted()).child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.)))
+}
+
 pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
     let name = move || item.with(|r| r.label.clone());
     let target = signal(false);
+    let hovered = signal(false);
+    let cards = move || ui.snap.with(|s| s.cards);
     let header = controls::row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_group(id)))
         .h(move || px(Theme::tab_row() - 2.))
         .pl(px(6.))
         .pr(px(2.))
         .child(dynamic(move || {
-            let (label, color, icon) = item.with(|r| (r.label.clone(), r.color, r.icon.clone()));
-            badge(&icon, &label, rgb(color))
+            let (label, color, icon, open) = item.with(|r| (r.label.clone(), r.color, r.icon.clone(), r.open));
+            if cards() { card_glyph(&icon, open, rgb(color)) } else { badge(&icon, &label, rgb(color)) }
         }))
         .child(label(name).font_weight(FontWeight::MEDIUM).truncate())
-        .child(
-            view()
-                .text_color(Theme::muted())
-                .child(dynamic(move || icons::icon(if item.with(|r| r.open) { icons::CHEVRON_DOWN } else { icons::CHEVRON_RIGHT }, 12.))),
-        )
+        .child(chevron(item))
         .child(view().flex_1())
-        .child(icon_button(icons::CLOSE, "Close Group and Its Tabs", move || act(ui, |b| b.close_group(id))));
+        .child(dynamic(move || match item.with(|r| r.summary.clone()) {
+            Some(summary) => super::chrome::summary(ui, summary).into_element(),
+            None => icon_button(icons::CLOSE, "Close Group and Its Tabs", move || act(ui, |b| b.close_group(id)))
+                .opacity(move || if !cards() || hovered.get() { 1_f32 } else { 0. })
+                .focus(|s| s.opacity(1_f32))
+                .into_element(),
+        }));
     let header = super::keyboard_row(ui, item.with_untracked(Row::id), header);
     let tabs = view()
         .flex_col()
         .gap(px(2.))
         .p(px(INNER_PAD))
         .rounded(px(Theme::radius_row() + INNER_PAD))
-        .bg(Theme::raised())
+        .bg(move || if cards() { Theme::clear() } else { Theme::raised() })
         .border_1()
-        .border_color(Theme::hairline())
+        .border_color(move || if cards() { Theme::clear() } else { Theme::hairline() })
         .child(each(move || item.with(|r| r.panes.clone()), |r| r.id(), move |pane, _| list_row(ui, false, pane)));
     view()
         .flex_col()
@@ -93,14 +111,64 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
         .my(px(2.))
         .p(px(INNER_PAD))
         .rounded(px(Theme::radius_tile()))
-        .bg(Theme::group())
+        .bg(move || match item.with(|r| (r.summary.is_some(), r.color)) {
+            (true, color) => Rgba { a: 0.2, ..rgb(color) },
+            (false, _) => Theme::group(),
+        })
         .border_1()
         .border_color(move || if target.get() && ui.dragging.with(Option::is_some) { Theme::accent() } else { Theme::hairline() })
         .on_mouse_enter(move |_: &MouseEvent| target.set(true))
         .on_mouse_leave(move |_: &MouseEvent| target.set(false))
         .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Group(id)))
-        .child(view().on_mouse_up(move |_: &MouseEvent| drop_into(ui, id)).child(header))
+        .child(
+            view()
+                .on_mouse_enter(move |_: &MouseEvent| hovered.set(true))
+                .on_mouse_leave(move |_: &MouseEvent| hovered.set(false))
+                .on_mouse_up(move |_: &MouseEvent| drop_into(ui, id))
+                .child(header),
+        )
         .child(when(move || item.with(|r| !r.panes.is_empty()), move || tabs.clone()))
+        .into_element()
+}
+
+/// A top folder of pinned tabs as a card like a group's: open it holds its rows, closed it sums
+/// them up; an open empty one takes a dropped tab.
+pub(super) fn folder_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
+    let name = move || item.with(|r| r.label.clone());
+    let header = controls::row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_folder(id)))
+        .h(move || px(Theme::tab_row() - 2.))
+        .pl(px(6.))
+        .pr(px(6.))
+        .child(dynamic(move || {
+            let (icon, open) = item.with(|r| (r.icon.clone(), r.open));
+            card_glyph(&icon, open, Theme::muted())
+        }))
+        .child(label(name).font_weight(FontWeight::MEDIUM).truncate())
+        .child(chevron(item))
+        .child(view().flex_1())
+        .child(dynamic(move || item.with(|r| r.summary.clone()).map(|summary| super::chrome::summary(ui, summary))));
+    let header = super::keyboard_row(ui, item.with_untracked(Row::id), header);
+    let empty = view()
+        .flex_row()
+        .items_center()
+        .h(move || px(Theme::tab_row()))
+        .pl(px(10.))
+        .rounded(px(Theme::radius_row()))
+        .on_mouse_up(move |_: &MouseEvent| super::chrome::drop_into_folder(ui, id))
+        .child(small("Drag tabs here").text_color(Theme::faint()));
+    view()
+        .flex_col()
+        .gap(px(2.))
+        .my(px(1.))
+        .p(px(INNER_PAD))
+        .rounded(px(Theme::radius_tile()))
+        .bg(Theme::group())
+        .border_1()
+        .border_color(Theme::hairline())
+        .on_context_menu(move |_: &ContextMenuEvent| show(ui, Panel::Folder(id)))
+        .child(header)
+        .child(each(move || item.with(|r| r.panes.clone()), |r| r.id(), move |pane, _| list_row(ui, true, pane)))
+        .child(when(move || item.with(|r| r.open && r.panes.is_empty()), move || empty.clone()))
         .into_element()
 }
 

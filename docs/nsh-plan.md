@@ -316,7 +316,8 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   30 minutes (by default) off screen (five minutes while `MemAvailable` in `/proc/meminfo` is under a tenth of `MemTotal`, the
   counterpart of the macOS kernel pressure level); pinned tabs and tiles skip the idle timer, and a
   tab playing audio or using the camera or microphone stays awake (WebKitGTK `is-playing-audio` and
-  capture states). Sleeping rows are greyed (`Theme::asleep`, the site tile dimmed). Gap: WebKitGTK
+  capture states). Sleeping rows' titles are greyed (`Theme::asleep`); their site tiles dim, with a
+  moon, in the Classic layout or with Settings › Appearance › Sidebar › Dim sleeping tabs. Gap: WebKitGTK
   has no playback-state query like WebKit's `requestMediaPlaybackState`, so silent or muted video
   does not keep a tab awake. Once a minute the awake background tabs whose web processes together
   hold more than `engine::lifecycle::BACKGROUND_BUDGET` (split between windows) sleep, heaviest
@@ -381,6 +382,10 @@ icons and brand mark are `crates/ui`'s own files. Deviations:
   screen the user had chosen; and when the window manager ends full screen during a page's full
   screen, the shell stays hidden until the page leaves it or Esc. A screenshot whose tab closes
   before WebKit returns the image is saved but not listed, and shows no toast.
+- The sidebar with the toolbar in it follows macOS (`linux/src/ui/chrome.rs`); its menus are the
+  Linux panels, the footer's opening upwards from the bottom of the page area. It shows no card for
+  an update waiting for Restart: Tarn has no updater on Linux, where updates come from the
+  distribution's packages (§5, Updates).
 - Gap: no Picture in Picture. WebKitGTK has no Picture-in-Picture API; WebKit's video presentation
   modes exist only in its Cocoa ports, so Linux has no Picture in Picture command (macOS ⌘⌃P).
 - Not a gap but a design decision: Linux uses only the distribution's WebKitGTK, never a bundled

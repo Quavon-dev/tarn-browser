@@ -5,7 +5,7 @@ use browser_core::tabs::{TabChoice, TabKey};
 use nsh_core::prelude::*;
 use shield::ShieldLevel;
 use tarn_nsh_shared::assistant::{self, Platform};
-use tarn_nsh_shared::theme::Theme;
+use tarn_nsh_shared::theme::{Paint, Theme};
 use url::Url;
 
 use super::{Ui, act, read};
@@ -90,12 +90,18 @@ pub fn attach(ui: Ui, pages: Vec<(Origin, Pill, Option<String>)>) {
     }
 }
 
+/// A card beside the page, drawn like the sidebar so both follow the theme and its corners.
 pub fn panel(ui: Ui) -> View {
-    view().w(px(WIDTH)).flex_none().rounded(px(Theme::radius_card())).overflow_hidden().border_1().border_color(Theme::surface_edge()).child(assistant::panel(
-        Host(ui),
-        ui.chat,
-        move || ui.assistant.set(false),
-    ))
+    view()
+        .w(px(WIDTH))
+        .flex_none()
+        .rounded(px(Theme::radius_tile()))
+        .overflow_hidden()
+        .paint(Theme::sidebar())
+        .border_1()
+        .border_color(Theme::sidebar_edge())
+        .shadow(Theme::elevation(10., 30.))
+        .child(assistant::card(Host(ui), ui.chat, move || ui.assistant.set(false)))
 }
 
 /// Clean Up's Group with Assistant: sends the loose tabs' ids, sites and titles and files them as

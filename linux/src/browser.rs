@@ -13,6 +13,7 @@ mod media;
 pub mod pages;
 pub mod profile_data;
 pub mod profiles;
+mod sidebar;
 mod site;
 mod snippets;
 pub mod spaces;
@@ -199,6 +200,7 @@ pub struct Browser {
     /// lets everything through), and its bar.
     pub agent_sites: Option<Vec<String>>,
     pub agent_banner: Option<browser_core::agent::control::Banner>,
+    chat_rows: std::cell::RefCell<Option<sidebar::ChatCache>>,
     window: SavedWindow,
     seq: u64,
     toast_serial: u64,
@@ -312,6 +314,7 @@ impl Browser {
             burner_return: None,
             agent_sites: None,
             agent_banner: None,
+            chat_rows: Default::default(),
             window,
             seq: 0,
             toast_serial: 0,
@@ -920,7 +923,11 @@ impl Browser {
     }
 
     pub fn pref(&self, switch: Switch) -> bool {
-        switch.on(&self.core.disk)
+        match self.core.disk.setting(switch.key).ok().flatten().as_deref() {
+            Some("on") => true,
+            Some("off") => false,
+            _ => prefs::style_default(&self.core.disk, switch),
+        }
     }
 
     pub fn set_pref(&mut self, switch: Switch, on: bool) {
@@ -1052,7 +1059,9 @@ impl Browser {
             browser_core::extensions::STORE_EVENT => self.pages.entry(key).or_default().loading = false,
             "title" => {
                 if let Some(page) = self.pages.get_mut(&key) {
-                    page.title = text("title");
+                    let title = text("title");
+                    self.model.note_title(key, &page.title, &title, page.loading);
+                    page.title = title;
                     self.core.store(key.private).set_tab_title(key.id, &page.title).ok();
                 }
             }

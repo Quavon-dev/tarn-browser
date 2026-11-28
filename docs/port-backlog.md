@@ -57,10 +57,8 @@ Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `p
   buttons. Not yet run on Windows.
 - macOS shows no update card: Sparkle downloads, announces and installs updates in its own
   window, so `Updater::ready_version` is always `None` there.
-- [ ] Linux — `linux/src/ui.rs` `sidebar`: header with navigation and address, chats (and the
-  switch to hide them), Tidy, group and folder cards with their summary, unread dot (call
-  `note_title` from the title signal), footer, the assistant card; offer `Command::SidebarToolbar`
-  and `Command::SidebarChats` in `linux/src/ui/tools.rs`
+- [x] Linux — `linux/src/ui/chrome.rs`; no update card, as Tarn has no updater there
+  (`docs/nsh-plan.md`)
 - [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats (and the switch to hide
   them), Tidy, group and folder cards with their summary, unread dot, footer, the assistant card;
   the address stays in its bar on touch
