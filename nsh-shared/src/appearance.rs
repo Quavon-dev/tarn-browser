@@ -34,6 +34,14 @@ pub trait Host: Copy + 'static {
     fn backing(self) -> Backing {
         Backing::Opaque
     }
+    /// Rows the Design group shows above the window's own.
+    fn layout_rows(self) -> Vec<AnyElement> {
+        Vec::new()
+    }
+    /// Rows the Design group shows below Corners.
+    fn sidebar_rows(self) -> Vec<AnyElement> {
+        Vec::new()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -483,7 +491,7 @@ fn effect_row<H: Host>(pane: Pane<H>) -> View {
     choice_row("Search bar effect", "Around the search field on the start page.", picks(pane, stored, &choices, library::set_effect))
 }
 
-fn choice_row(title: &'static str, about: impl Into<SharedString>, choices: View) -> View {
+pub fn choice_row(title: &'static str, about: impl Into<SharedString>, choices: View) -> View {
     view().flex_col().gap_2().px_3().py_2().child(label(title)).child(small(about)).child(choices)
 }
 
@@ -510,11 +518,12 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
     } else {
         "Glass makes the window translucent over your desktop, with rounder, softer panels."
     };
-    let mut rows = group().child(choice_row("Design", about, picks(pane, on, &[("Classic", false), ("Glass", true)], library::set_glass_on)));
+    let mut rows =
+        group().children(host.layout_rows()).child(choice_row("Window", about, picks(pane, on, &[("Solid", false), ("Glass", true)], library::set_glass_on)));
     let corners = Corners::ALL.map(|c| (c.label(), c));
     if !on {
         let picked = host.with_store(library::classic_corners);
-        return rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, picked, &corners, library::set_classic_corners)));
+        return rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, picked, &corners, library::set_classic_corners))).children(host.sidebar_rows());
     }
     if backing != Backing::Opaque {
         let labels = library::TRANSPARENCY_STEPS.map(|v| format!("{v} %"));
@@ -526,7 +535,7 @@ fn design_group<H: Host>(pane: Pane<H>) -> View {
         let blur = glass.blur;
         rows = rows.child(switch_row("Blur behind the window", move || blur, move || pane.quietly(host.with_store(|s| library::set_blur(s, !blur)))));
     }
-    rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, glass.corners, &corners, library::set_corners)))
+    rows.child(choice_row("Corners", CORNERS_NOTE, picks(pane, glass.corners, &corners, library::set_corners))).children(host.sidebar_rows())
 }
 
 const CORNERS_NOTE: &str = "How round panels, cards and tiles are. Theme keeps the theme's own.";
