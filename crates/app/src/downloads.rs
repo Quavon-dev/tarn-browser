@@ -258,7 +258,7 @@ impl Browser {
     }
 }
 
-/// The header button; while a download of this profile is saving, a ring shows how much is saved,
+/// The sidebar footer's button; while a download of this profile is saving, a ring shows how much is saved,
 /// or a dot when no size is known.
 pub fn header_button(b: &Browser, cx: &mut Context<Browser>) -> impl IntoElement {
     let share = saved_share(b.transfers().iter().map(|(_, t)| t));

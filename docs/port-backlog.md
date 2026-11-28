@@ -24,7 +24,7 @@ Reference: <files of the clients that have it, e.g. crates/app/...>.
 ### Tab previews setting (2026-11-28)
 
 What it does: resting the pointer on a tab shows a snapshot of its page without holding Alt (not
-for private-space tabs), and Settings › Appearance › Layout › Tab previews picks Page, Title or Off.
+for private-space tabs), and Settings › Appearance › Design › Tab previews picks Page, Title or Off.
 Shared API: `browser_core::prefs::{HOVER_CARDS, PAGE_PREVIEWS}`.
 Reference: `crates/app/src/hover_card.rs` (`schedule_hover_card`, `request_shot`), `crates/app/src/settings.rs`.
 
@@ -127,7 +127,7 @@ Reference: `crates/app/src/browser/views.rs` (`activate`) and the `find_after_lo
 
 ### See-through window for the Glass design (2026-11-25)
 
-What it does: with Settings › Appearance › Design on Glass, the window lets the desktop show
+What it does: with Settings › Appearance › Design › Window on Glass, the window lets the desktop show
 through behind the sidebar and toolbar, as far as text stays readable.
 Shared API: `browser_core::theme_library::look` with the `Backing` the window can have.
 Reference: `crates/app/src/themes.rs` (`window_background`), `linux/src/browser/themes.rs`.

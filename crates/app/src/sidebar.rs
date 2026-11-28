@@ -482,7 +482,7 @@ fn content(b: &mut Browser, inset: f32, window: Option<&Window>, cx: &mut Contex
             .child(crate::toolbar::sidebar_toggle(b, cx))
             .child(div().flex_1().h_full().window_control_area(gpui::WindowControlArea::Drag))
             .child(crate::toolbar::history(b, &page, cx))
-    } else if docked {
+    } else if docked && cfg!(target_os = "macos") {
         // With the toolbar above the page this row only keeps the traffic lights clear.
         header.child(div().flex_1().h_full().window_control_area(gpui::WindowControlArea::Drag))
     } else {
@@ -554,9 +554,11 @@ fn pills(b: &Browser, window: &Window, cx: &mut Context<Browser>) -> Vec<Statefu
 fn footer(b: &Browser, titles: Div, cx: &mut Context<Browser>) -> Div {
     // A private space's profile lives in the private store, so it is not edited from here.
     let private = b.model.current_space().is_some_and(|s| s.private);
+    // Shown even without a loaded profile, as it is the way to Settings and the Library.
     let profile = b.current_loaded().map(|rt| ((!private).then_some(rt.profile.id), rt.profile.name.clone(), rt.profile.color.clone()));
     let at = std::rc::Rc::<std::cell::Cell<_>>::default();
-    let avatar_button = profile.map(|(id, name, color)| {
+    let avatar_button = {
+        let (id, name, color) = profile.unwrap_or_default();
         let color = Theme::profile_color(&color).unwrap_or(Theme::faint());
         let initial = SharedString::from(name.trim().chars().next().map(|c| c.to_uppercase().collect::<String>()).unwrap_or_default());
         let at = at.clone();
@@ -571,13 +573,13 @@ fn footer(b: &Browser, titles: Div, cx: &mut Context<Browser>) -> Div {
             .hover(|s| s.bg(Theme::hover()))
             .active(|s| s.bg(Theme::pressed()))
             .child(crate::address::measure(at.clone()))
-            .tooltip(tooltip(SharedString::from(bounded_title(&name)), None))
+            .tooltip(tooltip(SharedString::from(if name.is_empty() { "Profile".to_owned() } else { bounded_title(&name) }), None))
             .child(avatar(color, 22., initial))
             .on_click(cx.listener(move |b, _, w, cx| {
                 b.menu_at = Some(at.get());
                 b.profile_menu(id, w, cx);
             }))
-    });
+    };
     div()
         .h(px(44.))
         .flex_none()
@@ -587,7 +589,7 @@ fn footer(b: &Browser, titles: Div, cx: &mut Context<Browser>) -> Div {
         .gap_1()
         .child(div().w(px(30.)).flex_none().child(crate::downloads::header_button(b, cx)))
         .child(div().flex_1().min_w_0().h_full().flex().justify_center().child(titles))
-        .child(div().w(px(30.)).flex_none().children(avatar_button))
+        .child(div().w(px(30.)).flex_none().child(avatar_button))
 }
 
 /// Keyed by the space, so the two lists of a slide keep apart their scroll and row animations.

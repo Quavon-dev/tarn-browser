@@ -24,7 +24,7 @@ All notable changes to Tarn are documented in this file. The format is based on
   Windows when an update waits for Restart; downloads, the space switcher (which lists your
   spaces) and your profile's menu (Settings, Library, profiles) sit along the bottom edge, and
   their menus open upwards. With tabs on top or the sidebar hidden the toolbar comes back as
-  Compact. Settings › Appearance › Toolbar, View › Toolbar in Sidebar or the command bar switch
+  Compact. Settings › Appearance › Design › Design, View › Toolbar in Sidebar or the command bar switch
   back to Classic or Compact. On macOS, Windows and Linux (Linux has no View menu). The Mac layout
   on iPad and Android tablets gets the same sidebar (Chats, Tidy, cards, the dot, the speaker,
   sleeping tabs in colour, and downloads, the space switcher and the profile menu along the bottom
@@ -71,7 +71,7 @@ All notable changes to Tarn are documented in this file. The format is based on
 
 - Resting the pointer on a tab shows a snapshot of its page above its title when the tab is awake,
   without holding ⌥; the title takes one line and the card no longer cuts off the lines under it.
-  Settings › Appearance › Layout › Tab previews picks Page, Title or Off. Snapshots stay on the
+  Settings › Appearance › Design › Tab previews picks Page, Title or Off. Snapshots stay on the
   computer and are dropped when the pointer leaves. A tab in a private space shows its snapshot
   only while ⌥ (Alt on Linux) is held. Chromium tabs on macOS show the title card. On macOS,
   Windows and Linux.

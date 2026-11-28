@@ -1025,7 +1025,7 @@ mod tests {
         assert_eq!(order(Some(active_in_deep)), [tile, pinned, in_open, in_sub, active_in_deep, grouped, loose]);
         assert!(!order(None).contains(&in_shut));
         let loose_first = visible_order(&store.tabs(s).unwrap(), &store.folders(s).unwrap(), &store.groups(s).unwrap(), &expanded, None, true);
-        assert_eq!(loose_first[loose_first.len() - 2..], [loose, grouped], "with the toolbar in the sidebar loose tabs come first");
+        assert_eq!(loose_first[loose_first.len() - 2..], [loose, grouped], "with tabs in the sidebar loose tabs come first");
     }
 
     #[test]
