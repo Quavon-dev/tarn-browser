@@ -683,6 +683,7 @@ fn sidebar_style(ui: Ui) -> View {
         view()
             .gap_2()
             .child(section("Sidebar"))
+            .child(caption("These apply while the Style is Modern, which puts the toolbar, Chats and Tidy in the sidebar.").number_of_lines(0).px_1())
             .child(label("Pinned sites").px_1())
             .child(switch_choice(ui, SMALL_TILES, [("Large", false), ("Compact", true)]))
             .child(label("Groups and folders").px_1())
@@ -704,12 +705,7 @@ fn sidebar_style(ui: Ui) -> View {
                     )),
             ))
     };
-    view()
-        .gap_2()
-        .child(section("Style"))
-        .child(segmented(styles))
-        .child(caption(about).number_of_lines(0).px_1())
-        .child(when(move || ui.read_data(|s| s.sidebar_chrome()), options))
+    view().gap_2().child(section("Style")).child(segmented(styles)).child(caption(about).number_of_lines(0).px_1()).child(options())
 }
 
 fn pane_heading(pane: Pane) -> impl IntoElement {

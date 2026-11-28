@@ -24,6 +24,7 @@ fn the_mac_sidebar_pins_groups_and_files_tabs_from_its_rows_and_menus() {
     // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
     app.press("label:Classic >> nth=0").unwrap();
     app.wait_for("label:Organize Tabs").unwrap();
+    app.wait_for("Groups and folders").expect("Classic still lists the Modern sidebar's options to preset them");
     app.press("label:Close Settings").unwrap();
     app.wait_for_gone("label:Close Settings", WAIT).unwrap();
 
