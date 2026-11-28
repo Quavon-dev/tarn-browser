@@ -25,6 +25,64 @@ pub const HOVER_CARDS: Switch = Switch { key: "tab_hover_cards", default: true }
 pub const PAGE_PREVIEWS: Switch = Switch { key: "tab_page_previews", default: true };
 pub const COMPACT_NOTE: &str = "Shorter rows and gaps in the sidebar and the tab strip.";
 
+/// The address field in a slimmer bar, for the Classic and Compact toolbar choice.
+pub const COMPACT_TOOLBAR: Switch = Switch { key: "compact_toolbar", default: false };
+/// Back, Forward, Reload and the address field at the top of the sidebar.
+pub const SIDEBAR_TOOLBAR: Switch = Switch { key: "sidebar_toolbar", default: true };
+/// The profile's latest assistant chats under the pinned sites.
+pub const SIDEBAR_CHATS: Switch = Switch { key: "sidebar_chats", default: true };
+/// The compact row of pinned sites in place of large tiles.
+pub const SMALL_TILES: Switch = Switch { key: "sidebar_small_tiles", default: false };
+/// Groups and folders as cards; off keeps the classic coloured badges.
+pub const SIDEBAR_CARDS: Switch = Switch { key: "sidebar_cards", default: true };
+/// Sleeping tabs greyed out with a moon.
+pub const DIM_SLEEPING: Switch = Switch { key: "sidebar_dim_sleeping", default: false };
+/// A dot on a tab that retitled itself in the background.
+pub const UNREAD_DOTS: Switch = Switch { key: "sidebar_unread_dots", default: true };
+
+/// A layout that sets the toolbar and sidebar switches together: Modern is the toolbar in the
+/// sidebar with cards, Classic Tarn's earlier layout; Custom when the switches match neither.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Style {
+    Modern,
+    Classic,
+    Custom,
+}
+
+/// Each switch a style sets, with its value in Modern and in Classic.
+pub const STYLE: [(Switch, bool, bool); 9] = [
+    (SIDEBAR_TOOLBAR, true, false),
+    (COMPACT_TOOLBAR, false, false),
+    (SIDEBAR_CARDS, true, false),
+    (SIDEBAR_CHATS, true, false),
+    (UNREAD_DOTS, true, false),
+    (DIM_SLEEPING, false, true),
+    (SMALL_TILES, false, false),
+    (HOVER_CARDS, true, true),
+    (PAGE_PREVIEWS, true, false),
+];
+
+/// The style the switches as `on` reads them make up.
+pub fn style(on: impl Fn(Switch) -> bool) -> Style {
+    if STYLE.iter().all(|(s, modern, _)| on(*s) == *modern) {
+        Style::Modern
+    } else if STYLE.iter().all(|(s, _, classic)| on(*s) == *classic) {
+        Style::Classic
+    } else {
+        Style::Custom
+    }
+}
+
+/// What a style's switch reads with nothing stored: someone who already picked the Classic or
+/// Compact toolbar keeps the Classic layout, everyone else starts Modern.
+pub fn style_default(store: &Store, switch: Switch) -> bool {
+    let upgraded = store.setting(COMPACT_TOOLBAR.key).ok().flatten().is_some();
+    match STYLE.iter().find(|(s, ..)| *s == switch) {
+        Some((_, _, classic)) if upgraded => *classic,
+        _ => switch.default,
+    }
+}
+
 impl Switch {
     pub fn on(self, store: &Store) -> bool {
         match store.setting(self.key).ok().flatten().as_deref() {
@@ -84,6 +142,19 @@ pub fn accented(tokens: Tokens, store: &Store) -> Tokens {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_new_install_starts_modern_and_an_earlier_toolbar_choice_keeps_classic() {
+        let store = Store::open_in_memory().unwrap();
+        let read = |store: &Store| style(|s| store.setting(s.key).ok().flatten().map_or_else(|| style_default(store, s), |v| v == "on"));
+        assert_eq!(read(&store), Style::Modern);
+        store.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
+        assert_eq!(read(&store), Style::Classic);
+        store.set_setting(SIDEBAR_CHATS.key, "on").unwrap();
+        assert_eq!(read(&store), Style::Custom);
+        assert_eq!(style_default(&store, GESTURES), GESTURES.default, "switches outside the style keep their own default");
+        assert!(!style_default(&store, SIDEBAR_CARDS), "a style switch takes the Classic value after an earlier toolbar choice");
+    }
 
     #[test]
     fn switches_read_their_default_until_set() {

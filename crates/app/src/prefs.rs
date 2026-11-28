@@ -92,13 +92,13 @@ impl Pref {
 
     pub(crate) fn key(self) -> &'static str {
         match self {
-            Pref::CompactToolbar => "compact_toolbar",
-            Pref::SidebarToolbar => "sidebar_toolbar",
-            Pref::SidebarChats => "sidebar_chats",
-            Pref::SmallTiles => "sidebar_small_tiles",
-            Pref::SidebarCards => "sidebar_cards",
-            Pref::DimSleeping => "sidebar_dim_sleeping",
-            Pref::UnreadDots => "sidebar_unread_dots",
+            Pref::CompactToolbar => browser_core::prefs::COMPACT_TOOLBAR.key,
+            Pref::SidebarToolbar => browser_core::prefs::SIDEBAR_TOOLBAR.key,
+            Pref::SidebarChats => browser_core::prefs::SIDEBAR_CHATS.key,
+            Pref::SmallTiles => browser_core::prefs::SMALL_TILES.key,
+            Pref::SidebarCards => browser_core::prefs::SIDEBAR_CARDS.key,
+            Pref::DimSleeping => browser_core::prefs::DIM_SLEEPING.key,
+            Pref::UnreadDots => browser_core::prefs::UNREAD_DOTS.key,
             Pref::HoverCards => browser_core::prefs::HOVER_CARDS.key,
             Pref::PagePreviews => browser_core::prefs::PAGE_PREVIEWS.key,
             Pref::AutoHideSidebar => "auto_hide_sidebar",
@@ -238,44 +238,19 @@ pub fn apply_accent(store: &Store) {
     }
 }
 
-/// A layout that sets the toolbar and sidebar options together: Modern is the toolbar in the
-/// sidebar with cards, Classic Tarn's earlier layout; Custom when the options match neither.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Style {
-    Modern,
-    Classic,
-    Custom,
-}
-
-/// Each option a style sets, with its value in Modern and in Classic.
-const STYLE: [(Pref, bool, bool); 9] = [
-    (Pref::SidebarToolbar, true, false),
-    (Pref::CompactToolbar, false, false),
-    (Pref::SidebarCards, true, false),
-    (Pref::SidebarChats, true, false),
-    (Pref::UnreadDots, true, false),
-    (Pref::DimSleeping, false, true),
-    (Pref::SmallTiles, false, false),
-    (Pref::HoverCards, true, true),
-    (Pref::PagePreviews, true, false),
-];
+pub use browser_core::prefs::Style;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Prefs(u64);
 
 impl Prefs {
     pub fn load(store: &Store) -> Self {
-        // Someone who already picked Classic or Compact keeps the Classic layout's options.
-        let upgraded = store.setting(Pref::CompactToolbar.key()).ok().flatten().is_some();
         Pref::ALL.into_iter().fold(Prefs(0), |prefs, pref| {
-            let classic = STYLE.iter().find(|(p, ..)| *p == pref).map(|(.., classic)| *classic);
+            let style = browser_core::prefs::STYLE.iter().find(|(s, ..)| s.key == pref.key());
             let on = match store.setting(pref.key()).ok().flatten().as_deref() {
                 Some("on") => true,
                 Some("off") => false,
-                _ => match classic.filter(|_| upgraded) {
-                    Some(classic) => classic,
-                    None => pref.default(),
-                },
+                _ => style.map_or_else(|| pref.default(), |(s, ..)| browser_core::prefs::style_default(store, *s)),
             };
             prefs.with(pref, on)
         })
@@ -286,13 +261,7 @@ impl Prefs {
     }
 
     pub fn style(self) -> Style {
-        if STYLE.iter().all(|(p, modern, _)| self.get(*p) == *modern) {
-            Style::Modern
-        } else if STYLE.iter().all(|(p, _, classic)| self.get(*p) == *classic) {
-            Style::Classic
-        } else {
-            Style::Custom
-        }
+        browser_core::prefs::style(|s| Pref::ALL.iter().find(|p| p.key() == s.key).is_some_and(|p| self.get(*p)))
     }
 
     fn with(self, pref: Pref, on: bool) -> Self {
@@ -330,8 +299,10 @@ impl Browser {
 
     /// Sets every option of the Modern style, or of the Classic one.
     pub fn set_style(&mut self, modern: bool, cx: &mut Context<Self>) {
-        for (pref, in_modern, in_classic) in STYLE {
-            self.set_pref(pref, if modern { in_modern } else { in_classic }, cx);
+        for (switch, in_modern, in_classic) in browser_core::prefs::STYLE {
+            if let Some(pref) = Pref::ALL.into_iter().find(|p| p.key() == switch.key) {
+                self.set_pref(pref, if modern { in_modern } else { in_classic }, cx);
+            }
         }
     }
 
@@ -499,7 +470,8 @@ impl Browser {
 fn styles_set_their_options_and_anything_else_is_custom() {
     let store = Store::open_in_memory().unwrap();
     assert_eq!(Prefs::load(&store).style(), Style::Modern, "a new install starts Modern");
-    let classic = STYLE.iter().fold(Prefs::load(&store), |p, (pref, _, classic)| p.with(*pref, *classic));
+    let pref = |key: &str| Pref::ALL.into_iter().find(|p| p.key() == key).unwrap();
+    let classic = browser_core::prefs::STYLE.iter().fold(Prefs::load(&store), |p, (s, _, classic)| p.with(pref(s.key), *classic));
     assert_eq!(classic.style(), Style::Classic);
     assert_eq!(classic.with(Pref::SidebarChats, true).style(), Style::Custom);
     assert_eq!(classic.with(Pref::Gestures, false).style(), Style::Classic, "options outside the style do not count");
@@ -615,6 +587,13 @@ mod tests {
             (Pref::CompactDensity, prefs::COMPACT),
             (Pref::AutoPictureInPicture, prefs::AUTO_PICTURE_IN_PICTURE),
             (Pref::HoverCards, prefs::HOVER_CARDS),
+            (Pref::CompactToolbar, prefs::COMPACT_TOOLBAR),
+            (Pref::SidebarToolbar, prefs::SIDEBAR_TOOLBAR),
+            (Pref::SidebarChats, prefs::SIDEBAR_CHATS),
+            (Pref::SmallTiles, prefs::SMALL_TILES),
+            (Pref::SidebarCards, prefs::SIDEBAR_CARDS),
+            (Pref::DimSleeping, prefs::DIM_SLEEPING),
+            (Pref::UnreadDots, prefs::UNREAD_DOTS),
             (Pref::PagePreviews, prefs::PAGE_PREVIEWS),
         ] {
             assert_eq!((pref.key(), pref.default()), (switch.key, switch.default), "{pref:?}");
