@@ -40,59 +40,21 @@ pub const DIM_SLEEPING: Switch = Switch { key: "sidebar_dim_sleeping", default: 
 /// A dot on a tab that retitled itself in the background.
 pub const UNREAD_DOTS: Switch = Switch { key: "sidebar_unread_dots", default: true };
 
-/// A layout that sets the toolbar and sidebar switches together: Modern is the toolbar in the
-/// sidebar with cards, Classic Tarn's earlier layout; Custom when the switches match neither.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Style {
-    Modern,
-    Classic,
-    Custom,
-}
-
-/// Each switch a style sets, with its value in Modern and in Classic.
-pub const STYLE: [(Switch, bool, bool); 9] = [
-    (SIDEBAR_TOOLBAR, true, false),
-    (COMPACT_TOOLBAR, false, false),
-    (SIDEBAR_CARDS, true, false),
-    (SIDEBAR_CHATS, true, false),
-    (UNREAD_DOTS, true, false),
-    (DIM_SLEEPING, false, true),
-    (SMALL_TILES, false, false),
-    (HOVER_CARDS, true, true),
-    (PAGE_PREVIEWS, true, false),
-];
-
-/// The style the switches as `on` reads them make up.
-pub fn style(on: impl Fn(Switch) -> bool) -> Style {
-    if STYLE.iter().all(|(s, modern, _)| on(*s) == *modern) {
-        Style::Modern
-    } else if STYLE.iter().all(|(s, _, classic)| on(*s) == *classic) {
-        Style::Classic
-    } else {
-        Style::Custom
-    }
-}
-
 /// What a switch reads with nothing stored. The sidebar is the same with every toolbar, so only
 /// the toolbar choice carries over: someone who picked the Classic or Compact toolbar before the
 /// sidebar toolbar existed keeps it; every other switch starts at its default.
-pub fn style_default(store: &Store, switch: Switch) -> bool {
+pub fn stored_default(store: &Store, switch: Switch) -> bool {
     let stored = |s: Switch| store.setting(s.key).ok().flatten().is_some();
     if switch == SIDEBAR_TOOLBAR && stored(COMPACT_TOOLBAR) { false } else { switch.default }
 }
 
-/// Sets every switch of the Modern style, or of the Classic one; false when a write failed.
-pub fn set_style(store: &Store, modern: bool) -> bool {
-    STYLE.iter().fold(true, |ok, (s, in_modern, in_classic)| s.set(store, if modern { *in_modern } else { *in_classic }) && ok)
-}
-
 impl Switch {
-    /// A style's switch with nothing stored reads `style_default`.
+    /// With nothing stored, `stored_default`.
     pub fn on(self, store: &Store) -> bool {
         match store.setting(self.key).ok().flatten().as_deref() {
             Some("on") => true,
             Some("off") => false,
-            _ => style_default(store, self),
+            _ => stored_default(store, self),
         }
     }
 
@@ -154,7 +116,7 @@ mod tests {
         store.set_setting(COMPACT_TOOLBAR.key, "off").unwrap();
         assert!(!SIDEBAR_TOOLBAR.on(&store), "someone who picked a toolbar before keeps it");
         assert!(SIDEBAR_CARDS.on(&store) && SIDEBAR_CHATS.on(&store), "the sidebar is the same with every toolbar");
-        assert_eq!(style_default(&store, GESTURES), GESTURES.default);
+        assert_eq!(stored_default(&store, GESTURES), GESTURES.default);
     }
 
     #[test]

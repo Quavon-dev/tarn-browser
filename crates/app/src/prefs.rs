@@ -244,11 +244,11 @@ pub struct Prefs(u64);
 impl Prefs {
     pub fn load(store: &Store) -> Self {
         Pref::ALL.into_iter().fold(Prefs(0), |prefs, pref| {
-            let style = browser_core::prefs::STYLE.iter().find(|(s, ..)| s.key == pref.key());
             let on = match store.setting(pref.key()).ok().flatten().as_deref() {
                 Some("on") => true,
                 Some("off") => false,
-                _ => style.map_or_else(|| pref.default(), |(s, ..)| browser_core::prefs::style_default(store, *s)),
+                _ if pref == Pref::SidebarToolbar => browser_core::prefs::SIDEBAR_TOOLBAR.on(store),
+                _ => pref.default(),
             };
             prefs.with(pref, on)
         })
