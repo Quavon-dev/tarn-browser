@@ -31,7 +31,9 @@ Reference: `crates/app/src/hover_card.rs` (`schedule_hover_card`, `request_shot`
 - [x] Windows — same code in `crates/app`
 - [ ] Linux — `linux/src/ui/peek.rs` still needs Alt for the snapshot; read the two switches and
   add the choice to its Appearance settings
-- iOS and Android have no hover.
+- [ ] iOS, Android — the Mac layout shows no tab hover card yet, though a trackpad or mouse hovers
+  rows there (`on_mouse_enter` in `mobile/app/src/ui/mac/sidebar.rs`); a finger has no hover, so the
+  Touch layout and phones need none
 
 ### Toolbar in the sidebar (2026-11-28)
 
@@ -62,10 +64,10 @@ Reference: `crates/app/src/sidebar.rs` (`content`, `footer`, `chats`, `tidy`, `p
   switch to hide them), Tidy, group and folder cards with their summary, unread dot (call
   `note_title` from the title signal), footer, the assistant card; offer `Command::SidebarToolbar`
   and `Command::SidebarChats` in `linux/src/ui/tools.rs`
-- [ ] iOS — iPad sidebar `mobile/app/src/ui/mac/sidebar.rs`: chats (and the switch to hide
-  them), Tidy, group and folder cards with their summary, unread dot, footer, the assistant card;
-  the address stays in its bar on touch
-- [ ] Android — the same sidebar in the Mac layout
+- [x] iOS — iPad Mac layout, `mobile/app/src/ui/mac/sidebar.rs`, Settings in
+  `mobile/app/src/ui/panels.rs` (`sidebar_style`); the address stays in the toolbar, and there are
+  no agent or update cards (`docs/mobile-plan.md`, "Tablet layout: Touch or Mac")
+- [x] Android — the same code in the Mac layout
 
 ### Delete a profile's last space (2026-11-26)
 

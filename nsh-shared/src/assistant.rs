@@ -22,8 +22,8 @@ use store::{Id, Store};
 use url::Url;
 
 use crate::controls::{
-    accent_pill, add_button, confirm, described, editor, editor_actions, empty, field, group, hint, icon_pill, label, list_row, open_row, pill, pressable,
-    row_action, section_with, segmented, signal_field, switch_row,
+    accent_pill, add_button, confirm, described, editor, editor_actions, empty, field, group, hint, label, list_row, open_row, pill, pressable, row_action,
+    section_with, segmented, signal_field, switch_row,
 };
 use crate::icons;
 use crate::theme::{TEXT, TEXT_SMALL, TEXT_TITLE, Theme};
@@ -379,7 +379,7 @@ impl Chat {
     }
 
     /// The saved chat this conversation continues.
-    fn saved(self) -> Option<Id> {
+    pub fn saved(self) -> Option<Id> {
         self.session.with(|s| s.as_ref().and_then(|(_, s)| s.chat()))
     }
 
@@ -925,6 +925,11 @@ pub fn panel<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) ->
     view().flex_col().p_3().h_full().min_h(px(0.)).bg(Theme::panel()).child(chat_body(host, chat, Some(close))).into_element()
 }
 
+/// The chat panel without a fill, for a card whose host paints it like the sidebar.
+pub fn card<H: Host>(host: H, chat: Chat, close: impl Fn() + Copy + 'static) -> AnyElement {
+    view().flex_col().p_3().h_full().min_h(px(0.)).child(chat_body(host, chat, Some(close))).into_element()
+}
+
 fn all_commands<H: Host>(host: H) -> Vec<(String, String)> {
     let custom = host.origin().map(|o| host.with_store(|s| s.ai_commands(o.profile).unwrap_or_default())).unwrap_or_default();
     commands::all(&custom)
@@ -1090,7 +1095,6 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                     .flex_row()
                     .items_center()
                     .gap_1()
-                    .self_start()
                     .max_w(relative(1.))
                     .px_2()
                     .py(px(2.))
@@ -1105,7 +1109,7 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
             .flex_row()
             .items_center()
             .gap_1()
-            .child(view().flex_1().min_w(px(0.)).child(label(title).font_weight(FontWeight::SEMIBOLD).number_of_lines(1_u32).px_1()).child(model_chip))
+            .child(view().flex_1().min_w(px(0.)).child(label(title).font_weight(FontWeight::SEMIBOLD).number_of_lines(1_u32).px_1()))
             .child(row_action(icons::HISTORY, "Chats", move || chats_open.update(|o| *o = !*o)).selected(move || chats_open.get()))
             .child(row_action(icons::PLUS, "New Chat", move || {
                 chats_open.set(false);
@@ -1190,17 +1194,20 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                 open_row(row, format!("/{name}"), template, format!("Use {name}"), move || chat.question.set(format!("/{name} "))).into_element()
             })))
         });
+        let round = |glyph: &str, name: &str, press: Box<dyn Fn()>| {
+            row_action(glyph, name, press).rounded_full().bg(Theme::accent()).text_color(Theme::on_fill(Theme::accent())).into_element()
+        };
         let send = if can_cancel {
-            icon_pill(icons::PAUSE, "Stop", move || chat.apply(host, Event::Cancel)).into_element()
+            round(icons::SQUARE, "Stop", Box::new(move || chat.apply(host, Event::Cancel)))
         } else if can_send {
-            accent_pill("Send", move || chat.submit(host)).into_element()
+            round(icons::ARROW_UP, "Send", Box::new(move || chat.submit(host)))
         } else {
             view().into_element()
         };
         let composer = view()
             .gap_1()
             .p_1()
-            .rounded(px(Theme::radius_group()))
+            .rounded(px(Theme::radius_tile()))
             .bg(Theme::raised())
             .border_1()
             .border_color(Theme::hairline())
@@ -1221,7 +1228,7 @@ fn chat_body<H: Host, C: Fn() + Copy + 'static>(host: H, chat: Chat, close: Opti
                     .child(row_action(icons::FILE_TEXT, "Attach Page", move || host.read_page()))
                     .child(row_action(icons::APP_WINDOW, "Attach Tab", move || tabs_open.update(|o| *o = !*o)).selected(move || tabs_open.get()))
                     .child(row_action(icons::PENCIL, "Attach Note", move || notes_open.update(|o| *o = !*o)).selected(move || notes_open.get()))
-                    .child(view().flex_1())
+                    .child(view().flex_1().min_w(px(0.)).flex_row().justify_end().child(model_chip))
                     .child(send),
             );
         Some(

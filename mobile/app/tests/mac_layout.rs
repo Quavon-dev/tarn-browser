@@ -30,6 +30,9 @@ fn a_tablet_switches_to_the_mac_layout_and_back() {
     app.wait_for("label:Mac").unwrap();
     app.press("label:Mac").unwrap();
     app.wait_for("label:Close Settings").unwrap();
+    // These checks read the Classic sidebar; tests/mac_modern.rs covers the Modern one.
+    app.press("label:Classic >> nth=0").unwrap();
+    app.wait_for("label:Organize Tabs").unwrap();
     assert_eq!(density(), Density::Desktop);
     assert!(!app.screen().matches("label:Tabs 1").unwrap(), "the touch toolbar gives way to the Mac one");
     app.press("label:Close Settings").unwrap();
