@@ -77,6 +77,7 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
     let target = signal(false);
     let hovered = signal(false);
     let cards = move || ui.snap.with(|s| s.cards);
+    let shown = move || !cards() || hovered.get();
     let header = controls::row(move || Some(SharedString::from(name())), move || act(ui, |b| b.toggle_group(id)))
         .h(move || px(Theme::tab_row() - 2.))
         .pl(px(6.))
@@ -91,7 +92,8 @@ pub(super) fn group_card(ui: Ui, id: Id, item: ReadSignal<Row>) -> AnyElement {
         .child(dynamic(move || match item.with(|r| r.summary.clone()) {
             Some(summary) => super::chrome::summary(ui, summary).into_element(),
             None => icon_button(icons::CLOSE, "Close Group and Its Tabs", move || act(ui, |b| b.close_group(id)))
-                .opacity(move || if !cards() || hovered.get() { 1_f32 } else { 0. })
+                .opacity(move || if shown() { 1_f32 } else { 0. })
+                .pointer_events(move || if shown() { PointerEvents::Auto } else { PointerEvents::None })
                 .focus(|s| s.opacity(1_f32))
                 .into_element(),
         }));
